@@ -52,22 +52,6 @@ export function endpointResolver(base: string): StreamResolver {
   };
 }
 
-/** Royalty-free sample streams so the player and downloads work out of the box. */
-export const DEMO_STREAMS: { url: string; type: StreamType; name: string }[] = [
-  { name: "Big Buck Bunny", type: "hls", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
-  {
-    name: "Tears of Steel",
-    type: "hls",
-    url: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
-  },
-  { name: "Tears of Steel (fMP4)", type: "hls", url: "https://test-streams.mux.dev/tos_ismc/main.m3u8" },
-  {
-    name: "Apple BipBop",
-    type: "hls",
-    url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8",
-  },
-];
-
 export function hashString(input: string): number {
   let h = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -77,17 +61,13 @@ export function hashString(input: string): number {
   return h >>> 0;
 }
 
-export const demoResolver: StreamResolver = {
-  name: "demo",
-  async resolve(req) {
-    const pick = DEMO_STREAMS[hashString(`${req.source}:${req.id}:${req.episode}`) % DEMO_STREAMS.length]!;
-    return { url: pick.url, type: pick.type, provider: `Sample stream · ${pick.name}`, isDemo: true };
-  },
-};
+const RESOLVER_BASE = (import.meta.env as Record<string, string | undefined>)["VITE_STREAM_RESOLVER_URL"];
+
+/** True only when a real (licensed) stream source is configured. */
+export const hasStreamSource = Boolean(RESOLVER_BASE);
 
 function configuredResolvers(): StreamResolver[] {
-  const base = (import.meta.env as Record<string, string | undefined>)["VITE_STREAM_RESOLVER_URL"];
-  return base ? [endpointResolver(base), demoResolver] : [demoResolver];
+  return RESOLVER_BASE ? [endpointResolver(RESOLVER_BASE)] : [];
 }
 
 /** Tries each resolver in order; the first `{url, type}` wins. */
