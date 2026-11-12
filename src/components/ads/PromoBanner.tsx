@@ -28,7 +28,7 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
                 src={banner.image}
                 alt={`${banner.partner} promotional banner`}
                 loading="lazy"
-                className="h-36 w-full shrink-0 rounded-xl object-cover object-center ring-1 ring-inset ring-foreground/10 sm:h-48 sm:w-48"
+                className="mx-auto aspect-square w-full max-w-xs shrink-0 rounded-xl object-cover object-center ring-1 ring-inset ring-foreground/10 sm:mx-0 sm:h-48 sm:w-48 sm:max-w-none"
               />
             )}
             <div className="min-w-0 flex-1">
@@ -67,7 +67,7 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
             </div>
           </div>
           {banner.disclaimer && (
-            <p className="relative border-t border-foreground/5 px-5 py-2 text-[10px] text-muted-foreground/70 sm:px-6">{banner.disclaimer}</p>
+            <p className="relative border-t border-foreground/5 px-5 py-2 text-[10px] text-muted-foreground sm:px-6">{banner.disclaimer}</p>
           )}
         </div>
       </div>
