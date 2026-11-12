@@ -1,6 +1,7 @@
 import { Check, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloads, useDownloads } from "@/lib/download/store";
+import { hasStreamSource } from "@/lib/stream/resolver";
 import type { MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function DownloadButton({
   const busy = job?.status === "resolving" || job?.status === "downloading";
   const done = job?.status === "done";
   const label = busy ? `${Math.round((job?.progress ?? 0) * 100)}%` : done ? "Saved" : "Download";
+  if (!hasStreamSource) return null;
 
   return (
     <Button
