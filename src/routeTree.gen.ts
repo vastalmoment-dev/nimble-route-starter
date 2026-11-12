@@ -10,33 +10,91 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnimeRouteImport } from './routes/anime'
+import { Route as BollywoodRouteImport } from './routes/bollywood'
+import { Route as CartoonsRouteImport } from './routes/cartoons'
+import { Route as HollywoodRouteImport } from './routes/hollywood'
+import { Route as KDramasRouteImport } from './routes/k-dramas'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnimeRoute = AnimeRouteImport.update({
+  id: '/anime',
+  path: '/anime',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BollywoodRoute = BollywoodRouteImport.update({
+  id: '/bollywood',
+  path: '/bollywood',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CartoonsRoute = CartoonsRouteImport.update({
+  id: '/cartoons',
+  path: '/cartoons',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HollywoodRoute = HollywoodRouteImport.update({
+  id: '/hollywood',
+  path: '/hollywood',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KDramasRoute = KDramasRouteImport.update({
+  id: '/k-dramas',
+  path: '/k-dramas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/anime': typeof AnimeRoute
+  '/bollywood': typeof BollywoodRoute
+  '/cartoons': typeof CartoonsRoute
+  '/hollywood': typeof HollywoodRoute
+  '/k-dramas': typeof KDramasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/anime': typeof AnimeRoute
+  '/bollywood': typeof BollywoodRoute
+  '/cartoons': typeof CartoonsRoute
+  '/hollywood': typeof HollywoodRoute
+  '/k-dramas': typeof KDramasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/anime': typeof AnimeRoute
+  '/bollywood': typeof BollywoodRoute
+  '/cartoons': typeof CartoonsRoute
+  '/hollywood': typeof HollywoodRoute
+  '/k-dramas': typeof KDramasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    '/' | '/anime' | '/bollywood' | '/cartoons' | '/hollywood' | '/k-dramas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/anime' | '/bollywood' | '/cartoons' | '/hollywood' | '/k-dramas'
+  id:
+    | '__root__'
+    | '/'
+    | '/anime'
+    | '/bollywood'
+    | '/cartoons'
+    | '/hollywood'
+    | '/k-dramas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnimeRoute: typeof AnimeRoute
+  BollywoodRoute: typeof BollywoodRoute
+  CartoonsRoute: typeof CartoonsRoute
+  HollywoodRoute: typeof HollywoodRoute
+  KDramasRoute: typeof KDramasRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +106,51 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/anime': {
+      id: '/anime'
+      path: '/anime'
+      fullPath: '/anime'
+      preLoaderRoute: typeof AnimeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bollywood': {
+      id: '/bollywood'
+      path: '/bollywood'
+      fullPath: '/bollywood'
+      preLoaderRoute: typeof BollywoodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cartoons': {
+      id: '/cartoons'
+      path: '/cartoons'
+      fullPath: '/cartoons'
+      preLoaderRoute: typeof CartoonsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hollywood': {
+      id: '/hollywood'
+      path: '/hollywood'
+      fullPath: '/hollywood'
+      preLoaderRoute: typeof HollywoodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/k-dramas': {
+      id: '/k-dramas'
+      path: '/k-dramas'
+      fullPath: '/k-dramas'
+      preLoaderRoute: typeof KDramasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnimeRoute: AnimeRoute,
+  BollywoodRoute: BollywoodRoute,
+  CartoonsRoute: CartoonsRoute,
+  HollywoodRoute: HollywoodRoute,
+  KDramasRoute: KDramasRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
