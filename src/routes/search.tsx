@@ -22,6 +22,7 @@ export const Route = createFileRoute("/search")({
       { property: "og:title", content: "Search — SHADOW" },
       { property: "og:description", content: "Find your next watch across every SHADOW genre." },
       { property: "og:type", content: "website" },
+      { name: "robots", content: "noindex, follow" },
       { name: "twitter:card", content: "summary" },
     ],
   }),
