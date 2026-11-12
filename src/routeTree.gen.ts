@@ -15,6 +15,8 @@ import { Route as BollywoodRouteImport } from './routes/bollywood'
 import { Route as CartoonsRouteImport } from './routes/cartoons'
 import { Route as HollywoodRouteImport } from './routes/hollywood'
 import { Route as KDramasRouteImport } from './routes/k-dramas'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as WatchSourceIdRouteImport } from './routes/watch.$source.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +48,16 @@ const KDramasRoute = KDramasRouteImport.update({
   path: '/k-dramas',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WatchSourceIdRoute = WatchSourceIdRouteImport.update({
+  id: '/watch/$source/$id',
+  path: '/watch/$source/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -54,6 +66,8 @@ export interface FileRoutesByFullPath {
   '/cartoons': typeof CartoonsRoute
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
+  '/search': typeof SearchRoute
+  '/watch/$source/$id': typeof WatchSourceIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +76,8 @@ export interface FileRoutesByTo {
   '/cartoons': typeof CartoonsRoute
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
+  '/search': typeof SearchRoute
+  '/watch/$source/$id': typeof WatchSourceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,13 +87,30 @@ export interface FileRoutesById {
   '/cartoons': typeof CartoonsRoute
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
+  '/search': typeof SearchRoute
+  '/watch/$source/$id': typeof WatchSourceIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/anime' | '/bollywood' | '/cartoons' | '/hollywood' | '/k-dramas'
+    | '/'
+    | '/anime'
+    | '/bollywood'
+    | '/cartoons'
+    | '/hollywood'
+    | '/k-dramas'
+    | '/search'
+    | '/watch/$source/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/anime' | '/bollywood' | '/cartoons' | '/hollywood' | '/k-dramas'
+  to:
+    | '/'
+    | '/anime'
+    | '/bollywood'
+    | '/cartoons'
+    | '/hollywood'
+    | '/k-dramas'
+    | '/search'
+    | '/watch/$source/$id'
   id:
     | '__root__'
     | '/'
@@ -86,6 +119,8 @@ export interface FileRouteTypes {
     | '/cartoons'
     | '/hollywood'
     | '/k-dramas'
+    | '/search'
+    | '/watch/$source/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -95,6 +130,8 @@ export interface RootRouteChildren {
   CartoonsRoute: typeof CartoonsRoute
   HollywoodRoute: typeof HollywoodRoute
   KDramasRoute: typeof KDramasRoute
+  SearchRoute: typeof SearchRoute
+  WatchSourceIdRoute: typeof WatchSourceIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -141,6 +178,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KDramasRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/watch/$source/$id': {
+      id: '/watch/$source/$id'
+      path: '/watch/$source/$id'
+      fullPath: '/watch/$source/$id'
+      preLoaderRoute: typeof WatchSourceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -151,6 +202,8 @@ const rootRouteChildren: RootRouteChildren = {
   CartoonsRoute: CartoonsRoute,
   HollywoodRoute: HollywoodRoute,
   KDramasRoute: KDramasRoute,
+  SearchRoute: SearchRoute,
+  WatchSourceIdRoute: WatchSourceIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

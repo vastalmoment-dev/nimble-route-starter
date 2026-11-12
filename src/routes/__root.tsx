@@ -4,12 +4,12 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
-import { useRouterState } from "@tanstack/react-router";
 
 import { IntroAnimation } from "../components/branding/IntroAnimation";
 import { AppShell } from "../components/layout/AppShell";
