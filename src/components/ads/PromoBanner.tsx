@@ -21,11 +21,16 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
     <aside aria-label={`Sponsored: ${banner.partner}`} className={cn("px-4 sm:px-8 lg:px-12", className)}>
       <div className="rounded-2xl bg-brand-gradient p-px shadow-glow">
         <div className="relative overflow-hidden rounded-[calc(1rem-1px)] bg-card">
-          {banner.image && (
-            <img src={banner.image} alt="" loading="lazy" className="absolute inset-0 size-full object-cover opacity-40" />
-          )}
           <div className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-brand-gradient opacity-20 blur-3xl" />
           <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-6 sm:p-6">
+            {banner.image && (
+              <img
+                src={banner.image}
+                alt={`${banner.partner} promotional banner`}
+                loading="lazy"
+                className="h-36 w-full shrink-0 rounded-xl object-cover object-center ring-1 ring-inset ring-foreground/10 sm:h-48 sm:w-48"
+              />
+            )}
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
                 Sponsored · {banner.partner}
@@ -38,27 +43,27 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
                   {banner.body && <p className="mt-1 text-sm text-muted-foreground">{banner.body}</p>}
                 </>
               )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {banner.code && (
-                <button
-                  type="button"
-                  onClick={() => void copy()}
-                  aria-label={`Copy promo code ${banner.code}`}
-                  className="flex items-center gap-2 rounded-lg border border-dashed border-cerulean/60 bg-background/60 px-3 py-2 font-mono text-sm font-semibold tracking-widest transition hover:border-cerulean"
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {banner.code && (
+                  <button
+                    type="button"
+                    onClick={() => void copy()}
+                    aria-label={`Copy promo code ${banner.code}`}
+                    className="flex items-center gap-2 rounded-lg border border-dashed border-cerulean/60 bg-background/60 px-3 py-2 font-mono text-sm font-semibold tracking-widest transition hover:border-cerulean"
+                  >
+                    {banner.code}
+                    {copied ? <Check className="size-4 text-cerulean" /> : <Copy className="size-4 text-muted-foreground" />}
+                  </button>
+                )}
+                <a
+                  href={banner.href}
+                  target="_blank"
+                  rel="sponsored noopener noreferrer"
+                  className="flex items-center gap-2 rounded-lg bg-brand-gradient px-4 py-2 text-sm font-semibold transition hover:opacity-90"
                 >
-                  {banner.code}
-                  {copied ? <Check className="size-4 text-cerulean" /> : <Copy className="size-4 text-muted-foreground" />}
-                </button>
-              )}
-              <a
-                href={banner.href}
-                target="_blank"
-                rel="sponsored noopener noreferrer"
-                className="flex items-center gap-2 rounded-lg bg-brand-gradient px-4 py-2 text-sm font-semibold transition hover:opacity-90"
-              >
-                {banner.ctaLabel} <ExternalLink className="size-4" />
-              </a>
+                  {banner.ctaLabel} <ExternalLink className="size-4" />
+                </a>
+              </div>
             </div>
           </div>
           {banner.disclaimer && (
