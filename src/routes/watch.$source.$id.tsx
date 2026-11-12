@@ -1,16 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { ClientOnly, createFileRoute, notFound, useNavigate, useRouter } from "@tanstack/react-router";
-import { Loader2, X } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { createFileRoute, notFound, useNavigate, useRouter } from "@tanstack/react-router";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
-import { AdSlot } from "@/components/ads/AdSlot";
-import { DownloadButton } from "@/components/media/DownloadButton";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
+import { getTrailer } from "@/lib/catalog/trailer.functions";
 import type { Source } from "@/lib/catalog/types";
-import { resolveStream } from "@/lib/stream/resolver";
 
-const VideoPlayer = lazy(() => import("@/components/player/VideoPlayer"));
 const SOURCES: Source[] = ["anilist", "tvmaze", "tmdb"];
 
 export const Route = createFileRoute("/watch/$source/$id")({
@@ -20,10 +16,10 @@ export const Route = createFileRoute("/watch/$source/$id")({
   },
   head: () => ({
     meta: [
-      { title: "Now playing — SHADOW" },
-      { name: "description", content: "Watch on SHADOW with adaptive streaming, quality controls and offline downloads." },
-      { property: "og:title", content: "Now playing — SHADOW" },
-      { property: "og:description", content: "Adaptive streaming with full playback controls on SHADOW." },
+      { title: "Official trailer — SHADOW" },
+      { name: "description", content: "Watch the official trailer on SHADOW." },
+      { property: "og:title", content: "Official trailer — SHADOW" },
+      { property: "og:description", content: "Official trailers for anime, K-dramas, movies and more on SHADOW." },
       { property: "og:type", content: "video.other" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "robots", content: "noindex" },
@@ -32,85 +28,61 @@ export const Route = createFileRoute("/watch/$source/$id")({
   component: WatchPage,
 });
 
-function Spinner() {
-  return (
-    <div className="flex size-full items-center justify-center">
-      <Loader2 className="size-12 animate-spin text-cerulean" />
-    </div>
-  );
-}
-
 function WatchPage() {
   const { source, id } = Route.useParams();
-  const { ep } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
   const src = source as Source;
-  const [adClosed, setAdClosed] = useState(false);
 
   const detail = useQuery(detailQuery(src, id));
   const title = detail.data?.title ?? "";
-  const stream = useQuery({
-    queryKey: ["stream", src, id, ep],
-    queryFn: () => resolveStream({ source: src, id, episode: ep, title }),
+  const trailer = useQuery({
+    queryKey: ["trailer", src, id],
+    queryFn: () => getTrailer({ data: { source: src, id, title } }),
+    enabled: !detail.isLoading,
     staleTime: Infinity,
   });
-
-  const episodes = detail.data?.episodes ?? [];
-  const current = episodes.find((e) => e.number === ep);
-  const hasNext = episodes.some((e) => e.number === ep + 1);
-  const subtitle = [current?.title ?? (episodes.length > 1 ? `Episode ${ep}` : null), stream.data?.isDemo ? stream.data.provider : null]
-    .filter(Boolean)
-    .join("  ·  ");
 
   const goBack = () => {
     if (window.history.length > 1) router.history.back();
     else void navigate({ to: "/" });
   };
 
+  const ytId = trailer.data?.youtubeId;
+
   return (
-    <div className="fixed inset-0 z-50 bg-scrim">
-      {stream.isError ? (
-        <div className="flex size-full flex-col items-center justify-center gap-4 text-center">
-          <p className="font-display text-xl font-semibold">No stream is available for this title yet.</p>
-          <Button variant="glass" size="xl" onClick={goBack}>
-            Go back
-          </Button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
+      <div className="flex items-center gap-3 p-4">
+        <Button variant="glass" size="round" aria-label="Back" onClick={goBack}>
+          <ArrowLeft className="size-5" />
+        </Button>
+        <div className="min-w-0">
+          <p className="truncate font-display text-lg font-semibold">{title || "Loading…"}</p>
+          <p className="text-xs text-muted-foreground">Official trailer</p>
         </div>
-      ) : stream.data ? (
-        <ClientOnly fallback={<Spinner />}>
-          <Suspense fallback={<Spinner />}>
-            <VideoPlayer
-              stream={stream.data}
-              title={title || "Loading…"}
-              subtitle={subtitle || null}
-              poster={detail.data?.backdrop ?? null}
-              onBack={goBack}
-              onNext={hasNext ? () => void navigate({ to: "/watch/$source/$id", params: { source, id }, search: { ep: ep + 1 } }) : null}
-              pausedOverlay={
-                <div className="absolute bottom-28 right-4 flex flex-col items-end gap-3 sm:right-6">
-                  {title && <DownloadButton item={{ source: src, id, title }} episode={ep} />}
-                  {!adClosed && (
-                    <div className="relative hidden rounded-xl border border-foreground/10 bg-popover/80 p-2 backdrop-blur-xl sm:block">
-                      <button
-                        type="button"
-                        aria-label="Close ad"
-                        onClick={() => setAdClosed(true)}
-                        className="absolute -right-2 -top-2 z-10 rounded-full border bg-popover p-1 text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-3" />
-                      </button>
-                      <AdSlot slot="player-companion" />
-                    </div>
-                  )}
-                </div>
-              }
+      </div>
+      <div className="flex flex-1 items-center justify-center px-4 pb-6">
+        {trailer.isPending || detail.isLoading ? (
+          <Loader2 className="size-12 animate-spin text-cerulean" />
+        ) : ytId ? (
+          <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
+            <iframe
+              className="size-full"
+              src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}
+              title={`${title} trailer`}
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
             />
-          </Suspense>
-        </ClientOnly>
-      ) : (
-        <Spinner />
-      )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <p className="font-display text-xl font-semibold">No trailer is available for this title yet.</p>
+            <Button variant="glass" size="xl" onClick={goBack}>
+              Go back
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
