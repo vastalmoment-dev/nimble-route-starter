@@ -24,12 +24,20 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
           <div className="pointer-events-none absolute -right-16 -top-16 size-56 rounded-full bg-brand-gradient opacity-20 blur-3xl" />
           <div className="relative flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-6 sm:p-6">
             {banner.image && (
+              <a
+                href={banner.href}
+                target="_blank"
+                rel="sponsored noopener noreferrer"
+                aria-label={`${banner.partner} — ${banner.headline}`}
+                className="block shrink-0"
+              >
               <img
                 src={banner.image}
                 alt={`${banner.partner} promotional banner`}
                 loading="lazy"
                 className="mx-auto aspect-square w-full max-w-xs shrink-0 rounded-xl object-cover object-center ring-1 ring-inset ring-foreground/10 sm:mx-0 sm:h-48 sm:w-48 sm:max-w-none"
               />
+              </a>
             )}
             <div className="min-w-0 flex-1">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
