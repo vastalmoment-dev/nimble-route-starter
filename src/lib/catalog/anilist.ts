@@ -42,7 +42,7 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
   });
   if (!res.ok) throw new Error(`AniList request failed (${res.status})`);
   const json = (await res.json()) as { data: T; errors?: { message: string }[] };
-  if (json.errors?.length) throw new Error(json.errors[0].message);
+  if (json.errors?.length) throw new Error(json.errors[0]?.message ?? "AniList error");
   return json.data;
 }
 

@@ -86,7 +86,7 @@ export const demoResolver: StreamResolver = {
 };
 
 function configuredResolvers(): StreamResolver[] {
-  const base = import.meta.env.VITE_STREAM_RESOLVER_URL as string | undefined;
+  const base = (import.meta.env as Record<string, string | undefined>)["VITE_STREAM_RESOLVER_URL"];
   return base ? [endpointResolver(base), demoResolver] : [demoResolver];
 }
 
