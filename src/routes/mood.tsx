@@ -49,7 +49,7 @@ function MoodPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 md:px-8">
       <h1 className="font-display text-3xl font-bold md:text-4xl">
-        <span className="text-gradient">Mood Match</span>
+        <span className="text-brand-gradient">Mood Match</span>
       </h1>
       <p className="mt-2 text-muted-foreground">Describe how you feel and what you're into — we'll find anime that fits.</p>
 
