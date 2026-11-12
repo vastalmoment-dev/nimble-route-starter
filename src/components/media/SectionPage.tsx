@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
+import { PromoBanner } from "@/components/ads/PromoBanner";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
@@ -69,6 +70,7 @@ export function SectionPage({ section }: { section: SectionId | "home" }) {
           shelves.map((shelf, i) => (
             <Fragment key={shelf.id}>
               <Shelf title={shelf.title} items={shelf.items} />
+              {i === 0 && section === "home" && <PromoBanner />}
               {i === 1 && (
                 <div className="hidden justify-center px-4 md:flex">
                   <AdSlot slot="leaderboard" />
