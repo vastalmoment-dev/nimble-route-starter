@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Clock, Play, Star, Users } from "lucide-react";
+import { Clock, ExternalLink, Play, Star, Users } from "lucide-react";
 import { useState } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,25 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
               </span>
             ))}
           </div>
+
+          {(data?.watchLinks?.length ?? 0) > 0 && (
+            <div>
+              <h3 className="mb-3 font-display text-sm font-semibold">Watch the full series officially</h3>
+              <div className="flex flex-wrap gap-2">
+                {data!.watchLinks!.map((l) => (
+                  <a
+                    key={l.url}
+                    href={l.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-cerulean/40 bg-surface px-3 py-1.5 text-xs font-medium transition hover:border-cerulean hover:text-cerulean"
+                  >
+                    {l.site} <ExternalLink className="size-3" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(data?.cast.length ?? 0) > 0 && (
             <div>

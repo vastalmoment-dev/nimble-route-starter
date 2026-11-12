@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
+import { PromoPopup } from "@/components/ads/PromoPopup";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { getTrailer } from "@/lib/catalog/trailer.functions";
@@ -66,6 +67,7 @@ function WatchPage() {
           <Loader2 className="size-12 animate-spin text-cerulean" />
         ) : ytId ? (
           <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
+            {src === "anilist" && <PromoPopup key={id} delay={1500} />}
             <iframe
               className="size-full"
               src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}

@@ -45,6 +45,8 @@ export interface CastMember {
 export interface MediaDetail extends MediaItem {
   episodes: Episode[];
   cast: CastMember[];
+  /** Official legal places to watch (e.g. Crunchyroll, Netflix). */
+  watchLinks?: { site: string; url: string }[];
 }
 
 export interface Shelf {
