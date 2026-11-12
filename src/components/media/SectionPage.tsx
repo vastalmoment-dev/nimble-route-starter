@@ -70,7 +70,7 @@ export function SectionPage({ section }: { section: SectionId | "home" }) {
           shelves.map((shelf, i) => (
             <Fragment key={shelf.id}>
               <Shelf title={shelf.title} items={shelf.items} />
-              {i === 0 && section === "home" && <PromoBanner />}
+              {i === 0 && <PromoBanner />}
               {i === 1 && (
                 <div className="hidden justify-center px-4 md:flex">
                   <AdSlot slot="leaderboard" />
