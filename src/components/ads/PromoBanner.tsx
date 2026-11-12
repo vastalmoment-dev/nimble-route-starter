@@ -51,7 +51,7 @@ export function PromoBanner({ banner = PROMO_BANNERS[0], className }: { banner?:
                   {banner.body && <p className="mt-1 text-sm text-muted-foreground">{banner.body}</p>}
                 </>
               )}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2 sm:justify-end">
                 {banner.code && (
                   <button
                     type="button"
