@@ -12,6 +12,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import { IntroAnimation } from "../components/branding/IntroAnimation";
+import { FloatingPromo, PromoPopup } from "../components/ads/PromoPopup";
 import { AppShell } from "../components/layout/AppShell";
 import { MediaModalProvider } from "../components/media/MediaModalContext";
 
@@ -129,7 +130,9 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   // The player owns the whole screen; every other page sits inside the app shell.
-  const isPlayer = useRouterState({ select: (s) => s.location.pathname.startsWith("/watch/") });
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isPlayer = pathname.startsWith("/watch/");
+  const isAnime = pathname.startsWith("/anime") || pathname.startsWith("/mood");
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -138,6 +141,9 @@ function RootComponent() {
         {isPlayer ? <Outlet /> : <AppShell><Outlet /></AppShell>}
       </MediaModalProvider>
       <IntroAnimation />
+      {/* 1xBet: popup once per visit (after the intro), floating side ad while exploring anime. */}
+      {!isPlayer && <PromoPopup delay={4500} storageKey="shadow-promo-entry" />}
+      {isAnime && <FloatingPromo />}
     </QueryClientProvider>
   );
 }
