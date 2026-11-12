@@ -109,6 +109,7 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
   type R = {
     Media: AniMedia & {
       streamingEpisodes: { title: string | null; thumbnail: string | null }[];
+      externalLinks: { site: string; url: string; type: string | null }[] | null;
       characters: {
         edges: { role: string; node: { name: { full: string }; image: { medium: string | null } } }[];
       };
@@ -118,6 +119,7 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
     `query ($id: Int) { Media(id: $id, type: ANIME) {
       ${MEDIA_FIELDS}
       streamingEpisodes { title thumbnail }
+      externalLinks { site url type }
       characters(perPage: 12, sort: [ROLE, RELEVANCE]) { edges { role node { name { full } image { medium } } } }
     } }`,
     { id: Number(id) },
@@ -141,6 +143,7 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
   return {
     ...base,
     episodes,
+    watchLinks: (m.externalLinks ?? []).filter((l) => l.type === "STREAMING").map((l) => ({ site: l.site, url: l.url })),
     cast: m.characters.edges.map((e) => ({
       name: e.node.name.full,
       role: e.role.toLowerCase(),
