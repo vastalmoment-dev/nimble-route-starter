@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  */
 export function AdSlot({ slot, className }: { slot: AdSlotId; className?: string }) {
   const cfg = AD_SLOTS[slot];
-  const promo = PROMO_BANNERS[0];
+  const promo = PROMO_BANNERS[0]!;
   const [copied, setCopied] = useState(false);
   const wide = cfg.width > cfg.height * 2;
   const copy = async () => {
