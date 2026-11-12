@@ -21,7 +21,7 @@ export const Route = createFileRoute("/search")({
       { name: "description", content: "Search anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons in real time." },
       { property: "og:title", content: "Search — SHADOW" },
       { property: "og:description", content: "Find your next watch across every SHADOW genre." },
-      { name: "twitter:card", content: "summary" },
+      { property: "og:type", content: "website" },
       { name: "robots", content: "noindex, follow" },
       { name: "twitter:card", content: "summary" },
     ],
