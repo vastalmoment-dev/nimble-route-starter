@@ -28,3 +28,6 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+- Keep watch return destinations in the root watch-navigation provider, not iframe/browser history; embedded players create unrelated history entries.
+- Use TrailerFrame for YouTube playback; clear its document on navigation, unmount, or a hidden tab so audio cannot outlive the watch view.
