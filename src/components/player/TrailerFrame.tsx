@@ -31,12 +31,16 @@ export function TrailerFrame({ youtubeId, title, registerStop }: {
     window.addEventListener("pagehide", stop);
     document.addEventListener("visibilitychange", onVisibility);
     const element = frame.current;
+    // React may replay effects while mounting; reconnect only an active player.
+    if (!suspended && element?.getAttribute("src") === "about:blank") {
+      element.src = `https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&enablejsapi=1`;
+    }
     return () => {
       window.removeEventListener("pagehide", stop);
       document.removeEventListener("visibilitychange", onVisibility);
       stopTrailer(element);
     };
-  }, [stop, suspended]);
+  }, [stop, suspended, youtubeId]);
 
   if (suspended) return (
     <div className="flex size-full items-center justify-center">
