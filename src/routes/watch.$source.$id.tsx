@@ -49,7 +49,23 @@ function WatchPage() {
   const title = detail.data?.title ?? "";
   const trailer = useQuery({
     queryKey: ["trailer", src, id],
-    queryFn: () => getTrailer({ data: { source: src, id, title } }),
+    queryFn: async () => {
+      const r = await getTrailer({ data: { source: src, id, title } }).catch(() => ({ youtubeId: null as string | null }));
+      if (r.youtubeId || src !== "anilist") return r;
+      // Fallback straight from the browser when the host can't run server code.
+      try {
+        const res = await fetch("https://graphql.anilist.co", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ query: "query($id:Int){Media(id:$id){trailer{id site}}}", variables: { id: Number(id) } }),
+        });
+        const j = (await res.json()) as { data?: { Media?: { trailer?: { id: string; site: string } | null } } };
+        const t = j.data?.Media?.trailer;
+        return { youtubeId: t && t.site.toLowerCase() === "youtube" ? t.id : null };
+      } catch {
+        return r;
+      }
+    },
     enabled: !detail.isLoading,
     staleTime: Infinity,
   });
