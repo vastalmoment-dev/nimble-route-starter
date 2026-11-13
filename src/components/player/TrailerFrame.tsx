@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 
 export function stopTrailer(frame: HTMLIFrameElement | null) {
   if (!frame) return;
-  frame.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "stopVideo", args: [] }), "https://www.youtube-nocookie.com");
+  try {
+    frame.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "stopVideo", args: [] }), "https://www.youtube-nocookie.com");
+  } catch {
+    // The iframe window may already be detached during route teardown.
+  }
   // Clearing the document also works before YouTube's API has initialized.
   frame.src = "about:blank";
 }
