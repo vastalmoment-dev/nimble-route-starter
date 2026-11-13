@@ -15,6 +15,7 @@ import { IntroAnimation } from "../components/branding/IntroAnimation";
 import { FloatingPromo, PromoPopup } from "../components/ads/PromoPopup";
 import { AppShell } from "../components/layout/AppShell";
 import { MediaModalProvider } from "../components/media/MediaModalContext";
+import { WatchNavigationProvider } from "../components/player/WatchNavigation";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -136,6 +137,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <WatchNavigationProvider>
       <MediaModalProvider>
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         {isPlayer ? <Outlet /> : <AppShell><Outlet /></AppShell>}
@@ -144,6 +146,7 @@ function RootComponent() {
       {/* 1xBet: popup once per visit (after the intro), floating side ad while exploring anime. */}
       {!isPlayer && <PromoPopup delay={4500} storageKey="shadow-promo-entry" />}
       {isAnime && <FloatingPromo />}
+      </WatchNavigationProvider>
     </QueryClientProvider>
   );
 }

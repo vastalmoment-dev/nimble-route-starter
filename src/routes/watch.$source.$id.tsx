@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, notFound, useNavigate, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
+import { useCallback, useEffect, useRef } from "react";
 import { PromoPopup } from "@/components/ads/PromoPopup";
+import { TrailerFrame } from "@/components/player/TrailerFrame";
+import { useWatchReturn } from "@/components/player/WatchNavigation";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { getTrailer } from "@/lib/catalog/trailer.functions";
@@ -33,6 +36,13 @@ function WatchPage() {
   const { source, id } = Route.useParams();
   const navigate = useNavigate();
   const router = useRouter();
+  const returnTo = useWatchReturn();
+  const stopPlayback = useRef<(() => void) | null>(null);
+  const registerStop = useCallback((stop: () => void) => {
+    stopPlayback.current = stop;
+    return () => { if (stopPlayback.current === stop) stopPlayback.current = null; };
+  }, []);
+  useEffect(() => router.subscribe("onBeforeNavigate", () => stopPlayback.current?.()), [router]);
   const src = source as Source;
 
   const detail = useQuery(detailQuery(src, id));
@@ -45,8 +55,10 @@ function WatchPage() {
   });
 
   const goBack = () => {
-    if (window.history.length > 1) router.history.back();
-    else void navigate({ to: "/" });
+    stopPlayback.current?.();
+    // YouTube creates its own history entries; never use browser history length here.
+    const fallback = src === "anilist" ? "/anime" : src === "tmdb" ? "/hollywood" : "/";
+    void navigate({ href: returnTo.current ?? fallback, replace: true });
   };
 
   const ytId = trailer.data?.youtubeId;
@@ -68,13 +80,7 @@ function WatchPage() {
         ) : ytId ? (
           <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
             {src === "anilist" && <PromoPopup key={id} delay={1500} />}
-            <iframe
-              className="size-full"
-              src={`https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0`}
-              title={`${title} trailer`}
-              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-              allowFullScreen
-            />
+            <TrailerFrame key={ytId} youtubeId={ytId} title={title} registerStop={registerStop} />
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4 text-center">
