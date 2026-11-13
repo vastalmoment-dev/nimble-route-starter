@@ -1,4 +1,4 @@
-import bannerImage from "@/assets/1xbet-blue-bonus-banner.png.asset.json";
+import bannerImageUrl from "@/assets/1xbet-blue-bonus-banner.jpg";
 
 /**
  * Promotional banners. Edit this list to swap partners, images or copy.
@@ -29,7 +29,7 @@ export const PROMO_BANNERS: PromoBanner[] = [
     code: "1GOARIN",
     ctaLabel: "Join 1xBet now",
     href: "https://reffpa.com/L?tag=d_6269175m_97c_&site=6269175&ad=97",
-    image: bannerImage.url,
+    image: bannerImageUrl,
     disclaimer: "18+ only · T&Cs apply · Please gamble responsibly",
   },
 ];
