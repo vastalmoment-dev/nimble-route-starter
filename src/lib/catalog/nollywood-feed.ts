@@ -24,8 +24,9 @@ function decode(s: string) {
 }
 
 function cleanTitle(raw: string) {
-  const t = raw.split(/\s+(?:-|–|starring)\s+|\.\s+starring/i)[0] ?? raw;
-  const tidy = t.replace(/\s*\(the movie\)/i, "").replace(/[.\s]+$/, "").trim();
+  const base = raw.replace(/\s*\(the movie\)/i, "");
+  const t = base.split(/\s+(?:-|–)\s+|[.\s]+starring\b/i)[0] ?? base;
+  const tidy = t.replace(/[.\s]+$/, "").trim();
   return tidy.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || raw;
 }
 
