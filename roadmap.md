@@ -1,6 +1,6 @@
 # Tasks
 
-- [ ] Add Nollywood navigation, a curated movie grid and inline full-movie YouTube playback; verify desktop, mobile and playback cleanup.
+- [x] Add Nollywood navigation, a curated movie grid and inline full-movie YouTube playback; verified thumbnails, desktop/mobile layout, switching and cleanup. Actual video playback could not be confirmed because YouTube challenged the test browser to sign in.
 
 - [x] Fix watch return navigation and stop trailer playback on departure; verified navigation and tab changes.
 
