@@ -16,6 +16,7 @@ import { Route as CartoonsRouteImport } from './routes/cartoons'
 import { Route as HollywoodRouteImport } from './routes/hollywood'
 import { Route as KDramasRouteImport } from './routes/k-dramas'
 import { Route as MoodRouteImport } from './routes/mood'
+import { Route as NollywoodRouteImport } from './routes/nollywood'
 import { Route as SearchRouteImport } from './routes/search'
 import { Route as WatchSourceIdRouteImport } from './routes/watch.$source.$id'
 
@@ -54,6 +55,11 @@ const MoodRoute = MoodRouteImport.update({
   path: '/mood',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NollywoodRoute = NollywoodRouteImport.update({
+  id: '/nollywood',
+  path: '/nollywood',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
   '/mood': typeof MoodRoute
+  '/nollywood': typeof NollywoodRoute
   '/search': typeof SearchRoute
   '/watch/$source/$id': typeof WatchSourceIdRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
   '/mood': typeof MoodRoute
+  '/nollywood': typeof NollywoodRoute
   '/search': typeof SearchRoute
   '/watch/$source/$id': typeof WatchSourceIdRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/hollywood': typeof HollywoodRoute
   '/k-dramas': typeof KDramasRoute
   '/mood': typeof MoodRoute
+  '/nollywood': typeof NollywoodRoute
   '/search': typeof SearchRoute
   '/watch/$source/$id': typeof WatchSourceIdRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/hollywood'
     | '/k-dramas'
     | '/mood'
+    | '/nollywood'
     | '/search'
     | '/watch/$source/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/hollywood'
     | '/k-dramas'
     | '/mood'
+    | '/nollywood'
     | '/search'
     | '/watch/$source/$id'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/hollywood'
     | '/k-dramas'
     | '/mood'
+    | '/nollywood'
     | '/search'
     | '/watch/$source/$id'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   HollywoodRoute: typeof HollywoodRoute
   KDramasRoute: typeof KDramasRoute
   MoodRoute: typeof MoodRoute
+  NollywoodRoute: typeof NollywoodRoute
   SearchRoute: typeof SearchRoute
   WatchSourceIdRoute: typeof WatchSourceIdRoute
 }
@@ -198,6 +211,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MoodRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/nollywood': {
+      id: '/nollywood'
+      path: '/nollywood'
+      fullPath: '/nollywood'
+      preLoaderRoute: typeof NollywoodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/search': {
       id: '/search'
       path: '/search'
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   HollywoodRoute: HollywoodRoute,
   KDramasRoute: KDramasRoute,
   MoodRoute: MoodRoute,
+  NollywoodRoute: NollywoodRoute,
   SearchRoute: SearchRoute,
   WatchSourceIdRoute: WatchSourceIdRoute,
 }
