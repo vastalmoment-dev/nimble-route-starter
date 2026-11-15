@@ -5,7 +5,7 @@ import { NOLLYWOOD_CHANNELS, parseFeed, type FeedMovie } from "./nollywood-feed"
 export const getNollywoodUploads = createServerFn({ method: "GET" }).handler(async (): Promise<FeedMovie[]> => {
   const lists = await Promise.all(NOLLYWOOD_CHANNELS.map(async (c) => {
     try {
-      const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${c.id}`);
+      const res = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${c.id}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; ShadowBot/1.0)", Accept: "application/atom+xml" } });
       if (!res.ok) { console.error(`Nollywood feed ${c.name} [${res.status}]`); return []; }
       return parseFeed(await res.text(), c.name);
     } catch (e) { console.error(`Nollywood feed ${c.name} failed`, e); return []; }
