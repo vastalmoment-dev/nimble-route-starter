@@ -4,4 +4,6 @@
 
 - [x] Fix watch return navigation and stop trailer playback on departure; verified navigation and tab changes.
 
+- [x] Auto-add new Nollywood uploads from official channel feeds.
+
 - [ ] Connect full-episode playback for the anime section only. Blocked until a working hosted anime streaming API is verified; GitHub source repositories alone are not playback services.
