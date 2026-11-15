@@ -3,7 +3,11 @@ import { Film, Play, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TrailerFrame } from "@/components/player/TrailerFrame";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
 import { NOLLYWOOD_MOVIES } from "@/lib/catalog/nollywood";
+import { getNollywoodUploads } from "@/lib/catalog/nollywood.functions";
+
+type Movie = { youtubeId: string; title: string; genre?: string; format: string; channel: string; image: string; synopsis?: string; cast?: string };
 
 export function NollywoodPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -22,16 +26,21 @@ export function NollywoodPage() {
     setActiveId(id);
   };
 
+  const { data: uploads = [] } = useQuery({ queryKey: ["nollywood-uploads"], queryFn: () => getNollywoodUploads(), staleTime: 30 * 60_000 });
+  const curatedIds = new Set<string>(NOLLYWOOD_MOVIES.map((m) => m.youtubeId));
+  const latest: Movie[] = uploads.filter((m) => !curatedIds.has(m.youtubeId)).map((m) => ({ ...m, genre: "New release", synopsis: `Newly uploaded on ${m.channel}${m.published ? ` · ${new Date(m.published).toLocaleDateString()}` : ""}.` }));
+  const movies: Movie[] = [...latest, ...NOLLYWOOD_MOVIES];
+
   return (
     <div className="px-4 pt-24 sm:px-8 lg:px-12">
       <header className="mb-8 border-b border-border pb-6">
         <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-cerulean"><Film className="size-4" /> Nigerian cinema</p>
         <h1 className="font-display text-3xl font-bold !tracking-normal sm:text-4xl">Nollywood</h1>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Big feelings. Unforgettable stories. Romance, comedy and drama from Nigeria's storytellers.</p>
-        <p className="mt-4 text-xs text-muted-foreground">Bimbo Ademoye TV <span className="px-2 text-cerulean">/</span> Uduak Isong TV</p>
+        <p className="mt-4 text-xs text-muted-foreground">New uploads from official channels appear here automatically</p>
       </header>
       <div className="grid grid-cols-1 gap-x-6 gap-y-8 md:grid-cols-2 2xl:grid-cols-3">
-        {NOLLYWOOD_MOVIES.map((movie) => {
+        {movies.map((movie) => {
           const active = activeId === movie.youtubeId;
           return (
             <article key={movie.youtubeId} className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
@@ -56,10 +65,10 @@ export function NollywoodPage() {
                   {active && <Button variant="ghost" size="icon" aria-label={`Stop ${movie.title}`} title="Stop movie" onClick={() => selectMovie(null)}><X /></Button>}
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">{movie.synopsis}</p>
-                <p className="text-xs leading-relaxed text-muted-foreground">{movie.cast}</p>
+                {movie.cast && <p className="text-xs leading-relaxed text-muted-foreground">{movie.cast}</p>}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
                   <span className="text-xs text-muted-foreground">{movie.channel}</span>
-                  {!active && <Button variant="secondary" size="sm" onClick={() => selectMovie(movie.youtubeId)}><Play /> {movie.format === "Part 1" ? "Watch part 1" : "Watch movie"}</Button>}
+                  {!active && <Button variant="secondary" size="sm" onClick={() => selectMovie(movie.youtubeId)}><Play /> {movie.format.startsWith("Part") ? `Watch ${movie.format.toLowerCase()}` : "Watch movie"}</Button>}
                   {active && <span className="text-xs text-cerulean">Now watching</span>}
                 </div>
               </div>

@@ -32,3 +32,4 @@ use the editor.
 - Keep watch return destinations in the root watch-navigation provider, not iframe/browser history; embedded players create unrelated history entries.
 - Use TrailerFrame for YouTube playback; clear its document on navigation, unmount, or a hidden tab so audio cannot outlive the watch view.
 - Keep Nollywood's curated official YouTube uploads in a browser-safe catalog and allow only one inline TrailerFrame at a time; this supports keyless playback without overlapping audio.
+- Nollywood new releases come live from official channels' public YouTube upload feeds (no key, no DB); title filters drop teasers/trailers/shorts.
