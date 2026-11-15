@@ -5,6 +5,7 @@ import { TrailerFrame } from "@/components/player/TrailerFrame";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { NOLLYWOOD_MOVIES } from "@/lib/catalog/nollywood";
+import { NOLLYWOOD_ARCHIVE } from "@/lib/catalog/nollywood-archive";
 import { getNollywoodUploads } from "@/lib/catalog/nollywood.functions";
 
 type Movie = { youtubeId: string; title: string; genre?: string; format: string; channel: string; image: string; synopsis?: string; cast?: string };
@@ -27,9 +28,12 @@ export function NollywoodPage() {
   };
 
   const { data: uploads = [] } = useQuery({ queryKey: ["nollywood-uploads"], queryFn: () => getNollywoodUploads(), staleTime: 30 * 60_000 });
-  const curatedIds = new Set<string>(NOLLYWOOD_MOVIES.map((m) => m.youtubeId));
+  const [filter, setFilter] = useState<"all" | "new" | "picks" | "archive">("all");
+  const curatedIds = new Set<string>([...NOLLYWOOD_MOVIES, ...NOLLYWOOD_ARCHIVE].map((m) => m.youtubeId));
   const latest: Movie[] = uploads.filter((m) => !curatedIds.has(m.youtubeId)).map((m) => ({ ...m, genre: "New release", synopsis: `Newly uploaded on ${m.channel}${m.published ? ` · ${new Date(m.published).toLocaleDateString()}` : ""}.` }));
-  const movies: Movie[] = [...latest, ...NOLLYWOOD_MOVIES];
+  const groups = { new: latest, picks: [...NOLLYWOOD_MOVIES] as Movie[], archive: NOLLYWOOD_ARCHIVE as Movie[] };
+  const movies: Movie[] = filter === "all" ? [...groups.new, ...groups.picks, ...groups.archive] : groups[filter];
+  const tabs = [["all", "All movies"], ["new", "New releases"], ["picks", "Our picks"], ["archive", "From the archive"]] as const;
 
   return (
     <div className="px-4 pt-24 sm:px-8 lg:px-12">
@@ -39,6 +43,13 @@ export function NollywoodPage() {
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Big feelings. Unforgettable stories. Romance, comedy and drama from Nigeria's storytellers.</p>
         <p className="mt-4 text-xs text-muted-foreground">New uploads from official channels appear here automatically</p>
       </header>
+      <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Filter Nollywood movies">
+        {tabs.map(([key, label]) => (
+          <Button key={key} role="tab" aria-selected={filter === key} size="sm" variant={filter === key ? "default" : "secondary"} className="rounded-full" onClick={() => { selectMovie(null); setFilter(key); }}>
+            {label} <span className="text-xs opacity-70">{key === "all" ? groups.new.length + groups.picks.length + groups.archive.length : groups[key].length}</span>
+          </Button>
+        ))}
+      </div>
       <div className="grid grid-cols-1 gap-x-6 gap-y-8 md:grid-cols-2 2xl:grid-cols-3">
         {movies.map((movie) => {
           const active = activeId === movie.youtubeId;
