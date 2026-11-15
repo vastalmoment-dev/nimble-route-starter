@@ -4,6 +4,8 @@ import { NollywoodPage } from "@/components/media/NollywoodPage";
 
 const navigation = vi.hoisted(() => ({ stop: () => {} }));
 const router = { subscribe: (_event: string, callback: () => void) => { navigation.stop = callback; return () => {}; } };
+vi.mock("@/lib/catalog/nollywood.functions", () => ({ getNollywoodUploads: async () => [] }));
+vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: [] }) }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
 afterEach(cleanup);
 
