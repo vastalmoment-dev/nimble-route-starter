@@ -35,7 +35,7 @@ async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
   } catch {
     // Server function unavailable — fall through to the bundled catalog.
   }
-  if (!items.length) items = (await loadFallbackCatalog())[section];
+  if (!items.length) items = (await loadFallbackCatalog())[section] ?? [];
   const label = SECTION_META[section].label.split(" /")[0] ?? SECTION_META[section].label;
   return { section, featured: pickFeatured(items, 6), shelves: buildShelves(items, label), items, provider };
 }
@@ -47,7 +47,7 @@ export function loadSection(section: SectionId): Promise<SectionCatalog> {
 const settle = <T,>(p: Promise<T>) => p.then((v) => v, () => null);
 
 export async function loadHome(): Promise<SectionCatalog> {
-  const ids: SectionId[] = ["anime", "k-dramas", "hollywood", "bollywood", "cartoons"];
+  const ids: SectionId[] = ["anime", "k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"];
   const results = (await Promise.all(ids.map((id) => settle(loadSection(id))))).filter(
     (r): r is SectionCatalog => r !== null,
   );

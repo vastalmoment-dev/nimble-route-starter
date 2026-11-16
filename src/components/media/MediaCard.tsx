@@ -9,6 +9,7 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
   "k-dramas": "bg-genre-kdrama",
   hollywood: "bg-genre-hollywood",
   bollywood: "bg-genre-bollywood",
+  tollywood: "bg-genre-bollywood",
   cartoons: "bg-genre-cartoons",
 };
 
