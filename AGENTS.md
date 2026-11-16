@@ -33,3 +33,5 @@ use the editor.
 - Use TrailerFrame for YouTube playback; clear its document on navigation, unmount, or a hidden tab so audio cannot outlive the watch view.
 - Keep Nollywood's curated official YouTube uploads in a browser-safe catalog and allow only one inline TrailerFrame at a time; this supports keyless playback without overlapping audio.
 - Nollywood new releases come live from official channels' public YouTube upload feeds (no key, no DB); title filters drop teasers/trailers/shorts.
+- Novels are public-domain Project Gutenberg titles in a static catalog, linking Gutenberg EPUB/Kindle files directly; only offer books that are legally free.
+- Older Nollywood titles live in a static archive list scraped from official channel video pages; the live feed only covers ~15 recent uploads.
