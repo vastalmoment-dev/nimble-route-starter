@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { useCallback, useEffect, useRef } from "react";
 import { PromoPopup } from "@/components/ads/PromoPopup";
-import { VideoPlayer } from "@/components/player/VideoPlayer";
+import VideoPlayer from "@/components/player/VideoPlayer";
 import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
 import { inferStreamType } from "@/lib/stream/resolver";
 import { TrailerFrame } from "@/components/player/TrailerFrame";
