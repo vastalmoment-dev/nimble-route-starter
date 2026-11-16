@@ -1,5 +1,5 @@
 export type Source = "anilist" | "tvmaze" | "tmdb";
-export type SectionId = "anime" | "k-dramas" | "hollywood" | "bollywood" | "cartoons";
+export type SectionId = "anime" | "k-dramas" | "hollywood" | "bollywood" | "tollywood" | "cartoons";
 
 export interface MediaItem {
   /** Globally unique: `${source}:${id}` */
@@ -24,6 +24,8 @@ export interface MediaItem {
   /** Rank-only signal inside a single source; never compare across sources. */
   popularity?: number | null;
   mediaType?: "tv" | "movie";
+  /** Licensed/self-hosted stream link; when set the watch view plays it instead of the trailer. */
+  videoStreamUrl?: string | null;
 }
 
 export interface Episode {
@@ -68,7 +70,8 @@ export const SECTION_META: Record<SectionId, { label: string; tagline: string; c
   anime: { label: "Anime", tagline: "Shōnen legends, seasonal hits and cult classics.", colorClass: "text-genre-anime" },
   "k-dramas": { label: "K-Dramas", tagline: "Seoul after dark — romance, revenge and survival.", colorClass: "text-genre-kdrama" },
   hollywood: { label: "Hollywood", tagline: "Prestige series and blockbuster storytelling.", colorClass: "text-genre-hollywood" },
-  bollywood: { label: "Bollywood / Tollywood", tagline: "Spectacle, family sagas and gritty crime from India.", colorClass: "text-genre-bollywood" },
+  bollywood: { label: "Bollywood", tagline: "Spectacle, family sagas and gritty crime from India.", colorClass: "text-genre-bollywood" },
+  tollywood: { label: "Tollywood", tagline: "Telugu blockbusters, action sagas and family epics.", colorClass: "text-genre-bollywood" },
   cartoons: { label: "Cartoons", tagline: "Animated worlds for every age.", colorClass: "text-genre-cartoons" },
 };
 

@@ -35,3 +35,4 @@ use the editor.
 - Nollywood new releases come live from official channels' public YouTube upload feeds (no key, no DB); title filters drop teasers/trailers/shorts.
 - Novels are public-domain Project Gutenberg titles in a static catalog, linking Gutenberg EPUB/Kindle files directly; only offer books that are legally free.
 - Older Nollywood titles live in a static archive list scraped from official channel video pages; the live feed only covers ~15 recent uploads.
+- Licensed/self-hosted streams: set MediaItem.videoStreamUrl or src/lib/stream/custom-streams.ts; watch view plays it (direct file → VideoPlayer, page → iframe) else falls back to trailer, so no unlicensed embeds are hardcoded.

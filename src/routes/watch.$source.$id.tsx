@@ -4,6 +4,9 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { useCallback, useEffect, useRef } from "react";
 import { PromoPopup } from "@/components/ads/PromoPopup";
+import { VideoPlayer } from "@/components/player/VideoPlayer";
+import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
+import { inferStreamType } from "@/lib/stream/resolver";
 import { TrailerFrame } from "@/components/player/TrailerFrame";
 import { useWatchReturn } from "@/components/player/WatchNavigation";
 import { Button } from "@/components/ui/button";
@@ -66,7 +69,7 @@ function WatchPage() {
         return r;
       }
     },
-    enabled: !detail.isLoading,
+    enabled: !detail.isLoading && !(detail.data && customStreamUrl(detail.data.key, detail.data.videoStreamUrl)),
     staleTime: Infinity,
   });
 
@@ -78,6 +81,20 @@ function WatchPage() {
   };
 
   const ytId = trailer.data?.youtubeId;
+  const streamUrl = detail.data ? customStreamUrl(detail.data.key, detail.data.videoStreamUrl) : null;
+
+  if (streamUrl && isDirectVideo(streamUrl)) {
+    return (
+      <div className="fixed inset-0 z-50 bg-scrim">
+        <VideoPlayer
+          stream={{ url: streamUrl, type: inferStreamType(streamUrl), provider: "Custom stream", isDemo: false }}
+          title={title}
+          poster={detail.data?.backdrop ?? detail.data?.poster ?? null}
+          onBack={goBack}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
@@ -87,11 +104,17 @@ function WatchPage() {
         </Button>
         <div className="min-w-0">
           <p className="truncate font-display text-lg font-semibold">{title || "Loading…"}</p>
-          <p className="text-xs text-muted-foreground">Official trailer</p>
+          <p className="text-xs text-muted-foreground">{streamUrl ? "Now playing" : "Official trailer"}</p>
         </div>
       </div>
       <div className="flex flex-1 items-center justify-center px-4 pb-6">
-        {trailer.isPending || detail.isLoading ? (
+        {detail.isLoading ? (
+          <Loader2 className="size-12 animate-spin text-cerulean" />
+        ) : streamUrl ? (
+          <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
+            <iframe key={streamUrl} src={streamUrl} title={title} className="size-full" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />
+          </div>
+        ) : trailer.isPending ? (
           <Loader2 className="size-12 animate-spin text-cerulean" />
         ) : ytId ? (
           <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">

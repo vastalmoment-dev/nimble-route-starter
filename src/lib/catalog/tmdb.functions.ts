@@ -8,7 +8,7 @@ import { itemKey, type MediaDetail, type MediaItem } from "./types";
  * bundled structured JSON catalog.
  */
 
-const TMDB_SECTIONS = ["k-dramas", "hollywood", "bollywood", "cartoons"] as const;
+const TMDB_SECTIONS = ["k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"] as const;
 type TmdbSection = (typeof TMDB_SECTIONS)[number];
 
 const GENRES: Record<number, string> = {
@@ -27,7 +27,10 @@ const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> 
   ],
   bollywood: [
     { type: "movie", params: "with_original_language=hi" },
+  ],
+  tollywood: [
     { type: "movie", params: "with_original_language=te" },
+    { type: "tv", params: "with_original_language=te&without_genres=16,10764,10767" },
   ],
   cartoons: [{ type: "tv", params: "with_genres=16&with_original_language=en" }],
 };
@@ -122,7 +125,7 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
       };
       const lang = r.original_language;
       const section: TmdbSection =
-        r.genres?.some((g) => g.id === 16) ? "cartoons" : lang === "ko" ? "k-dramas" : ["hi", "te", "ta", "ml", "kn"].includes(lang) ? "bollywood" : "hollywood";
+        r.genres?.some((g) => g.id === 16) ? "cartoons" : lang === "ko" ? "k-dramas" : lang === "te" ? "tollywood" : ["hi", "ta", "ml", "kn"].includes(lang) ? "bollywood" : "hollywood";
       const base = mapRow(r, type, section);
       let episodes: MediaDetail["episodes"] = [];
       if (type === "tv") {
