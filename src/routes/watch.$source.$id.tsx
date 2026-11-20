@@ -3,7 +3,7 @@ import { createFileRoute, notFound, useNavigate, useRouter } from "@tanstack/rea
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { useCallback, useEffect, useRef } from "react";
-import { PromoPopup } from "@/components/ads/PromoPopup";
+import { WatchPromoGate } from "@/components/ads/WatchPromoGate";
 import { TrailerFrame } from "@/components/player/TrailerFrame";
 import { useWatchReturn } from "@/components/player/WatchNavigation";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ export const Route = createFileRoute("/watch/$source/$id")({
 
 function WatchPage() {
   const { source, id } = Route.useParams();
+  const { ep } = Route.useSearch();
   const navigate = useNavigate();
   const router = useRouter();
   const returnTo = useWatchReturn();
@@ -75,11 +76,11 @@ function WatchPage() {
         </div>
       </div>
       <div className="flex flex-1 items-center justify-center px-4 pb-6">
+        <WatchPromoGate key={`${source}:${id}:${ep}`}>
         {trailer.isPending || detail.isLoading ? (
           <Loader2 className="size-12 animate-spin text-cerulean" />
         ) : ytId ? (
           <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
-            {src === "anilist" && <PromoPopup key={id} delay={1500} />}
             <TrailerFrame key={ytId} youtubeId={ytId} title={title} registerStop={registerStop} />
           </div>
         ) : (
@@ -90,6 +91,7 @@ function WatchPage() {
             </Button>
           </div>
         )}
+        </WatchPromoGate>
       </div>
     </div>
   );

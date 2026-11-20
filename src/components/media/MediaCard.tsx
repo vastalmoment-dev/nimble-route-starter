@@ -3,6 +3,7 @@ import { Play, Star } from "lucide-react";
 import type { MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
 import { useMediaModal } from "./MediaModalContext";
+import { ResilientImage } from "./ResilientImage";
 
 const SECTION_DOT: Record<MediaItem["section"], string> = {
   anime: "bg-genre-anime",
@@ -23,8 +24,10 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         aria-label={`${item.title} — more info`}
       >
         {item.poster ? (
-          <img
+          <ResilientImage
             src={item.poster}
+            alternatives={[item.posterHd]}
+            fallbackLabel={item.title}
             alt=""
             loading="lazy"
             decoding="async"

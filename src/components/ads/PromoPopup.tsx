@@ -2,14 +2,15 @@ import { Check, Copy, Minus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PROMO_BANNERS } from "@/lib/promo/banners";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
-const promo = PROMO_BANNERS[0]!;
+const promo = PROMO_BANNERS[0];
 
 function useCopy() {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(promo.code ?? "");
+      await navigator.clipboard.writeText(promo?.code ?? "");
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {}
@@ -21,11 +22,12 @@ function useCopy() {
  * Centered 1xBet popup. `storageKey` gates it to once per browser session; omit to show on every mount.
  * Minimizing collapses it to a small corner pill that reopens it.
  */
-export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageKey?: string }) {
-  const [state, setState] = useState<"hidden" | "open" | "min">("hidden");
+export function PromoPopup({ delay = 0, storageKey, onContinue }: { delay?: number; storageKey?: string; onContinue?: () => void }) {
+  const [state, setState] = useState<"hidden" | "open" | "min">(delay === 0 && !storageKey ? "open" : "hidden");
   const { copied, copy } = useCopy();
 
   useEffect(() => {
+    if (delay === 0 && !storageKey) return;
     if (storageKey && sessionStorage.getItem(storageKey)) return;
     const t = setTimeout(() => {
       setState("open");
@@ -34,22 +36,31 @@ export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageK
     return () => clearTimeout(t);
   }, [delay, storageKey]);
 
-  if (state === "hidden") return null;
+  useEffect(() => {
+    if (!promo) onContinue?.();
+  }, [onContinue]);
+
+  const dismiss = (next: "hidden" | "min") => {
+    setState(next);
+    onContinue?.();
+  };
+
+  if (!promo || state === "hidden") return null;
 
   if (state === "min") {
     return (
       <div className="fixed bottom-4 left-4 z-[70] flex items-center gap-1 rounded-full bg-brand-gradient p-px shadow-glow">
-        <button
+        <Button variant="ghost" size="sm"
           type="button"
           onClick={() => setState("open")}
           className="flex items-center gap-2 rounded-full bg-card py-1.5 pl-1.5 pr-3 text-xs font-semibold"
         >
           {promo.image && <img src={promo.image} alt="" className="size-7 rounded-full object-cover" />}
           {promo.partner} · <span className="font-mono text-cerulean">{promo.code}</span>
-        </button>
-        <button type="button" aria-label="Close ad" onClick={() => setState("hidden")} className="mr-1 rounded-full p-1 text-muted-foreground hover:text-foreground">
+        </Button>
+        <Button variant="ghost" size="icon" type="button" aria-label="Close ad" onClick={() => dismiss("hidden")} className="mr-1 rounded-full p-1 text-muted-foreground hover:text-foreground">
           <X className="size-3.5" />
-        </button>
+        </Button>
       </div>
     );
   }
@@ -57,14 +68,14 @@ export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageK
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-scrim/70 p-4 backdrop-blur-sm animate-in fade-in" role="dialog" aria-modal="true" aria-label={`${promo.partner} offer`}>
       <div className="w-full max-w-sm rounded-2xl bg-brand-gradient p-px shadow-glow animate-in zoom-in-95">
-        <div className="relative overflow-hidden rounded-[calc(1rem-1px)] bg-card">
+        <div className="relative max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[calc(1rem-1px)] bg-card">
           <div className="absolute right-2 top-2 z-10 flex gap-1">
-            <button type="button" aria-label="Minimize ad" onClick={() => setState("min")} className="rounded-full bg-scrim/70 p-1.5 text-foreground hover:bg-scrim">
+            <Button variant="ghost" size="icon" type="button" aria-label="Minimize ad" onClick={() => dismiss("min")} className="rounded-full bg-scrim/70 p-1.5 text-foreground hover:bg-scrim">
               <Minus className="size-4" />
-            </button>
-            <button type="button" aria-label="Close ad" onClick={() => setState("hidden")} className="rounded-full bg-scrim/70 p-1.5 text-foreground hover:bg-scrim">
+            </Button>
+            <Button variant="ghost" size="icon" type="button" aria-label="Close ad" onClick={() => dismiss("hidden")} className="rounded-full bg-scrim/70 p-1.5 text-foreground hover:bg-scrim">
               <X className="size-4" />
-            </button>
+            </Button>
           </div>
           {promo.image && (
             <a href={promo.href} target="_blank" rel="sponsored noopener noreferrer">
@@ -84,16 +95,17 @@ export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageK
 }
 
 function PromoActions({ copied, copy, compact }: { copied: boolean; copy: () => void; compact?: boolean }) {
+  if (!promo) return null;
   return (
     <div className={cn("flex gap-2", compact ? "flex-col" : "flex-col sm:flex-row")}>
-      <button
+      <Button variant="ghost"
         type="button"
         onClick={copy}
         className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-cerulean/60 px-3 py-2 font-mono text-sm font-bold tracking-wider text-cerulean"
       >
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
         {copied ? "Copied!" : promo.code}
-      </button>
+      </Button>
       <a
         href={promo.href}
         target="_blank"
@@ -110,6 +122,7 @@ function PromoActions({ copied, copy, compact }: { copied: boolean; copy: () => 
 export function FloatingPromo() {
   const [min, setMin] = useState(false);
   const { copied, copy } = useCopy();
+  if (!promo) return null;
   if (min) {
     return (
       <button

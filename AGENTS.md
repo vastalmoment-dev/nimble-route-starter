@@ -31,3 +31,5 @@ use the editor.
 
 - Keep watch return destinations in the root watch-navigation provider, not iframe/browser history; embedded players create unrelated history entries.
 - Use TrailerFrame for YouTube playback; clear its document on navigation, unmount, or a hidden tab so audio cannot outlive the watch view.
+- Wrap watch playback in WatchPromoGate, keyed by title and episode, so no player mounts until the viewer dismisses or minimizes the partner popup.
+- Use ResilientImage for catalog artwork with ordered source alternatives and a title fallback; failed images must not leave broken icons.

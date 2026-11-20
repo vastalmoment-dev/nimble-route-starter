@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
 import { useMediaModal } from "./MediaModalContext";
+import { ResilientImage } from "./ResilientImage";
 
 export function HeroCarousel({ items }: { items: MediaItem[] }) {
   const [index, setIndex] = useState(0);
@@ -35,8 +36,10 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
             aria-hidden={!active}
             className={cn("absolute inset-0 transition-opacity duration-1000", active ? "opacity-100" : "pointer-events-none opacity-0")}
           >
-            <img
+            <ResilientImage
               src={item.backdrop ?? item.posterHd ?? item.poster ?? ""}
+              alternatives={[item.posterHd, item.poster]}
+              fallbackLabel={item.title}
               alt=""
               className={cn(
                 "absolute inset-0 size-full object-cover object-[center_25%] transition-transform duration-[9000ms] ease-out",

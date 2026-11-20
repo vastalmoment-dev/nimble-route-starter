@@ -9,6 +9,7 @@ import { detailQuery } from "@/lib/catalog";
 import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
 import { DownloadButton } from "./DownloadButton";
+import { ResilientImage } from "./ResilientImage";
 
 export function MediaDetailDialog({ item, onClose }: { item: MediaItem | null; onClose: () => void }) {
   return (
@@ -32,7 +33,7 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
   return (
     <div>
       <div className="relative aspect-video max-h-[46vh] w-full overflow-hidden">
-        {art && <img src={art} alt="" className="size-full object-cover object-[center_25%]" />}
+        <ResilientImage src={art} alternatives={[item.posterHd, item.poster]} fallbackLabel={d.title} alt="" className="size-full object-cover object-[center_25%]" />
         <div className="absolute inset-0 bg-hero-bottom" />
         <div className="absolute inset-x-0 bottom-0 space-y-4 p-6 sm:p-8">
           <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>{meta.label}</span>
@@ -80,7 +81,7 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
             <div>
               <h3 className="mb-3 font-display text-sm font-semibold">Watch the full series officially</h3>
               <div className="flex flex-wrap gap-2">
-                {data!.watchLinks!.map((l) => (
+                {data?.watchLinks?.map((l) => (
                   <a
                     key={l.url}
                     href={l.url}
@@ -101,10 +102,10 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
                 <Users className="size-4 text-cerulean" /> Cast
               </h3>
               <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
-                {data!.cast.map((c) => (
+                {data?.cast.map((c) => (
                   <div key={`${c.name}-${c.role}`} className="w-20 shrink-0 text-center">
                     <div className="mx-auto size-16 overflow-hidden rounded-full bg-surface ring-1 ring-foreground/10">
-                      {c.image && <img src={c.image} alt="" loading="lazy" className="size-full object-cover" />}
+                      <ResilientImage src={c.image} fallbackLabel={c.name} alt="" loading="lazy" className="size-full object-cover" />
                     </div>
                     <p className="mt-2 line-clamp-2 text-xs font-medium">{c.name}</p>
                     {c.role && <p className="line-clamp-1 text-[11px] capitalize text-muted-foreground">{c.role}</p>}
@@ -138,7 +139,7 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
                     className="flex min-w-0 flex-1 items-center gap-3"
                   >
                     <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-md bg-surface">
-                      {ep.thumbnail && <img src={ep.thumbnail} alt="" loading="lazy" className="size-full object-cover" />}
+                      <ResilientImage src={ep.thumbnail} alternatives={[item.poster]} fallbackLabel={ep.title} alt="" loading="lazy" className="size-full object-cover" />
                       <span className="absolute inset-0 flex items-center justify-center bg-scrim/50 opacity-0 transition group-hover/ep:opacity-100">
                         <Play className="size-4 fill-current" />
                       </span>
@@ -161,7 +162,7 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
         </div>
         <div className="hidden md:block">
           <div className="sticky top-6 space-y-4">
-            {item.poster && <img src={item.posterHd ?? item.poster} alt="" className="w-full rounded-xl shadow-card" />}
+            <ResilientImage src={item.posterHd ?? item.poster} alternatives={[item.poster]} fallbackLabel={item.title} alt="" className="aspect-[2/3] w-full rounded-xl object-cover shadow-card" />
             <AdSlot slot="rectangle" />
           </div>
         </div>
