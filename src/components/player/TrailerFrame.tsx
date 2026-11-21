@@ -13,10 +13,11 @@ export function stopTrailer(frame: HTMLIFrameElement | null) {
   frame.src = "about:blank";
 }
 
-export function TrailerFrame({ youtubeId, title, registerStop }: {
+export function TrailerFrame({ youtubeId, title, registerStop, playbackLabel = "trailer" }: {
   youtubeId: string;
   title: string;
   registerStop: (stop: () => void) => () => void;
+  playbackLabel?: "trailer" | "movie";
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [suspended, setSuspended] = useState(false);
@@ -44,14 +45,14 @@ export function TrailerFrame({ youtubeId, title, registerStop }: {
 
   if (suspended) return (
     <div className="flex size-full items-center justify-center">
-      <Button variant="glass" size="xl" onClick={() => setSuspended(false)}><Play /> Play trailer</Button>
+      <Button variant="glass" size="xl" onClick={() => setSuspended(false)}><Play /> Play {playbackLabel}</Button>
     </div>
   );
   return <iframe
     ref={frame}
     className="size-full"
     src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&enablejsapi=1`}
-    title={`${title} trailer`}
+    title={`${title} ${playbackLabel}`}
     allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
     allowFullScreen
   />;

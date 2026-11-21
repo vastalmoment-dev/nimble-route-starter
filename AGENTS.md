@@ -33,3 +33,5 @@ use the editor.
 - Use TrailerFrame for YouTube playback; clear its document on navigation, unmount, or a hidden tab so audio cannot outlive the watch view.
 - Wrap watch playback in WatchPromoGate, keyed by title and episode, so no player mounts until the viewer dismisses or minimizes the partner popup.
 - Use ResilientImage for catalog artwork with ordered source alternatives and a title fallback; failed images must not leave broken icons.
+- Keep free-book entries in the book catalog with Project Gutenberg IDs and download links; this keeps book data independent of the page layout.
+- Keep curated Nollywood uploads in browser-safe catalog modules and render only one TrailerFrame through WatchPromoGate; this preserves publisher playback controls and stops movies on departure.
