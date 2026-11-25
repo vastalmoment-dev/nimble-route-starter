@@ -206,11 +206,142 @@ export async function searchAnime(search: string): Promise<MediaItem[]> {
   return data.Page.media.map((m) => mapAniMedia(m));
 }
 
+interface AniRelationNode {
+  id: number;
+  idMal: number | null;
+  isAdult?: boolean | null;
+  type: string;
+  title: { english: string | null; romaji: string | null };
+  format: string | null;
+  episodes: number | null;
+  nextAiringEpisode?: { episode: number; airingAt: number } | null;
+  status: string | null;
+  seasonYear: number | null;
+  coverImage: { large: string | null; medium?: string | null };
+}
+
+interface AniRelationEdge {
+  relationType: string;
+  node: AniRelationNode | null;
+}
+
+const SEASON_FORMATS = new Set(["TV", "TV_SHORT", "ONA", "OVA", "MOVIE", "SPECIAL"]);
+const SEASON_RELATIONS = new Set([
+  "PREQUEL",
+  "SEQUEL",
+  "PARENT",
+  "SIDE_STORY",
+  "ALTERNATIVE",
+  "SPIN_OFF",
+]);
+
+function relationLabel(raw: string, format: string | null, status: string | null): string {
+  if (status === "NOT_YET_RELEASED") {
+    return format === "MOVIE" ? "Upcoming Movie" : "Upcoming Season";
+  }
+  if (format === "MOVIE") return "Movie";
+  if (format === "OVA" || format === "SPECIAL") return format;
+  return raw.replace(/_/g, " ").toLowerCase();
+}
+
+async function collectSeasonRelations(
+  rootId: number,
+  initialEdges: AniRelationEdge[],
+): Promise<MediaDetail["relations"]> {
+  const seen = new Map<number, { node: AniRelationNode; relationType: string }>();
+  const frontier: number[] = [];
+
+  const recordEdge = (edge: AniRelationEdge) => {
+    const node = edge.node;
+    if (!node || node.type !== "ANIME" || node.isAdult) return;
+    if (node.format && !SEASON_FORMATS.has(node.format)) return;
+    if (!SEASON_RELATIONS.has(edge.relationType)) return;
+    if (!seen.has(node.id)) {
+      seen.set(node.id, { node, relationType: edge.relationType });
+      if ((edge.relationType === "PREQUEL" || edge.relationType === "SEQUEL") && seen.size < 18) {
+        frontier.push(node.id);
+      }
+    }
+  };
+
+  for (const edge of initialEdges) recordEdge(edge);
+
+  // Follow up to 4 hops along prequel/sequel chain in parallel batches so multi-season franchises appear completely.
+  const visited = new Set<number>([rootId]);
+  for (let hop = 0; hop < 4 && frontier.length > 0 && seen.size < 18; hop++) {
+    const batch = frontier.splice(0, 4).filter((nid) => !visited.has(nid));
+    if (!batch.length) break;
+    batch.forEach((nid) => visited.add(nid));
+    try {
+      const data = await gql<{
+        Page: {
+          media: {
+            id: number;
+            relations: { edges: AniRelationEdge[] };
+          }[];
+        };
+      }>(
+        `query ($ids: [Int]) {
+          Page(perPage: 10) {
+            media(id_in: $ids, type: ANIME) {
+              id
+              relations {
+                edges {
+                  relationType(version: 2)
+                  node {
+                    id idMal isAdult type
+                    title { english romaji }
+                    format episodes
+                    nextAiringEpisode { episode airingAt }
+                    status seasonYear
+                    coverImage { large medium }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { ids: batch },
+      );
+      for (const item of data.Page.media) {
+        for (const edge of item.relations.edges) recordEdge(edge);
+      }
+    } catch {
+      break;
+    }
+  }
+
+  return [...seen.values()]
+    .filter(({ node }) => node.id !== rootId)
+    .sort(
+      (a, b) => (a.node.seasonYear ?? 9999) - (b.node.seasonYear ?? 9999) || a.node.id - b.node.id,
+    )
+    .map(({ node, relationType }) => {
+      const epCount = node.nextAiringEpisode?.episode
+        ? Math.max(1, node.nextAiringEpisode.episode - 1)
+        : node.episodes;
+      return {
+        id: String(node.id),
+        source: "anilist" as const,
+        section: "anime" as const,
+        mediaType: node.format === "MOVIE" ? ("movie" as const) : ("tv" as const),
+        title: node.title.english || node.title.romaji || "Untitled",
+        relationType: relationLabel(relationType, node.format, node.status),
+        status: node.status ? node.status.replace(/_/g, " ").toLowerCase() : null,
+        format: node.format,
+        year: node.seasonYear,
+        episodesCount: epCount,
+        poster: node.coverImage.large ?? node.coverImage.medium ?? null,
+      };
+    });
+}
+
 export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
   type R = {
     Media: AniMedia & {
       streamingEpisodes: { title: string | null; thumbnail: string | null }[];
       externalLinks: { site: string; url: string; type: string | null }[] | null;
+      relations: { edges: AniRelationEdge[] };
       characters: {
         edges: {
           role: string;
@@ -224,6 +355,19 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
       ${MEDIA_FIELDS}
       streamingEpisodes { title thumbnail }
       externalLinks { site url type }
+      relations {
+        edges {
+          relationType(version: 2)
+          node {
+            id idMal isAdult type
+            title { english romaji }
+            format episodes
+            nextAiringEpisode { episode airingAt }
+            status seasonYear
+            coverImage { large medium }
+          }
+        }
+      }
       characters(perPage: 12, sort: [ROLE, RELEVANCE]) { edges { role node { name { full } image { medium } } } }
     } }`,
     { id: Number(id) },
@@ -256,10 +400,14 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
       runtime: m.duration,
     };
   });
+
+  const relations = await collectSeasonRelations(m.id, m.relations?.edges ?? []);
+
   return {
     ...base,
     episodesCount: episodes.length,
     episodes,
+    ...(relations?.length ? { relations } : {}),
     watchLinks: (m.externalLinks ?? [])
       .filter((l) => l.type === "STREAMING")
       .map((l) => ({ site: l.site, url: l.url })),

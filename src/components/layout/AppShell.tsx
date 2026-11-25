@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { ShadowMark, ShadowWordmark } from "@/components/branding/ShadowLogo";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useWatchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
 
@@ -14,6 +15,7 @@ function NavLinks({
   collapsed?: boolean;
   onNavigate?: () => void;
 }) {
+  const savedCount = useWatchlist().length;
   return (
     <nav className="space-y-1" aria-label="Main">
       {NAV_ITEMS.map(({ to, label, icon: Icon, accent }) => (
@@ -31,7 +33,10 @@ function NavLinks({
         >
           <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand-gradient opacity-0 transition group-data-[status=active]/nav:opacity-100" />
           <Icon className={cn("size-5 shrink-0 transition", accent)} />
-          {!collapsed && <span className="truncate">{label}</span>}
+          {!collapsed && <span className="flex-1 truncate">{label}</span>}
+          {!collapsed && to === "/watchlist" && savedCount > 0 && (
+            <span className="text-xs font-semibold tabular-nums text-cerulean">{savedCount}</span>
+          )}
         </Link>
       ))}
     </nav>
@@ -182,8 +187,8 @@ function Footer() {
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <ShadowWordmark />
         <p className="max-w-lg">
-          Anime data from AniList. Show data from TMDB or TVmaze. Playback uses sample streams until
-          a licensed stream source is connected.
+          Live streaming catalog for anime, cartoons, K-dramas, Hollywood, Bollywood and Tollywood.
+          New releases appear automatically.
         </p>
       </div>
     </footer>

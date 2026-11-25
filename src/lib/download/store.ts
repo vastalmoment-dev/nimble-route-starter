@@ -30,11 +30,16 @@ export const downloads = {
   snapshot: () => jobs,
   async start(req: StreamRequest) {
     const audio = req.audio ?? "sub";
-    const audioTag = req.source === "anilist" ? ` (${audio.toUpperCase()})` : "";
-    const id = `${req.source}:${req.id}:${req.episode}:${audio}`;
+    const includeSubs = Boolean(req.includeSubtitles);
+    const seasonTag = req.season && req.mediaType !== "movie" ? `S${req.season}` : "";
+    const isMovie = req.mediaType === "movie";
+    const subTag = req.source === "anilist" ? (includeSubs ? " + Subs" : " · No Subs") : "";
+    const audioTag = req.source === "anilist" ? ` (${audio.toUpperCase()}${subTag})` : "";
+    const id = `${req.source}:${req.id}:${req.season ?? 1}:${req.episode}:${audio}:${includeSubs ? "subs" : "nosubs"}`;
     const existing = jobs.find((j) => j.id === id);
     if (existing && (existing.status === "downloading" || existing.status === "resolving")) return;
-    const title = `${req.title} — Ep ${req.episode}${audioTag}`;
+    const epPart = isMovie ? "Full Movie" : `${seasonTag ? `${seasonTag}·` : ""}Ep ${req.episode}`;
+    const title = `${req.title} — ${epPart}${audioTag}`;
     jobs = [{ id, title, status: "resolving", progress: 0 }, ...jobs.filter((j) => j.id !== id)];
     emit();
     const controller = new AbortController();
@@ -42,10 +47,12 @@ export const downloads = {
     try {
       const stream = await resolveStream(req);
       update(id, { status: "downloading" });
+      const filePart = isMovie ? "Movie" : `${seasonTag ? `${seasonTag}_` : ""}E${req.episode}`;
       await downloadStream(stream, {
         filename: safeFilename(
-          `${req.title}_E${req.episode}${req.source === "anilist" ? `_${audio.toUpperCase()}` : ""}`,
+          `${req.title}_${filePart}${req.source === "anilist" ? `_${audio.toUpperCase()}${includeSubs ? "" : "_NoSub"}` : ""}`,
         ),
+        includeSubtitles: includeSubs,
         signal: controller.signal,
         onProgress: (p) => update(id, { progress: p }),
       });

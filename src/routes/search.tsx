@@ -86,7 +86,7 @@ function SearchPage() {
         />
         {term.length >= 2 && remote.isFetching && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Searching AniList and TVmaze…
+            <Loader2 className="size-3.5 animate-spin" /> Searching full catalog…
           </p>
         )}
       </div>

@@ -23,9 +23,14 @@ export interface StreamRequest {
   source: Source;
   id: string;
   episode: number;
+  season?: number | undefined;
+  mediaType?: "tv" | "movie" | undefined;
   title: string;
   audio?: AudioOption | undefined;
+  includeSubtitles?: boolean | undefined;
   malId?: number | null | undefined;
+  imdbId?: string | null | undefined;
+  tmdbId?: string | null | undefined;
   englishTitle?: string | null | undefined;
   romajiTitle?: string | null | undefined;
 }
@@ -55,6 +60,7 @@ export function endpointResolver(base: string): StreamResolver {
       u.searchParams.set("source", req.source);
       u.searchParams.set("id", req.id);
       u.searchParams.set("episode", String(req.episode));
+      if (req.season) u.searchParams.set("season", String(req.season));
       if (req.audio) u.searchParams.set("audio", req.audio);
       const res = await fetch(u.toString(), { headers: { Accept: "application/json" } });
       if (!res.ok) return null;
@@ -63,16 +69,16 @@ export function endpointResolver(base: string): StreamResolver {
       return {
         url: body.url,
         type: inferStreamType(body.url, body.type),
-        provider: u.host,
+        provider: "SHADOW Stream",
         isDemo: false,
       };
     },
   };
 }
 
-/** AniLast stream resolver for AniList anime titles (supports sub and dub). */
+/** Internal anime stream resolver (supports sub and dub). */
 export const aniLastResolver: StreamResolver = {
-  name: "anilast",
+  name: "anime-stream",
   async resolve(req) {
     if (req.source !== "anilist") return null;
     const { getAniLastAnimeStream } = await import("./anilast.functions");
@@ -91,7 +97,81 @@ export const aniLastResolver: StreamResolver = {
     return {
       url: result.streamUrl,
       type: result.type,
-      provider: result.provider,
+      provider: "SHADOW Stream",
+      isDemo: false,
+      subtitles: result.subtitles,
+    };
+  },
+};
+
+function extractImdbAndTmdb(req: StreamRequest): {
+  imdbId: string | null;
+  tmdbId: string | null;
+  mediaType: "movie" | "tv";
+} {
+  let imdbId = req.imdbId ?? null;
+  let tmdbId = req.tmdbId ?? null;
+  let mediaType: "movie" | "tv" = req.mediaType ?? "movie";
+
+  if (req.source === "cinemeta") {
+    const m = /^(movie|series)-(tt\d{5,10})$/.exec(req.id);
+    if (m) {
+      mediaType = m[1] === "movie" ? "movie" : "tv";
+      imdbId = m[2]!;
+    } else if (/^tt\d{5,10}$/.test(req.id)) {
+      imdbId = req.id;
+    }
+  } else if (req.source === "tmdb") {
+    const m = /^(movie|tv)-(\d+)$/.exec(req.id);
+    if (m) {
+      mediaType = m[1] === "movie" ? "movie" : "tv";
+      tmdbId = m[2]!;
+    }
+  } else if (req.source === "tvmaze") {
+    mediaType = "tv";
+  }
+
+  return { imdbId, tmdbId, mediaType };
+}
+
+/** Stream resolver for cartoons, movies, and series. */
+export const mediaStreamResolver: StreamResolver = {
+  name: "media-stream",
+  async resolve(req) {
+    if (req.source === "anilist") return null;
+    const extracted = extractImdbAndTmdb(req);
+    let imdbId = extracted.imdbId;
+    const { tmdbId, mediaType } = extracted;
+
+    // If a TVmaze or TMDB item is missing its IMDb/TMDB cross-ID (e.g. downloading straight from card/modal),
+    // fetch its full metadata once so we get the IMDb identifier cleanly.
+    if (!imdbId && !tmdbId && req.source === "tvmaze") {
+      try {
+        const { fetchShowDetail } = await import("@/lib/catalog/tvmaze");
+        const detail = await fetchShowDetail(req.id);
+        imdbId = detail.imdbId ?? null;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!imdbId && !tmdbId) return null;
+
+    const { getMediaStream } = await import("./media.functions");
+    const result = await getMediaStream({
+      data: {
+        mediaType,
+        imdbId,
+        tmdbId,
+        season: req.season ?? 1,
+        episode: req.episode,
+      },
+    });
+    if (!result.ok || !result.streamUrl) return null;
+    return {
+      url: result.streamUrl,
+      type: result.type,
+      provider: "SHADOW Stream",
       isDemo: false,
       subtitles: result.subtitles,
     };
@@ -116,12 +196,19 @@ export const hasStreamSource = Boolean(RESOLVER_BASE);
 
 /** True when the given item source can resolve a downloadable/playable stream. */
 export function canStreamSource(source?: Source): boolean {
-  return source === "anilist" || hasStreamSource;
+  return (
+    source === "anilist" ||
+    source === "cinemeta" ||
+    source === "tmdb" ||
+    source === "tvmaze" ||
+    hasStreamSource
+  );
 }
 
 function configuredResolvers(req: StreamRequest): StreamResolver[] {
   const list: StreamResolver[] = [];
   if (req.source === "anilist") list.push(aniLastResolver);
+  else list.push(mediaStreamResolver);
   if (RESOLVER_BASE) list.push(endpointResolver(RESOLVER_BASE));
   return list;
 }
@@ -139,5 +226,5 @@ export async function resolveStream(
       console.warn(`Stream resolver "${r.name}" failed`, error);
     }
   }
-  throw new Error("No downloadable stream is available for this episode yet.");
+  throw new Error("No downloadable stream is available for this title yet.");
 }

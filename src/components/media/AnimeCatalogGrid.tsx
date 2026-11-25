@@ -55,8 +55,8 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
           <h2 className="font-display text-xl font-bold sm:text-2xl">All Anime</h2>
           <p className="text-xs text-muted-foreground">
             {totalAvailable
-              ? `${totalAvailable.toLocaleString()} titles · Full episodes with Sub & Dub`
-              : "Browse the complete AniList catalog with Sub & Dub playback"}
+              ? `${totalAvailable.toLocaleString()} titles · Full seasons & episodes with Sub & Dub`
+              : "Browse the complete anime catalog with Sub & Dub playback"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

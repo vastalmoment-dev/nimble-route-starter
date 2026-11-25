@@ -6,6 +6,7 @@ import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
+import { WatchlistButton } from "./WatchlistButton";
 
 export function HeroCarousel({ items }: { items: MediaItem[] }) {
   const [index, setIndex] = useState(0);
@@ -93,6 +94,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
                     <Play /> Watch Now
                   </Link>
                 </Button>
+                <WatchlistButton item={item} />
                 <Button variant="glass" size="xl" onClick={() => open(item)}>
                   <Info /> More Info
                 </Button>

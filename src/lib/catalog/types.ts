@@ -1,4 +1,4 @@
-export type Source = "anilist" | "tvmaze" | "tmdb";
+export type Source = "anilist" | "tvmaze" | "tmdb" | "cinemeta";
 export type SectionId = "anime" | "k-dramas" | "hollywood" | "bollywood" | "tollywood" | "cartoons";
 
 export interface MediaItem {
@@ -27,6 +27,8 @@ export interface MediaItem {
   /** Licensed/self-hosted stream link; when set the watch view plays it instead of the trailer. */
   videoStreamUrl?: string | null;
   malId?: number | null;
+  imdbId?: string | null;
+  tmdbId?: string | null;
   englishTitle?: string | null;
   romajiTitle?: string | null;
   latestEpisode?: number | null;
@@ -48,9 +50,25 @@ export interface CastMember {
   image?: string | null;
 }
 
+export interface MediaRelation {
+  id: string;
+  source: Source;
+  section?: SectionId;
+  mediaType?: "tv" | "movie";
+  title: string;
+  relationType: string;
+  status?: string | null;
+  format?: string | null;
+  year?: number | null;
+  episodesCount?: number | null;
+  poster?: string | null;
+}
+
 export interface MediaDetail extends MediaItem {
   episodes: Episode[];
   cast: CastMember[];
+  seasons?: number[];
+  relations?: MediaRelation[];
   /** Official legal places to watch (e.g. Crunchyroll, Netflix). */
   watchLinks?: { site: string; url: string }[];
 }

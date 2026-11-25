@@ -8,30 +8,53 @@ import { cn } from "@/lib/utils";
 export function DownloadButton({
   item,
   episode = 1,
+  season,
   audio = "sub",
+  includeSubtitles = false,
   variant = "glass",
   compact = false,
   className,
 }: {
-  item: Pick<MediaItem, "source" | "id" | "title" | "malId" | "englishTitle" | "romajiTitle">;
+  item: Pick<
+    MediaItem,
+    | "source"
+    | "id"
+    | "title"
+    | "malId"
+    | "imdbId"
+    | "tmdbId"
+    | "mediaType"
+    | "englishTitle"
+    | "romajiTitle"
+  >;
   episode?: number;
+  season?: number | undefined;
   audio?: AudioOption | undefined;
+  includeSubtitles?: boolean | undefined;
   variant?: "glass" | "icon";
   compact?: boolean;
   className?: string;
 }) {
   const jobs = useDownloads();
   const trackAudio: AudioOption = audio ?? "sub";
-  const job = jobs.find((j) => j.id === `${item.source}:${item.id}:${episode}:${trackAudio}`);
+  const includeSubs = Boolean(includeSubtitles);
+  const seasonNum = season ?? 1;
+  const jobId = `${item.source}:${item.id}:${seasonNum}:${episode}:${trackAudio}:${includeSubs ? "subs" : "nosubs"}`;
+  const job = jobs.find((j) => j.id === jobId);
   const busy = job?.status === "resolving" || job?.status === "downloading";
   const done = job?.status === "done";
+  const isAnime = item.source === "anilist";
+  const isMovie = item.mediaType === "movie";
+
   const label = busy
     ? `${Math.round((job?.progress ?? 0) * 100)}%`
     : done
       ? "Saved"
-      : item.source === "anilist"
-        ? `Download ${trackAudio.toUpperCase()}`
-        : "Download";
+      : isAnime
+        ? `Download ${trackAudio.toUpperCase()}${includeSubs ? " + Subs" : " (No Subs)"}`
+        : isMovie
+          ? "Download Movie"
+          : "Download";
   if (!canStreamSource(item.source)) return null;
 
   return (
@@ -48,9 +71,14 @@ export function DownloadButton({
           source: item.source,
           id: item.id,
           episode,
+          season: seasonNum,
+          mediaType: item.mediaType,
           title: item.title,
           audio: trackAudio,
+          includeSubtitles: includeSubs,
           malId: item.malId,
+          imdbId: item.imdbId,
+          tmdbId: item.tmdbId,
           englishTitle: item.englishTitle,
           romajiTitle: item.romajiTitle,
         });

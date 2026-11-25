@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bookmark,
   Clapperboard,
   Drama,
   Home,
@@ -13,6 +14,7 @@ import {
 export const NAV_ITEMS: {
   to:
     | "/"
+    | "/watchlist"
     | "/anime"
     | "/k-dramas"
     | "/hollywood"
@@ -27,6 +29,12 @@ export const NAV_ITEMS: {
   accent: string;
 }[] = [
   { to: "/", label: "Home", icon: Home, accent: "group-data-[status=active]/nav:text-cerulean" },
+  {
+    to: "/watchlist",
+    label: "My Watchlist",
+    icon: Bookmark,
+    accent: "group-data-[status=active]/nav:text-cerulean",
+  },
   {
     to: "/anime",
     label: "Anime",

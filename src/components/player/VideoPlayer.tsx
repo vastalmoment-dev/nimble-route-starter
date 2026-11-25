@@ -2,6 +2,7 @@ import Hls, { type Level } from "hls.js";
 import {
   ArrowLeft,
   Captions,
+  FastForward,
   Gauge,
   Loader2,
   Maximize,
@@ -28,6 +29,9 @@ export interface VideoPlayerProps {
   poster?: string | null | undefined;
   onBack: () => void;
   onNext?: (() => void) | null | undefined;
+  nextLabel?: string | null | undefined;
+  /** Number of seconds to jump forward when Skip Intro is clicked (e.g. 85 for anime/movies). */
+  skipIntroSeconds?: number | undefined;
   /** Optional controls rendered on the right side of the top player bar. */
   topRight?: ReactNode | undefined;
   /** Shown over the video while paused (e.g. companion ad slot). */
@@ -46,6 +50,17 @@ function formatTime(t: number) {
   return h ? `${h}:${m.toString().padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
+const AUTO_NEXT_KEY = "shadow:auto-next";
+
+function readAutoNextPref(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(AUTO_NEXT_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
 export default function VideoPlayer({
   stream,
   title,
@@ -53,6 +68,8 @@ export default function VideoPlayer({
   poster,
   onBack,
   onNext,
+  nextLabel,
+  skipIntroSeconds = 85,
   topRight,
   pausedOverlay,
 }: VideoPlayerProps) {
@@ -76,16 +93,35 @@ export default function VideoPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [menu, setMenu] = useState<null | "settings">(null);
   const [error, setError] = useState<string | null>(null);
+  const [introDismissed, setIntroDismissed] = useState(false);
+  const [autoNext, setAutoNext] = useState<boolean>(readAutoNextPref);
+  const [upNextIn, setUpNextIn] = useState<number | null>(null);
+  const [endedManual, setEndedManual] = useState(false);
   const subtitles = useMemo(() => stream.subtitles ?? [], [stream.subtitles]);
   const [subTrack, setSubTrack] = useState<number>(() => (subtitles.length > 0 ? 0 : -1));
 
   useEffect(() => {
     setSubTrack(subtitles.length > 0 ? 0 : -1);
+    setIntroDismissed(false);
+    setUpNextIn(null);
+    setEndedManual(false);
   }, [stream.url, subtitles.length]);
+
+  const toggleAutoNext = useCallback(() => {
+    setAutoNext((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(AUTO_NEXT_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v?.textTracks) return;
     const syncTracks = () => {
       for (let i = 0; i < v.textTracks.length; i++) {
         const track = v.textTracks[i];
@@ -93,8 +129,8 @@ export default function VideoPlayer({
       }
     };
     syncTracks();
-    v.textTracks.addEventListener("addtrack", syncTracks);
-    return () => v.textTracks.removeEventListener("addtrack", syncTracks);
+    v.textTracks.addEventListener?.("addtrack", syncTracks);
+    return () => v.textTracks?.removeEventListener?.("addtrack", syncTracks);
   }, [subTrack, subtitles]);
 
   // Attach the source: hls.js where MSE exists, native HLS on Safari/iOS, plain src for MP4.
@@ -111,7 +147,7 @@ export default function VideoPlayer({
       hlsRef.current = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         setLevels(data.levels);
-        void video.play().catch(() => setPlaying(false));
+        void video.play?.()?.catch?.(() => setPlaying(false));
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setActiveLevel(data.level));
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -133,10 +169,18 @@ export default function VideoPlayer({
       return;
     }
     video.src = stream.url;
-    void video.play().catch(() => setPlaying(false));
+    try {
+      void video.play?.()?.catch?.(() => setPlaying(false));
+    } catch {
+      setPlaying(false);
+    }
     return () => {
       video.removeAttribute("src");
-      video.load();
+      try {
+        video.load?.();
+      } catch {
+        /* ignore */
+      }
     };
   }, [stream.url, stream.type]);
 
@@ -174,6 +218,25 @@ export default function VideoPlayer({
       }
     }, 2800);
   }, []);
+
+  const skipIntro = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || skipIntroSeconds <= 0) return;
+    const maxTarget = Number.isFinite(v.duration) && v.duration > 5 ? v.duration - 2 : Infinity;
+    v.currentTime = Math.min(maxTarget, v.currentTime + skipIntroSeconds);
+    setIntroDismissed(true);
+  }, [skipIntroSeconds]);
+
+  useEffect(() => {
+    if (upNextIn === null) return;
+    if (upNextIn <= 0) {
+      setUpNextIn(null);
+      onNext?.();
+      return;
+    }
+    const timer = setTimeout(() => setUpNextIn((n) => (n !== null ? n - 1 : null)), 1000);
+    return () => clearTimeout(timer);
+  }, [upNextIn, onNext]);
 
   useEffect(() => {
     const onFs = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -217,6 +280,9 @@ export default function VideoPlayer({
         case "m":
           toggleMute();
           break;
+        case "s":
+          skipIntro();
+          break;
         default:
           return;
       }
@@ -224,7 +290,7 @@ export default function VideoPlayer({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, seekBy, toggleFullscreen, toggleMute, poke]);
+  }, [togglePlay, seekBy, toggleFullscreen, toggleMute, skipIntro, poke]);
 
   useEffect(
     () => () => {
@@ -303,7 +369,11 @@ export default function VideoPlayer({
           setVolume(e.currentTarget.volume);
           setMuted(e.currentTarget.muted);
         }}
-        onEnded={() => onNext?.()}
+        onEnded={() => {
+          if (!onNext) return;
+          if (autoNext) setUpNextIn(3);
+          else setEndedManual(true);
+        }}
         onError={() => setError("This stream couldn't be played.")}
       >
         {subtitles.map((t, i) => (
@@ -331,7 +401,65 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {!playing && !waiting && !error && pausedOverlay}
+      {!playing && !waiting && !error && upNextIn === null && !endedManual && pausedOverlay}
+
+      {skipIntroSeconds > 0 &&
+        !introDismissed &&
+        !error &&
+        !waiting &&
+        upNextIn === null &&
+        current < 240 &&
+        (duration === 0 || duration > current + 25) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              skipIntro();
+            }}
+            className="absolute bottom-24 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-foreground/20 bg-scrim/85 px-4 py-2 font-display text-xs font-semibold text-foreground shadow-card backdrop-blur-md transition hover:border-cerulean hover:bg-brand-gradient hover:text-primary-foreground sm:bottom-28 sm:right-6"
+          >
+            <FastForward className="size-3.5" />
+            <span>Skip Intro</span>
+          </button>
+        )}
+
+      {onNext && (upNextIn !== null || endedManual) && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute bottom-24 right-4 z-20 w-72 rounded-2xl border border-foreground/15 bg-popover/95 p-4 shadow-card backdrop-blur-xl sm:bottom-28 sm:right-6"
+        >
+          <p className="text-[11px] font-bold uppercase tracking-wider text-cerulean">
+            {upNextIn !== null ? `Up next in ${upNextIn}s` : "Episode finished"}
+          </p>
+          <p className="mt-1 truncate font-display text-sm font-semibold">
+            {nextLabel || "Next episode"}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setUpNextIn(null);
+                setEndedManual(false);
+                onNext();
+              }}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-brand-gradient px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:brightness-110"
+            >
+              <SkipForward className="size-3.5" />
+              <span>Play Next</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setUpNextIn(null);
+                setEndedManual(false);
+              }}
+              className="rounded-full border border-foreground/15 px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:bg-foreground/10 hover:text-foreground"
+            >
+              Stay
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Top bar */}
       <div
@@ -415,6 +543,16 @@ export default function VideoPlayer({
               <SkipForward />
             </CtrlButton>
           )}
+          {skipIntroSeconds > 0 && !introDismissed && current < 240 && (
+            <button
+              type="button"
+              onClick={skipIntro}
+              className="hidden items-center gap-1 rounded-full border border-foreground/15 bg-foreground/10 px-2.5 py-1 text-xs font-medium text-foreground/90 transition hover:border-cerulean/60 hover:bg-cerulean/20 sm:inline-flex"
+            >
+              <FastForward className="size-3.5" />
+              <span>Skip Intro</span>
+            </button>
+          )}
           <div className="group/vol flex items-center">
             <CtrlButton label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
               <VolumeIcon />
@@ -441,6 +579,22 @@ export default function VideoPlayer({
             <span className="text-muted-foreground">/ {formatTime(duration)}</span>
           </span>
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            {onNext && (
+              <button
+                type="button"
+                onClick={toggleAutoNext}
+                aria-pressed={autoNext}
+                title="Automatically play the next episode when this one finishes"
+                className={cn(
+                  "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition sm:inline-flex",
+                  autoNext
+                    ? "border-cerulean/50 bg-cerulean/20 text-foreground"
+                    : "border-foreground/15 bg-foreground/5 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <span>Auto Next: {autoNext ? "On" : "Off"}</span>
+              </button>
+            )}
             <div className="relative">
               <CtrlButton label="Settings" onClick={() => setMenu((m) => (m ? null : "settings"))}>
                 <Settings className={cn("transition", menu && "rotate-45")} />
@@ -504,6 +658,14 @@ export default function VideoPlayer({
                       </button>
                     ))}
                   </div>
+                  {onNext && (
+                    <>
+                      <div className="my-1.5 h-px bg-foreground/10" />
+                      <MenuItem active={autoNext} onClick={toggleAutoNext}>
+                        <span>Auto-play next episode</span>
+                      </MenuItem>
+                    </>
+                  )}
                 </div>
               )}
             </div>

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Play, Star } from "lucide-react";
+import { Bookmark, BookmarkCheck, Play, Star } from "lucide-react";
 import type { MediaItem } from "@/lib/catalog/types";
+import { useIsInWatchlist, watchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
@@ -16,6 +17,7 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
 
 export function MediaCard({ item, className }: { item: MediaItem; className?: string }) {
   const { open } = useMediaModal();
+  const saved = useIsInWatchlist(item.key);
   const titleFallback = (
     <div className="flex size-full items-center justify-center p-3 text-center font-display text-sm text-muted-foreground">
       {item.title}
@@ -65,6 +67,27 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
             EP {item.latestEpisode}
           </span>
         )}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          watchlist.toggle(item);
+        }}
+        aria-label={
+          saved ? `Remove ${item.title} from watchlist` : `Save ${item.title} to watchlist`
+        }
+        aria-pressed={saved}
+        title={saved ? "Saved in My Watchlist" : "Save to My Watchlist"}
+        className={cn(
+          "absolute right-12 top-2 flex size-9 items-center justify-center rounded-full border border-foreground/15 bg-scrim/80 text-foreground backdrop-blur-md transition duration-300 focus-visible:opacity-100",
+          saved
+            ? "border-cerulean/60 bg-cerulean/25 text-cerulean opacity-100"
+            : "scale-75 opacity-0 group-hover/card:scale-100 group-hover/card:opacity-100",
+        )}
+      >
+        {saved ? <BookmarkCheck className="size-4" /> : <Bookmark className="size-4" />}
       </button>
       <Link
         to="/watch/$source/$id"

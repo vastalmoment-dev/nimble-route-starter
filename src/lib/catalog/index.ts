@@ -1,6 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
 import { fetchAnimeDetail, fetchAnimeShelves, searchAnime } from "./anilist";
+import { fetchCinemetaDetail, searchCinemeta } from "./cinemeta";
 import { loadFallbackCatalog } from "./fallback";
+import { getLiveSectionCatalog } from "./media.functions";
 import { buildShelves, dedupe, interleave, pickFeatured } from "./shelves";
 import { getTmdbDetail, getTmdbSection } from "./tmdb.functions";
 import { fetchShowDetail, searchShows } from "./tvmaze";
@@ -37,18 +39,23 @@ async function loadAnime(): Promise<SectionCatalog> {
     featured: pickFeatured(s.trending, 6),
     shelves,
     items,
-    provider: "AniList · AniLast",
+    provider: "SHADOW Live Catalog",
   };
 }
 
 async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
+  try {
+    const live = await getLiveSectionCatalog({ data: { section } });
+    if (live.items.length) return live;
+  } catch {
+    // Fall through to TMDB / bundled fallback if server catalog call fails.
+  }
+
   let items: MediaItem[] = [];
-  let provider = "Shadow catalog (TVmaze)";
   try {
     const tmdb = await getTmdbSection({ data: { section } });
     if (tmdb.enabled && tmdb.items.length) {
       items = dedupe(tmdb.items);
-      provider = "TMDB";
     }
   } catch {
     // Server function unavailable — fall through to the bundled catalog.
@@ -60,7 +67,7 @@ async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
     featured: pickFeatured(items, 6),
     shelves: buildShelves(items, label),
     items,
-    provider,
+    provider: "SHADOW Live Catalog",
   };
 }
 
@@ -82,6 +89,11 @@ export async function loadHome(): Promise<SectionCatalog> {
   if (!results.length) throw new Error("No catalog source is reachable right now.");
   const shelf = (id: string) => results.map((r) => r.shelves.find((s) => s.id === id)?.items ?? []);
   const shelves = [
+    {
+      id: "new-releases",
+      title: "New Movies & Episodes Just Out",
+      items: interleave(...shelf("new-releases"), ...shelf("latest")).slice(0, 30),
+    },
     { id: "trending", title: "Trending Now", items: interleave(...shelf("trending")).slice(0, 30) },
     {
       id: "action",
@@ -103,12 +115,13 @@ export async function loadHome(): Promise<SectionCatalog> {
     featured,
     shelves,
     items: dedupe(results.flatMap((r) => r.items)),
-    provider: results.map((r) => r.provider).join(" · "),
+    provider: "SHADOW Live Catalog",
   };
 }
 
 export async function loadDetail(source: Source, id: string): Promise<MediaDetail> {
   if (source === "anilist") return fetchAnimeDetail(id);
+  if (source === "cinemeta") return fetchCinemetaDetail(id);
   if (source === "tvmaze") return fetchShowDetail(id);
   const detail = await getTmdbDetail({ data: { id } });
   if (!detail) throw new Error("This title is unavailable right now.");
@@ -116,8 +129,12 @@ export async function loadDetail(source: Source, id: string): Promise<MediaDetai
 }
 
 export async function searchAll(q: string): Promise<MediaItem[]> {
-  const [anime, shows] = await Promise.all([settle(searchAnime(q)), settle(searchShows(q))]);
-  return interleave(anime ?? [], shows ?? []);
+  const [anime, cinemeta, shows] = await Promise.all([
+    settle(searchAnime(q)),
+    settle(searchCinemeta(q)),
+    settle(searchShows(q)),
+  ]);
+  return interleave(anime ?? [], cinemeta ?? [], shows ?? []);
 }
 
 const STALE = 1000 * 60 * 10;

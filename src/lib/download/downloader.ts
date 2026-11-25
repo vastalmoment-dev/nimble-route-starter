@@ -3,6 +3,7 @@ import { isMasterPlaylist, parseMasterPlaylist, parseMediaPlaylist, pickVariant 
 
 export interface DownloadOptions {
   filename: string;
+  includeSubtitles?: boolean | undefined;
   signal?: AbortSignal;
   onProgress?: (fraction: number) => void;
 }
@@ -97,6 +98,25 @@ async function downloadFile(stream: ResolvedStream, opts: DownloadOptions) {
   }
 }
 
-export function downloadStream(stream: ResolvedStream, opts: DownloadOptions) {
-  return stream.type === "hls" ? downloadHls(stream, opts) : downloadFile(stream, opts);
+async function maybeDownloadSubtitle(stream: ResolvedStream, opts: DownloadOptions) {
+  if (!opts.includeSubtitles || !stream.subtitles?.length) return;
+  const preferred =
+    stream.subtitles.find(
+      (s) => s.lang.toLowerCase().startsWith("en") || /english/i.test(s.label),
+    ) ?? stream.subtitles[0];
+  if (!preferred) return;
+  try {
+    const res = await fetch(preferred.url, opts.signal ? { signal: opts.signal } : {});
+    if (!res.ok) return;
+    const vtt = await res.text();
+    if (!vtt.trim()) return;
+    saveBlob(new Blob([vtt], { type: "text/vtt; charset=utf-8" }), `${opts.filename}.vtt`);
+  } catch {
+    /* subtitle download is optional */
+  }
+}
+
+export async function downloadStream(stream: ResolvedStream, opts: DownloadOptions) {
+  await (stream.type === "hls" ? downloadHls(stream, opts) : downloadFile(stream, opts));
+  await maybeDownloadSubtitle(stream, opts);
 }

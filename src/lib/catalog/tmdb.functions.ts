@@ -144,7 +144,7 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
     if (!key) return null;
     const [type, rawId] = data.id.split("-") as ["tv" | "movie", string];
     try {
-      const res = await tmdbFetch(`/${type}/${rawId}?append_to_response=credits`, key);
+      const res = await tmdbFetch(`/${type}/${rawId}?append_to_response=credits,external_ids`, key);
       if (!res.ok) return null;
       const r = (await res.json()) as TmdbRow & {
         runtime?: number;
@@ -153,6 +153,8 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         networks?: { name: string }[];
         number_of_episodes?: number;
         seasons?: { season_number: number; episode_count: number }[];
+        belongs_to_collection?: { id: number; name: string } | null;
+        external_ids?: { imdb_id?: string | null };
         credits?: { cast: { name: string; character: string; profile_path: string | null }[] };
       };
       const lang = r.original_language;
@@ -167,30 +169,39 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
               : "hollywood";
       const base = mapRow(r, type, section);
       let episodes: MediaDetail["episodes"] = [];
+      let seasons: number[] = [];
+      let relations: NonNullable<MediaDetail["relations"]> = [];
       if (type === "tv") {
-        const seasonNo = r.seasons?.find((s) => s.season_number > 0)?.season_number ?? 1;
-        const sRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key);
-        if (sRes.ok) {
-          const season = (await sRes.json()) as {
-            episodes: {
-              id: number;
-              episode_number: number;
-              name: string;
-              still_path: string | null;
-              overview: string;
-              runtime: number | null;
-            }[];
-          };
-          episodes = season.episodes.map((e) => ({
-            id: String(e.id),
-            number: e.episode_number,
-            season: seasonNo,
-            title: `S${seasonNo}·E${e.episode_number} — ${e.name}`,
-            thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
-            description: e.overview,
-            runtime: e.runtime,
-          }));
-        }
+        const validSeasons = (r.seasons ?? [])
+          .filter((s) => s.season_number > 0)
+          .map((s) => s.season_number);
+        seasons = validSeasons.length ? validSeasons : [1];
+        const seasonResults = await Promise.all(
+          seasons.slice(0, 12).map(async (seasonNo) => {
+            const sRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key);
+            if (!sRes.ok) return [];
+            const season = (await sRes.json()) as {
+              episodes: {
+                id: number;
+                episode_number: number;
+                name: string;
+                still_path: string | null;
+                overview: string;
+                runtime: number | null;
+              }[];
+            };
+            return season.episodes.map((e) => ({
+              id: String(e.id),
+              number: e.episode_number,
+              season: seasonNo,
+              title: `S${seasonNo}·E${e.episode_number} — ${e.name}`,
+              thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
+              description: e.overview,
+              runtime: e.runtime,
+            }));
+          }),
+        );
+        episodes = seasonResults.flat();
       } else {
         episodes = [
           {
@@ -202,14 +213,52 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
             runtime: r.runtime ?? null,
           },
         ];
+        if (r.belongs_to_collection?.id) {
+          try {
+            const colRes = await tmdbFetch(`/collection/${r.belongs_to_collection.id}`, key);
+            if (colRes.ok) {
+              const col = (await colRes.json()) as {
+                parts?: (TmdbRow & { release_date?: string })[];
+              };
+              const currentYear = new Date().getFullYear();
+              relations = (col.parts ?? [])
+                .filter((p) => String(p.id) !== rawId)
+                .sort((a, b) => (a.release_date ?? "9999").localeCompare(b.release_date ?? "9999"))
+                .map((p) => {
+                  const yr = p.release_date ? Number(p.release_date.slice(0, 4)) : null;
+                  const isFuture = Boolean(yr && yr > currentYear);
+                  const isSequel = Boolean(yr && base.year && yr > base.year);
+                  return {
+                    id: `movie-${p.id}`,
+                    source: "tmdb" as const,
+                    section,
+                    mediaType: "movie" as const,
+                    title: p.title ?? p.name ?? "Untitled",
+                    relationType: isFuture ? "Upcoming Sequel" : isSequel ? "Sequel" : "Part",
+                    status: isFuture ? "upcoming" : null,
+                    format: "MOVIE",
+                    year: yr,
+                    episodesCount: 1,
+                    poster: p.poster_path ? `${IMG}/w342${p.poster_path}` : null,
+                  };
+                });
+            }
+          } catch {
+            /* collection optional */
+          }
+        }
       }
       return {
         ...base,
+        tmdbId: rawId,
+        imdbId: r.external_ids?.imdb_id ?? null,
         runtime: r.runtime ?? r.episode_run_time?.[0] ?? null,
         status: r.status ?? null,
         network: r.networks?.[0]?.name ?? null,
-        episodesCount: r.number_of_episodes ?? null,
+        episodesCount: r.number_of_episodes ?? episodes.length,
         episodes,
+        ...(seasons.length ? { seasons } : {}),
+        ...(relations.length ? { relations } : {}),
         cast: (r.credits?.cast ?? []).slice(0, 14).map((c) => ({
           name: c.name,
           role: c.character,

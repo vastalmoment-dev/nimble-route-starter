@@ -6,6 +6,7 @@ import { PromoBanner } from "@/components/ads/PromoBanner";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
+import { useWatchlist } from "@/lib/watchlist/store";
 import type { ReactNode } from "react";
 import { GenreChips } from "./GenreChips";
 import { HeroCarousel, HeroSkeleton } from "./HeroCarousel";
@@ -20,6 +21,18 @@ export function SectionPage({
 }) {
   const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section));
   const [genres, setGenres] = useState<GenreChipId[]>([]);
+  const watchlistEntries = useWatchlist();
+
+  const watchlistItems = useMemo(
+    () =>
+      section === "home"
+        ? filterByGenres(
+            watchlistEntries.map((e) => e.item),
+            genres,
+          )
+        : [],
+    [section, watchlistEntries, genres],
+  );
 
   const shelves = useMemo(
     () =>
@@ -71,6 +84,7 @@ export function SectionPage({
           )}
           <GenreChips value={genres} onChange={setGenres} />
         </div>
+        {watchlistItems.length > 0 && <Shelf title="My Watchlist" items={watchlistItems} />}
         {shelves.length === 0 ? (
           <div className="px-4 py-16 text-center text-muted-foreground sm:px-8 lg:px-12">
             Nothing here matches those genres yet — try another mix.
@@ -89,9 +103,6 @@ export function SectionPage({
           ))
         )}
         {renderAfterShelves?.(genres)}
-        <p className="px-4 text-[11px] text-muted-foreground/60 sm:px-8 lg:px-12">
-          Metadata: {data.provider}
-        </p>
       </div>
     </div>
   );

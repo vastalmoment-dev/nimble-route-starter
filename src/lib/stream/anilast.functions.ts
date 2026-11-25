@@ -107,11 +107,11 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
           ok: false,
           streamUrl: null,
           type: "hls",
-          provider: "AniLast",
+          provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
           embedUrl,
-          error: `AniLast stream returned ${res.status}`,
+          error: `Stream server returned ${res.status}`,
         };
       }
       const json = (await res.json()) as AniLastApiResponse;
@@ -120,11 +120,11 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
           ok: false,
           streamUrl: null,
           type: "hls",
-          provider: json.provider ?? "AniLast",
+          provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
           embedUrl,
-          error: json.error ?? "Direct stream unavailable; use embedded player.",
+          error: json.error ?? "Direct stream unavailable; use alternate player.",
         };
       }
 
@@ -142,22 +142,22 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         ok: true,
         streamUrl,
         type: inferStreamType(streamUrl, json.type),
-        provider: json.provider ? `AniLast (${json.provider})` : "AniLast",
+        provider: "SHADOW Stream",
         quality: json.quality ?? null,
         subtitles,
         embedUrl,
       };
     } catch (error) {
-      console.error("AniLast stream lookup failed", error);
+      console.error("Anime stream lookup failed", error);
       return {
         ok: false,
         streamUrl: null,
         type: "hls",
-        provider: "AniLast",
+        provider: "SHADOW Stream",
         quality: null,
         subtitles: [],
         embedUrl,
-        error: "Could not reach AniLast right now.",
+        error: "Stream server temporarily unavailable.",
       };
     }
   });

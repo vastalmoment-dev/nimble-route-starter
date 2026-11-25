@@ -64,6 +64,7 @@ export async function searchShows(q: string): Promise<MediaItem[]> {
 
 export async function fetchShowDetail(id: string): Promise<MediaDetail> {
   type R = TvmShow & {
+    externals?: { imdb?: string | null; thetvdb?: number | null } | null;
     _embedded?: {
       cast?: {
         person: { name: string; image: { medium: string } | null };
@@ -79,28 +80,40 @@ export async function fetchShowDetail(id: string): Promise<MediaDetail> {
         summary: string | null;
       }[];
       images?: { type: string; resolutions: { original: { url: string; width?: number } } }[];
+      seasons?: { number: number }[];
     };
   };
-  const s = await get<R>(`/shows/${id}?embed[]=cast&embed[]=episodes&embed[]=images`);
+  const s = await get<R>(
+    `/shows/${id}?embed[]=cast&embed[]=episodes&embed[]=images&embed[]=seasons`,
+  );
   const base = mapShow(s);
   const bg = s._embedded?.images
     ?.filter((i) => i.type === "background")
     .sort((a, b) => (b.resolutions.original.width ?? 0) - (a.resolutions.original.width ?? 0))[0];
-  const episodes = (s._embedded?.episodes ?? [])
-    .filter((e) => e.number != null)
-    .map((e, i) => ({
-      id: String(e.id),
-      number: i + 1,
-      season: e.season,
-      title: `S${e.season}·E${e.number} — ${e.name}`,
-      thumbnail: e.image?.medium ?? null,
-      description: stripHtml(e.summary),
-      runtime: e.runtime,
-    }));
+  const rawEpisodes = (s._embedded?.episodes ?? []).filter((e) => e.number != null);
+  const seasonSet = new Set<number>(rawEpisodes.map((e) => e.season));
+  for (const sn of s._embedded?.seasons ?? []) {
+    if (sn.number > 0) seasonSet.add(sn.number);
+  }
+  const seasons = [...seasonSet].sort((a, b) => a - b);
+  const episodes = rawEpisodes.map((e, i) => ({
+    id: String(e.id),
+    number: e.number ?? i + 1,
+    season: e.season,
+    title: `S${e.season}·E${e.number} — ${e.name}`,
+    thumbnail: e.image?.medium ?? null,
+    description: stripHtml(e.summary),
+    runtime: e.runtime,
+  }));
+  const imdbId =
+    s.externals?.imdb && /^tt\d{5,10}$/.test(s.externals.imdb) ? s.externals.imdb : null;
   return {
     ...base,
+    imdbId,
     backdrop: bg?.resolutions.original.url ?? null,
+    episodesCount: episodes.length,
     episodes,
+    ...(seasons.length ? { seasons } : {}),
     cast: (s._embedded?.cast ?? []).slice(0, 14).map((c) => ({
       name: c.person.name,
       role: c.character.name,
