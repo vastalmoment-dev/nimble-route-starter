@@ -29,6 +29,7 @@ export interface MediaItem {
   malId?: number | null;
   englishTitle?: string | null;
   romajiTitle?: string | null;
+  latestEpisode?: number | null;
 }
 
 export interface Episode {

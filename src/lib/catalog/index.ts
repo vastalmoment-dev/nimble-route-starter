@@ -18,7 +18,12 @@ type NonAnime = Exclude<SectionId, "anime">;
 async function loadAnime(): Promise<SectionCatalog> {
   const s = await fetchAnimeShelves();
   const shelves = [
+    ...(s.latest.length ? [{ id: "latest", title: "New Episodes Just Out", items: s.latest }] : []),
+    ...(s.airing.length
+      ? [{ id: "airing", title: "New & Airing This Season", items: s.airing }]
+      : []),
     { id: "trending", title: "Trending Anime", items: s.trending },
+    { id: "popular", title: "All-Time Popular", items: s.popular },
     { id: "action", title: "Action Blockbusters", items: s.action },
     { id: "horror", title: "Zombie & Horror", items: s.horror },
     { id: "scifi", title: "Sci-Fi Epics", items: s.scifi },
@@ -116,12 +121,13 @@ export async function searchAll(q: string): Promise<MediaItem[]> {
 }
 
 const STALE = 1000 * 60 * 10;
+const ANIME_STALE = 1000 * 60 * 3;
 
 export const sectionQuery = (section: SectionId | "home") =>
   queryOptions({
     queryKey: ["section", section],
     queryFn: () => (section === "home" ? loadHome() : loadSection(section)),
-    staleTime: STALE,
+    staleTime: section === "anime" ? ANIME_STALE : STALE,
   });
 
 export const detailQuery = (source: Source, id: string) =>

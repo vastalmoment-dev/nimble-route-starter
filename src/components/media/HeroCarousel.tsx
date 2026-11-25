@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
+import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
 
 export function HeroCarousel({ items }: { items: MediaItem[] }) {
@@ -38,9 +39,11 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
               active ? "opacity-100" : "pointer-events-none opacity-0",
             )}
           >
-            <img
-              src={item.backdrop ?? item.posterHd ?? item.poster ?? ""}
-              alt=""
+            <MediaImage
+              src={item.backdrop ?? item.posterHd ?? item.poster}
+              fallbackSrc={item.posterHd ?? item.poster}
+              source={item.source}
+              itemId={item.id}
               className={cn(
                 "absolute inset-0 size-full object-cover object-[center_25%] transition-transform duration-[9000ms] ease-out",
                 active ? "scale-105" : "scale-100",

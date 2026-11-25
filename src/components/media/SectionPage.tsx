@@ -6,11 +6,18 @@ import { PromoBanner } from "@/components/ads/PromoBanner";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
+import type { ReactNode } from "react";
 import { GenreChips } from "./GenreChips";
 import { HeroCarousel, HeroSkeleton } from "./HeroCarousel";
 import { Shelf, ShelfSkeleton } from "./Shelf";
 
-export function SectionPage({ section }: { section: SectionId | "home" }) {
+export function SectionPage({
+  section,
+  renderAfterShelves,
+}: {
+  section: SectionId | "home";
+  renderAfterShelves?: ((genres: GenreChipId[]) => ReactNode) | undefined;
+}) {
   const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section));
   const [genres, setGenres] = useState<GenreChipId[]>([]);
 
@@ -81,6 +88,7 @@ export function SectionPage({ section }: { section: SectionId | "home" }) {
             </Fragment>
           ))
         )}
+        {renderAfterShelves?.(genres)}
         <p className="px-4 text-[11px] text-muted-foreground/60 sm:px-8 lg:px-12">
           Metadata: {data.provider}
         </p>

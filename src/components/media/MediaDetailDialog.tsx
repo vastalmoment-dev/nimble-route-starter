@@ -10,6 +10,7 @@ import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import type { AudioOption } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
 import { DownloadButton } from "./DownloadButton";
+import { MediaImage } from "./MediaImage";
 
 export function MediaDetailDialog({
   item,
@@ -40,8 +41,14 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
 
   return (
     <div>
-      <div className="relative aspect-video max-h-[46vh] w-full overflow-hidden">
-        {art && <img src={art} alt="" className="size-full object-cover object-[center_25%]" />}
+      <div className="relative aspect-video max-h-[46vh] w-full overflow-hidden bg-surface">
+        <MediaImage
+          src={art}
+          fallbackSrc={item.posterHd ?? item.poster}
+          source={item.source}
+          itemId={item.id}
+          className="size-full object-cover object-[center_25%]"
+        />
         <div className="absolute inset-0 bg-hero-bottom" />
         <div className="absolute inset-x-0 bottom-0 space-y-4 p-6 sm:p-8">
           <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
@@ -155,6 +162,7 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
                           src={c.image}
                           alt=""
                           loading="lazy"
+                          referrerPolicy="no-referrer"
                           className="size-full object-cover"
                         />
                       )}
@@ -190,68 +198,103 @@ function DetailBody({ item, onClose }: { item: MediaItem; onClose: () => void })
                 Episode list is unavailable right now.
               </p>
             )}
-            <ol className="space-y-1.5">
-              {visible.map((ep) => (
-                <li
-                  key={ep.id}
-                  className="group/ep flex items-center gap-3 rounded-lg p-2 transition hover:bg-surface"
-                >
-                  <span className="w-6 shrink-0 text-center font-display text-sm text-muted-foreground">
-                    {ep.number}
-                  </span>
-                  <Link
-                    to="/watch/$source/$id"
-                    params={{ source: item.source, id: item.id }}
-                    search={isAnime ? { ep: ep.number, audio } : { ep: ep.number }}
-                    onClick={onClose}
-                    className="flex min-w-0 flex-1 items-center gap-3"
+            {isAnime ? (
+              <ol className="flex max-h-96 flex-col gap-1 overflow-y-auto pr-1">
+                {episodes.map((ep) => (
+                  <li
+                    key={ep.id}
+                    className="group/ep flex items-center justify-between rounded-lg border border-foreground/5 bg-surface/60 px-3 py-2 transition hover:border-cerulean/40 hover:bg-surface"
                   >
-                    <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-md bg-surface">
-                      {ep.thumbnail && (
-                        <img
-                          src={ep.thumbnail}
-                          alt=""
-                          loading="lazy"
-                          className="size-full object-cover"
-                        />
-                      )}
-                      <span className="absolute inset-0 flex items-center justify-center bg-scrim/50 opacity-0 transition group-hover/ep:opacity-100">
-                        <Play className="size-4 fill-current" />
+                    <Link
+                      to="/watch/$source/$id"
+                      params={{ source: item.source, id: item.id }}
+                      search={{ ep: ep.number, audio }}
+                      onClick={onClose}
+                      className="flex flex-1 items-center font-display text-sm font-semibold tabular-nums"
+                    >
+                      {ep.number}
+                    </Link>
+                    <DownloadButton
+                      item={d}
+                      episode={ep.number}
+                      audio={audio}
+                      variant="icon"
+                      compact
+                    />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <>
+                <ol className="space-y-1.5">
+                  {visible.map((ep) => (
+                    <li
+                      key={ep.id}
+                      className="group/ep flex items-center gap-3 rounded-lg p-2 transition hover:bg-surface"
+                    >
+                      <span className="w-6 shrink-0 text-center font-display text-sm text-muted-foreground">
+                        {ep.number}
                       </span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{ep.title}</p>
-                      {ep.runtime ? (
-                        <p className="text-xs text-muted-foreground">{ep.runtime} min</p>
-                      ) : null}
-                    </div>
-                  </Link>
-                  <DownloadButton
-                    item={d}
-                    episode={ep.number}
-                    audio={audio}
-                    variant="icon"
-                    compact
-                  />
-                </li>
-              ))}
-            </ol>
-            {episodes.length > 12 && (
-              <Button variant="ghost" className="mt-2 w-full" onClick={() => setShowAll((s) => !s)}>
-                {showAll ? "Show fewer" : `Show all ${episodes.length} episodes`}
-              </Button>
+                      <Link
+                        to="/watch/$source/$id"
+                        params={{ source: item.source, id: item.id }}
+                        search={{ ep: ep.number }}
+                        onClick={onClose}
+                        className="flex min-w-0 flex-1 items-center gap-3"
+                      >
+                        <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-md bg-surface">
+                          {ep.thumbnail && (
+                            <img
+                              src={ep.thumbnail}
+                              alt=""
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              className="size-full object-cover"
+                            />
+                          )}
+                          <span className="absolute inset-0 flex items-center justify-center bg-scrim/50 opacity-0 transition group-hover/ep:opacity-100">
+                            <Play className="size-4 fill-current" />
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{ep.title}</p>
+                          {ep.runtime ? (
+                            <p className="text-xs text-muted-foreground">{ep.runtime} min</p>
+                          ) : null}
+                        </div>
+                      </Link>
+                      <DownloadButton
+                        item={d}
+                        episode={ep.number}
+                        audio={audio}
+                        variant="icon"
+                        compact
+                      />
+                    </li>
+                  ))}
+                </ol>
+                {episodes.length > 12 && (
+                  <Button
+                    variant="ghost"
+                    className="mt-2 w-full"
+                    onClick={() => setShowAll((s) => !s)}
+                  >
+                    {showAll ? "Show fewer" : `Show all ${episodes.length} episodes`}
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
         <div className="hidden md:block">
           <div className="sticky top-6 space-y-4">
-            {item.poster && (
-              <img
-                src={item.posterHd ?? item.poster}
-                alt=""
-                className="w-full rounded-xl shadow-card"
-              />
-            )}
+            <MediaImage
+              src={item.posterHd ?? item.poster}
+              fallbackSrc={item.poster}
+              source={item.source}
+              itemId={item.id}
+              className="w-full rounded-xl shadow-card"
+            />
             <AdSlot slot="rectangle" />
           </div>
         </div>

@@ -8,11 +8,31 @@ const ANILAST_HEADERS: Record<string, string> = {
   Accept: "*/*",
 };
 
+const ALLOWED_IMAGE_HOSTS = new Set([
+  "s4.anilist.co",
+  "anilist.co",
+  "img1.ak.crunchyroll.com",
+  "u.livechart.me",
+  "cdn.myanimelist.net",
+  "image.tmdb.org",
+  "anilast.xyz",
+]);
+
 function isValidTargetParam(target: string | null): boolean {
   if (!target || target.length > 2048) return false;
   try {
     const parsed = new URL(target);
     return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedImageUrl(target: string | null): boolean {
+  if (!isValidTargetParam(target)) return false;
+  try {
+    const parsed = new URL(target!);
+    return ALLOWED_IMAGE_HOSTS.has(parsed.hostname);
   } catch {
     return false;
   }
@@ -24,14 +44,61 @@ export function rewriteHlsPlaylist(body: string): string {
     .replaceAll("/api/proxy/hls", "/api/anilast/hls");
 }
 
+async function handleImageProxy(url: URL): Promise<Response> {
+  const id = url.searchParams.get("id");
+  const target = url.searchParams.get("url");
+  const validId = id && /^\d+$/.test(id) ? id : null;
+  const validUrl = isAllowedImageUrl(target) ? target : null;
+
+  if (!validId && !validUrl) {
+    return new Response("Invalid image parameters", { status: 400 });
+  }
+
+  const candidates: string[] = [];
+  if (validId) {
+    candidates.push(`${ANILAST_ORIGIN}/api/mirror/image/${validId}/cover.webp`);
+  }
+  if (validUrl) {
+    candidates.push(`${ANILAST_ORIGIN}/api/proxy/image?url=${encodeURIComponent(validUrl)}`);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const upstream = await fetch(candidate, {
+        headers: { ...ANILAST_HEADERS, Accept: "image/*" },
+        redirect: "follow",
+      });
+      const ct = upstream.headers.get("content-type") ?? "";
+      if (upstream.ok && ct.startsWith("image/")) {
+        return new Response(upstream.body, {
+          status: 200,
+          headers: {
+            "content-type": ct,
+            "cache-control": "public, max-age=86400",
+          },
+        });
+      }
+    } catch {
+      /* try next image candidate */
+    }
+  }
+
+  return new Response("Image unavailable", { status: 404 });
+}
+
 export async function handleAniLastProxyRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   const isHls = url.pathname === "/api/anilast/hls";
   const isSub = url.pathname === "/api/anilast/subtitle";
-  if (!isHls && !isSub) return null;
+  const isImage = url.pathname === "/api/anilast/image";
+  if (!isHls && !isSub && !isImage) return null;
 
   if (request.method !== "GET") {
     return new Response("Method not allowed", { status: 405 });
+  }
+
+  if (isImage) {
+    return handleImageProxy(url);
   }
 
   const target = url.searchParams.get("url");

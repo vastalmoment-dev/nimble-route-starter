@@ -63,4 +63,21 @@ describe("AniLast anime integration", () => {
       "https://anilast.xyz/watch/16498/3?anilistId=16498&lang=dub&title=Attack+on+Titan",
     );
   });
+
+  it("validates image proxy parameters and restricts image hostnames", async () => {
+    const missingParams = await handleAniLastProxyRequest(
+      new Request("http://localhost:3000/api/anilast/image"),
+    );
+    expect(missingParams?.status).toBe(400);
+
+    const disallowedHost = await handleAniLastProxyRequest(
+      new Request("http://localhost:3000/api/anilast/image?url=https://127.0.0.1/secret.png"),
+    );
+    expect(disallowedHost?.status).toBe(400);
+
+    const nonNumericId = await handleAniLastProxyRequest(
+      new Request("http://localhost:3000/api/anilast/image?id=../etc/passwd"),
+    );
+    expect(nonNumericId?.status).toBe(400);
+  });
 });

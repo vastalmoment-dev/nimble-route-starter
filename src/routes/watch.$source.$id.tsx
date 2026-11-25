@@ -322,13 +322,12 @@ function WatchPage() {
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
-          <ol className="space-y-1">
+          <ol className="flex flex-col gap-1">
             {(episodes.length
               ? episodes
               : Array.from({ length: Math.max(ep + 5, 12) }, (_, i) => ({
                   id: `${id}-${i + 1}`,
                   number: i + 1,
-                  title: `Episode ${i + 1}`,
                 }))
             ).map((item) => {
               const active = item.number === ep;
@@ -336,28 +335,17 @@ function WatchPage() {
                 <li
                   key={item.id}
                   className={cn(
-                    "flex items-center gap-2 rounded-lg p-2 transition",
+                    "flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition",
                     active ? "bg-cerulean/15 ring-1 ring-cerulean/40" : "hover:bg-surface",
                   )}
                 >
                   <button
                     type="button"
                     onClick={() => switchEpisode(item.number)}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                    className="flex flex-1 items-center gap-2 text-left font-display text-sm font-semibold tabular-nums"
                   >
-                    <span
-                      className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-md font-display text-xs font-semibold",
-                        active
-                          ? "bg-brand-gradient text-primary-foreground"
-                          : "bg-surface text-muted-foreground",
-                      )}
-                    >
-                      {active ? <Play className="size-3 fill-current" /> : item.number}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                      {item.title}
-                    </span>
+                    {active && <Play className="size-3.5 fill-current text-cerulean" />}
+                    <span>{item.number}</span>
                   </button>
                   <DownloadButton
                     item={downloadItem}
