@@ -10,7 +10,7 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  nitro: { preset: "node-server" },
+  nitro: { preset: "netlify" },
   vite: {
     server: {
       host: "0.0.0.0",
