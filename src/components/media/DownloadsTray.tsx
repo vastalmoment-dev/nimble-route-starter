@@ -6,7 +6,7 @@ export function DownloadsTray() {
   const jobs = useDownloads();
   if (!jobs.length) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-40 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover/95 shadow-card backdrop-blur-xl">
+    <div className="fixed bottom-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover/95 shadow-card backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         <Download className="size-3.5" /> Downloads
       </div>
@@ -16,8 +16,12 @@ export function DownloadsTray() {
           return (
             <li key={job.id} className="space-y-2 px-4 py-3">
               <div className="flex items-start gap-2">
-                {active && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-cerulean" />}
-                {job.status === "done" && <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-genre-cartoons" />}
+                {active && (
+                  <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-cerulean" />
+                )}
+                {job.status === "done" && (
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-genre-cartoons" />
+                )}
                 {(job.status === "error" || job.status === "cancelled") && (
                   <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
                 )}
@@ -25,7 +29,8 @@ export function DownloadsTray() {
                   <p className="truncate text-sm font-medium">{job.title}</p>
                   <p className="text-xs text-muted-foreground">
                     {job.status === "resolving" && "Finding stream…"}
-                    {job.status === "downloading" && `Saving for offline · ${Math.round(job.progress * 100)}%`}
+                    {job.status === "downloading" &&
+                      `Saving for offline · ${Math.round(job.progress * 100)}%`}
                     {job.status === "done" && "Saved to your device"}
                     {job.status === "cancelled" && "Cancelled"}
                     {job.status === "error" && job.error}

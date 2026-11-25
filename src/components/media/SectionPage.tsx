@@ -39,7 +39,9 @@ export function SectionPage({ section }: { section: SectionId | "home" }) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-4 text-center">
         <h1 className="font-display text-2xl font-bold">This shelf went dark</h1>
-        <p className="max-w-sm text-muted-foreground">We couldn't reach the catalog just now. Check your connection and try again.</p>
+        <p className="max-w-sm text-muted-foreground">
+          We couldn't reach the catalog just now. Check your connection and try again.
+        </p>
         <Button variant="brand" size="xl" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={isFetching ? "animate-spin" : ""} /> Try again
         </Button>
@@ -79,7 +81,9 @@ export function SectionPage({ section }: { section: SectionId | "home" }) {
             </Fragment>
           ))
         )}
-        <p className="px-4 text-[11px] text-muted-foreground/60 sm:px-8 lg:px-12">Metadata: {data.provider}</p>
+        <p className="px-4 text-[11px] text-muted-foreground/60 sm:px-8 lg:px-12">
+          Metadata: {data.provider}
+        </p>
       </div>
     </div>
   );

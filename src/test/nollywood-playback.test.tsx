@@ -3,7 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NollywoodPage } from "@/components/media/NollywoodPage";
 
 const navigation = vi.hoisted(() => ({ stop: () => {} }));
-const router = { subscribe: (_event: string, callback: () => void) => { navigation.stop = callback; return () => {}; } };
+const router = {
+  subscribe: (_event: string, callback: () => void) => {
+    navigation.stop = callback;
+    return () => {};
+  },
+};
 vi.mock("@/lib/catalog/nollywood.functions", () => ({ getNollywoodUploads: async () => [] }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => ({ data: [] }) }));
 vi.mock("@tanstack/react-router", () => ({ useRouter: () => router }));
@@ -18,7 +23,9 @@ describe("Nollywood inline movies", () => {
     fireEvent.click(view.getByRole("button", { name: "Watch Ruse" }));
     expect(first?.getAttribute("src")).toBe("about:blank");
     expect(view.container.querySelectorAll("iframe")).toHaveLength(1);
-    expect(view.container.querySelector("iframe")?.getAttribute("src")).toContain("/embed/3rNo06AZd-s");
+    expect(view.container.querySelector("iframe")?.getAttribute("src")).toContain(
+      "/embed/3rNo06AZd-s",
+    );
   });
 
   it("stops full-movie playback on navigation away", () => {

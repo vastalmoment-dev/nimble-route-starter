@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 export function stopTrailer(frame: HTMLIFrameElement | null) {
   if (!frame) return;
   try {
-    frame.contentWindow?.postMessage(JSON.stringify({ event: "command", func: "stopVideo", args: [] }), "https://www.youtube-nocookie.com");
+    frame.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func: "stopVideo", args: [] }),
+      "https://www.youtube-nocookie.com",
+    );
   } catch {
     // The iframe window may already be detached during route teardown.
   }
@@ -13,7 +16,12 @@ export function stopTrailer(frame: HTMLIFrameElement | null) {
   frame.src = "about:blank";
 }
 
-export function TrailerFrame({ youtubeId, title, registerStop, playbackLabel = "trailer" }: {
+export function TrailerFrame({
+  youtubeId,
+  title,
+  registerStop,
+  playbackLabel = "trailer",
+}: {
   youtubeId: string;
   title: string;
   registerStop: (stop: () => void) => () => void;
@@ -28,7 +36,9 @@ export function TrailerFrame({ youtubeId, title, registerStop, playbackLabel = "
 
   useEffect(() => registerStop(stop), [registerStop, stop]);
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) stop(); };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+    };
     window.addEventListener("pagehide", stop);
     document.addEventListener("visibilitychange", onVisibility);
     const element = frame.current;
@@ -43,17 +53,22 @@ export function TrailerFrame({ youtubeId, title, registerStop, playbackLabel = "
     };
   }, [stop, suspended, youtubeId]);
 
-  if (suspended) return (
-    <div className="flex size-full items-center justify-center">
-      <Button variant="glass" size="xl" onClick={() => setSuspended(false)}><Play /> Play {playbackLabel}</Button>
-    </div>
+  if (suspended)
+    return (
+      <div className="flex size-full items-center justify-center">
+        <Button variant="glass" size="xl" onClick={() => setSuspended(false)}>
+          <Play /> Play {playbackLabel}
+        </Button>
+      </div>
+    );
+  return (
+    <iframe
+      ref={frame}
+      className="size-full"
+      src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&enablejsapi=1`}
+      title={`${title} ${playbackLabel}`}
+      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      allowFullScreen
+    />
   );
-  return <iframe
-    ref={frame}
-    className="size-full"
-    src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&enablejsapi=1`}
-    title={`${title} ${playbackLabel}`}
-    allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-    allowFullScreen
-  />;
 }

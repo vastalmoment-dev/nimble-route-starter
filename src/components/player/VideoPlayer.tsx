@@ -1,6 +1,7 @@
 import Hls, { type Level } from "hls.js";
 import {
   ArrowLeft,
+  Captions,
   Gauge,
   Loader2,
   Maximize,
@@ -16,19 +17,21 @@ import {
   Volume2,
   VolumeX,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ResolvedStream } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
 
 export interface VideoPlayerProps {
   stream: ResolvedStream;
   title: string;
-  subtitle?: string | null;
-  poster?: string | null;
+  subtitle?: string | null | undefined;
+  poster?: string | null | undefined;
   onBack: () => void;
-  onNext?: (() => void) | null;
+  onNext?: (() => void) | null | undefined;
+  /** Optional controls rendered on the right side of the top player bar. */
+  topRight?: ReactNode | undefined;
   /** Shown over the video while paused (e.g. companion ad slot). */
-  pausedOverlay?: ReactNode;
+  pausedOverlay?: ReactNode | undefined;
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -37,11 +40,22 @@ function formatTime(t: number) {
   if (!Number.isFinite(t) || t < 0) return "0:00";
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
-  const s = Math.floor(t % 60).toString().padStart(2, "0");
+  const s = Math.floor(t % 60)
+    .toString()
+    .padStart(2, "0");
   return h ? `${h}:${m.toString().padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
-export default function VideoPlayer({ stream, title, subtitle, poster, onBack, onNext, pausedOverlay }: VideoPlayerProps) {
+export default function VideoPlayer({
+  stream,
+  title,
+  subtitle,
+  poster,
+  onBack,
+  onNext,
+  topRight,
+  pausedOverlay,
+}: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -62,6 +76,26 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
   const [controlsVisible, setControlsVisible] = useState(true);
   const [menu, setMenu] = useState<null | "settings">(null);
   const [error, setError] = useState<string | null>(null);
+  const subtitles = useMemo(() => stream.subtitles ?? [], [stream.subtitles]);
+  const [subTrack, setSubTrack] = useState<number>(() => (subtitles.length > 0 ? 0 : -1));
+
+  useEffect(() => {
+    setSubTrack(subtitles.length > 0 ? 0 : -1);
+  }, [stream.url, subtitles.length]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const syncTracks = () => {
+      for (let i = 0; i < v.textTracks.length; i++) {
+        const track = v.textTracks[i];
+        if (track) track.mode = i === subTrack ? "showing" : "hidden";
+      }
+    };
+    syncTracks();
+    v.textTracks.addEventListener("addtrack", syncTracks);
+    return () => v.textTracks.removeEventListener("addtrack", syncTracks);
+  }, [subTrack, subtitles]);
 
   // Attach the source: hls.js where MSE exists, native HLS on Safari/iOS, plain src for MP4.
   useEffect(() => {
@@ -192,9 +226,12 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePlay, seekBy, toggleFullscreen, toggleMute, poke]);
 
-  useEffect(() => () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+    },
+    [],
+  );
 
   const chooseLevel = (i: number) => {
     setLevel(i);
@@ -219,13 +256,22 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
   const bufPct = duration ? (buffered / duration) * 100 : 0;
   const showUi = controlsVisible || !playing;
   const VolumeIcon = muted || volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
-  const levelLabel = (l: Level) => (l.height ? `${l.height}p` : `${Math.round(l.bitrate / 1000)} kbps`);
-  const currentQuality = level === -1 ? `Auto${levels[activeLevel] ? ` (${levelLabel(levels[activeLevel]!)})` : ""}` : levels[level] ? levelLabel(levels[level]!) : "Auto";
+  const levelLabel = (l: Level) =>
+    l.height ? `${l.height}p` : `${Math.round(l.bitrate / 1000)} kbps`;
+  const currentQuality =
+    level === -1
+      ? `Auto${levels[activeLevel] ? ` (${levelLabel(levels[activeLevel]!)})` : ""}`
+      : levels[level]
+        ? levelLabel(levels[level]!)
+        : "Auto";
 
   return (
     <div
       ref={containerRef}
-      className={cn("relative size-full select-none overflow-hidden bg-scrim", !showUi && "cursor-none")}
+      className={cn(
+        "relative size-full select-none overflow-hidden bg-scrim",
+        !showUi && "cursor-none",
+      )}
       onMouseMove={poke}
       onTouchStart={poke}
     >
@@ -259,7 +305,18 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
         }}
         onEnded={() => onNext?.()}
         onError={() => setError("This stream couldn't be played.")}
-      />
+      >
+        {subtitles.map((t, i) => (
+          <track
+            key={t.url}
+            kind="subtitles"
+            src={t.url}
+            srcLang={t.lang}
+            label={t.label}
+            default={i === 0}
+          />
+        ))}
+      </video>
 
       {waiting && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -277,14 +334,32 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
       {!playing && !waiting && !error && pausedOverlay}
 
       {/* Top bar */}
-      <div className={cn("absolute inset-x-0 top-0 flex items-center gap-4 bg-player-top p-4 transition-opacity duration-300 sm:p-6", showUi ? "opacity-100" : "pointer-events-none opacity-0")}>
-        <button type="button" onClick={onBack} aria-label="Back" className="rounded-full p-2 transition hover:bg-foreground/15">
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 bg-player-top p-4 transition-opacity duration-300 sm:p-6",
+          showUi ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          className="shrink-0 rounded-full p-2 transition hover:bg-foreground/15"
+        >
           <ArrowLeft className="size-6" />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate font-display text-base font-semibold sm:text-lg">{title}</p>
           {subtitle && <p className="truncate text-sm text-muted-foreground">{subtitle}</p>}
         </div>
+        {topRight && (
+          <div
+            className="flex shrink-0 flex-wrap items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {topRight}
+          </div>
+        )}
       </div>
 
       {/* Center play */}
@@ -300,7 +375,12 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
       )}
 
       {/* Bottom controls */}
-      <div className={cn("absolute inset-x-0 bottom-0 space-y-2 bg-player-bottom px-4 pb-4 pt-16 transition-opacity duration-300 sm:px-6", showUi ? "opacity-100" : "pointer-events-none opacity-0")}>
+      <div
+        className={cn(
+          "absolute inset-x-0 bottom-0 space-y-2 bg-player-bottom px-4 pb-4 pt-16 transition-opacity duration-300 sm:px-6",
+          showUi ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
         <div className="group/seek relative flex h-4 items-center">
           <div className="pointer-events-none absolute inset-x-0 h-1 rounded-full bg-foreground/10">
             <div className="h-full rounded-full bg-foreground/25" style={{ width: `${bufPct}%` }} />
@@ -357,7 +437,8 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
             />
           </div>
           <span className="ml-1 text-xs tabular-nums text-foreground/80 sm:text-sm">
-            {formatTime(current)} <span className="text-muted-foreground">/ {formatTime(duration)}</span>
+            {formatTime(current)}{" "}
+            <span className="text-muted-foreground">/ {formatTime(duration)}</span>
           </span>
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <div className="relative">
@@ -365,7 +446,7 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
                 <Settings className={cn("transition", menu && "rotate-45")} />
               </CtrlButton>
               {menu && (
-                <div className="absolute bottom-12 right-0 w-56 overflow-hidden rounded-xl border border-foreground/10 bg-popover/95 p-2 text-sm shadow-card backdrop-blur-xl">
+                <div className="absolute bottom-12 right-0 max-h-80 w-60 overflow-y-auto rounded-xl border border-foreground/10 bg-popover/95 p-2 text-sm shadow-card backdrop-blur-xl">
                   {levels.length > 0 && (
                     <>
                       <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -385,6 +466,26 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
                       <div className="my-1.5 h-px bg-foreground/10" />
                     </>
                   )}
+                  {subtitles.length > 0 && (
+                    <>
+                      <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        <Captions className="size-3" /> Subtitles
+                      </p>
+                      <MenuItem active={subTrack === -1} onClick={() => setSubTrack(-1)}>
+                        Off
+                      </MenuItem>
+                      {subtitles.map((t, i) => (
+                        <MenuItem
+                          key={t.url}
+                          active={subTrack === i}
+                          onClick={() => setSubTrack(i)}
+                        >
+                          <span className="truncate">{t.label}</span>
+                        </MenuItem>
+                      ))}
+                      <div className="my-1.5 h-px bg-foreground/10" />
+                    </>
+                  )}
                   <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
                     <Gauge className="size-3" /> Speed
                   </p>
@@ -394,7 +495,10 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
                         key={s}
                         type="button"
                         onClick={() => chooseRate(s)}
-                        className={cn("rounded-md py-1.5 text-xs transition", rate === s ? "bg-brand-gradient font-semibold" : "hover:bg-foreground/10")}
+                        className={cn(
+                          "rounded-md py-1.5 text-xs transition",
+                          rate === s ? "bg-brand-gradient font-semibold" : "hover:bg-foreground/10",
+                        )}
                       >
                         {s}×
                       </button>
@@ -406,7 +510,10 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
             <CtrlButton label="Picture in picture" onClick={() => void togglePip()}>
               <PictureInPicture2 />
             </CtrlButton>
-            <CtrlButton label={fullscreen ? "Exit full screen" : "Full screen"} onClick={toggleFullscreen}>
+            <CtrlButton
+              label={fullscreen ? "Exit full screen" : "Full screen"}
+              onClick={toggleFullscreen}
+            >
               {fullscreen ? <Minimize /> : <Maximize />}
             </CtrlButton>
           </div>
@@ -416,7 +523,15 @@ export default function VideoPlayer({ stream, title, subtitle, poster, onBack, o
   );
 }
 
-function CtrlButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function CtrlButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -430,12 +545,23 @@ function CtrlButton({ label, onClick, children }: { label: string; onClick: () =
   );
 }
 
-function MenuItem({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+function MenuItem({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={cn("flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition hover:bg-foreground/10", active && "text-cerulean")}
+      className={cn(
+        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition hover:bg-foreground/10",
+        active && "text-cerulean",
+      )}
     >
       {children}
       {active && <span className="size-1.5 rounded-full bg-cerulean" />}

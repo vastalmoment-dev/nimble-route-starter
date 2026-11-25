@@ -3,12 +3,17 @@ import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { ShadowMark, ShadowWordmark } from "@/components/branding/ShadowLogo";
-import { DownloadsTray } from "@/components/media/DownloadsTray";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
 
-function NavLinks({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
+function NavLinks({
+  collapsed = false,
+  onNavigate,
+}: {
+  collapsed?: boolean;
+  onNavigate?: () => void;
+}) {
   return (
     <nav className="space-y-1" aria-label="Main">
       {NAV_ITEMS.map(({ to, label, icon: Icon, accent }) => (
@@ -74,7 +79,10 @@ function SearchBox() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const urlQ = useRouterState({
-    select: (s) => (s.location.pathname === "/search" ? String((s.location.search as { q?: string }).q ?? "") : ""),
+    select: (s) =>
+      s.location.pathname === "/search"
+        ? String((s.location.search as { q?: string }).q ?? "")
+        : "",
   });
   const [value, setValue] = useState(urlQ);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,7 +96,10 @@ function SearchBox() {
     timer.current = setTimeout(() => {
       void navigate({
         to: "/search",
-        search: (prev: Record<string, unknown>) => ({ ...(pathname === "/search" ? prev : {}), q: q || undefined }),
+        search: (prev: Record<string, unknown>) => ({
+          ...(pathname === "/search" ? prev : {}),
+          q: q || undefined,
+        }),
         replace: pathname === "/search",
       });
     }, 250);
@@ -105,14 +116,23 @@ function SearchBox() {
           push(e.target.value);
         }}
         onFocus={() => {
-          if (pathname !== "/search") void navigate({ to: "/search", search: { q: value || undefined } });
+          if (pathname !== "/search")
+            void navigate({ to: "/search", search: { q: value || undefined } });
         }}
         placeholder="Search anime, dramas, movies…"
         aria-label="Search titles"
         className="h-full w-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
-        <button type="button" aria-label="Clear search" className="mr-2 rounded-full p-1 text-muted-foreground hover:text-foreground" onClick={() => { setValue(""); push(""); }}>
+        <button
+          type="button"
+          aria-label="Clear search"
+          className="mr-2 rounded-full p-1 text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            setValue("");
+            push("");
+          }}
+        >
           <X className="size-3.5" />
         </button>
       )}
@@ -133,10 +153,17 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       className={cn(
         "fixed right-0 top-0 z-30 flex h-16 items-center gap-3 px-4 transition-colors duration-300 sm:px-8 lg:left-[var(--sidebar-w)] lg:px-12",
         "left-0",
-        scrolled ? "border-b border-foreground/5 bg-background/85 backdrop-blur-xl" : "bg-transparent",
+        scrolled
+          ? "border-b border-foreground/5 bg-background/85 backdrop-blur-xl"
+          : "bg-transparent",
       )}
     >
-      <button type="button" onClick={onMenu} aria-label="Open menu" className="rounded-full p-2 hover:bg-foreground/10 lg:hidden">
+      <button
+        type="button"
+        onClick={onMenu}
+        aria-label="Open menu"
+        className="rounded-full p-2 hover:bg-foreground/10 lg:hidden"
+      >
         <Menu className="size-5" />
       </button>
       <Link to="/" className="lg:hidden" aria-label="Shadow home">
@@ -155,8 +182,8 @@ function Footer() {
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <ShadowWordmark />
         <p className="max-w-lg">
-          Anime data from AniList. Show data from TMDB or TVmaze. Playback uses sample streams until a licensed stream
-          source is connected.
+          Anime data from AniList. Show data from TMDB or TVmaze. Playback uses sample streams until
+          a licensed stream source is connected.
         </p>
       </div>
     </footer>
@@ -167,7 +194,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   return (
-    <div className="flex min-h-screen" style={{ "--sidebar-w": collapsed ? "76px" : "232px" } as React.CSSProperties}>
+    <div
+      className="flex min-h-screen"
+      style={{ "--sidebar-w": collapsed ? "76px" : "232px" } as React.CSSProperties}
+    >
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       <div className="min-w-0 flex-1">
         <TopBar onMenu={() => setMobileOpen(true)} />
@@ -182,7 +212,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <NavLinks onNavigate={() => setMobileOpen(false)} />
         </SheetContent>
       </Sheet>
-      <DownloadsTray />
     </div>
   );
 }

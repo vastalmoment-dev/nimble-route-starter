@@ -26,6 +26,9 @@ export interface MediaItem {
   mediaType?: "tv" | "movie";
   /** Licensed/self-hosted stream link; when set the watch view plays it instead of the trailer. */
   videoStreamUrl?: string | null;
+  malId?: number | null;
+  englishTitle?: string | null;
+  romajiTitle?: string | null;
 }
 
 export interface Episode {
@@ -66,13 +69,40 @@ export interface SectionCatalog {
   provider: string;
 }
 
-export const SECTION_META: Record<SectionId, { label: string; tagline: string; colorClass: string }> = {
-  anime: { label: "Anime", tagline: "Shōnen legends, seasonal hits and cult classics.", colorClass: "text-genre-anime" },
-  "k-dramas": { label: "K-Dramas", tagline: "Seoul after dark — romance, revenge and survival.", colorClass: "text-genre-kdrama" },
-  hollywood: { label: "Hollywood", tagline: "Prestige series and blockbuster storytelling.", colorClass: "text-genre-hollywood" },
-  bollywood: { label: "Bollywood", tagline: "Spectacle, family sagas and gritty crime from India.", colorClass: "text-genre-bollywood" },
-  tollywood: { label: "Tollywood", tagline: "Telugu blockbusters, action sagas and family epics.", colorClass: "text-genre-bollywood" },
-  cartoons: { label: "Cartoons", tagline: "Animated worlds for every age.", colorClass: "text-genre-cartoons" },
+export const SECTION_META: Record<
+  SectionId,
+  { label: string; tagline: string; colorClass: string }
+> = {
+  anime: {
+    label: "Anime",
+    tagline: "Shōnen legends, seasonal hits and cult classics.",
+    colorClass: "text-genre-anime",
+  },
+  "k-dramas": {
+    label: "K-Dramas",
+    tagline: "Seoul after dark — romance, revenge and survival.",
+    colorClass: "text-genre-kdrama",
+  },
+  hollywood: {
+    label: "Hollywood",
+    tagline: "Prestige series and blockbuster storytelling.",
+    colorClass: "text-genre-hollywood",
+  },
+  bollywood: {
+    label: "Bollywood",
+    tagline: "Spectacle, family sagas and gritty crime from India.",
+    colorClass: "text-genre-bollywood",
+  },
+  tollywood: {
+    label: "Tollywood",
+    tagline: "Telugu blockbusters, action sagas and family epics.",
+    colorClass: "text-genre-bollywood",
+  },
+  cartoons: {
+    label: "Cartoons",
+    tagline: "Animated worlds for every age.",
+    colorClass: "text-genre-cartoons",
+  },
 };
 
 export const itemKey = (source: Source, id: string) => `${source}:${id}`;

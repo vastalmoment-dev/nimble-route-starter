@@ -18,8 +18,17 @@ export function GenreChips({
         : "border-foreground/10 bg-surface/70 text-muted-foreground backdrop-blur hover:border-foreground/25 hover:text-foreground",
     );
   return (
-    <div role="toolbar" aria-label="Filter by genre" className={cn("no-scrollbar flex gap-2 overflow-x-auto", className)}>
-      <button type="button" aria-pressed={value.length === 0} className={chip(value.length === 0)} onClick={() => onChange([])}>
+    <div
+      role="toolbar"
+      aria-label="Filter by genre"
+      className={cn("no-scrollbar flex gap-2 overflow-x-auto", className)}
+    >
+      <button
+        type="button"
+        aria-pressed={value.length === 0}
+        className={chip(value.length === 0)}
+        onClick={() => onChange([])}
+      >
         All
       </button>
       {GENRE_CHIPS.map((g) => {

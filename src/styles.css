@@ -130,13 +130,43 @@
   --sidebar-border: oklch(1 0 0 / 7%);
   --sidebar-ring: var(--cerulean);
 
-  --gradient-brand: linear-gradient(120deg, var(--cerulean) 0%, var(--violet) 55%, var(--magenta) 100%);
-  --gradient-hero-left: linear-gradient(90deg, var(--background) 0%, color-mix(in oklab, var(--background) 82%, transparent) 32%, transparent 70%);
-  --gradient-hero-bottom: linear-gradient(0deg, var(--background) 0%, color-mix(in oklab, var(--background) 55%, transparent) 30%, transparent 60%);
-  --gradient-card: linear-gradient(0deg, var(--scrim) 0%, color-mix(in oklab, var(--scrim) 70%, transparent) 45%, transparent 100%);
-  --gradient-player-top: linear-gradient(180deg, color-mix(in oklab, var(--scrim) 85%, transparent), transparent);
-  --gradient-player-bottom: linear-gradient(0deg, color-mix(in oklab, var(--scrim) 92%, transparent), transparent);
-  --shadow-glow: 0 0 0 1px color-mix(in oklab, var(--cerulean) 35%, transparent), 0 18px 50px -12px color-mix(in oklab, var(--violet) 55%, transparent);
+  --gradient-brand: linear-gradient(
+    120deg,
+    var(--cerulean) 0%,
+    var(--violet) 55%,
+    var(--magenta) 100%
+  );
+  --gradient-hero-left: linear-gradient(
+    90deg,
+    var(--background) 0%,
+    color-mix(in oklab, var(--background) 82%, transparent) 32%,
+    transparent 70%
+  );
+  --gradient-hero-bottom: linear-gradient(
+    0deg,
+    var(--background) 0%,
+    color-mix(in oklab, var(--background) 55%, transparent) 30%,
+    transparent 60%
+  );
+  --gradient-card: linear-gradient(
+    0deg,
+    var(--scrim) 0%,
+    color-mix(in oklab, var(--scrim) 70%, transparent) 45%,
+    transparent 100%
+  );
+  --gradient-player-top: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--scrim) 85%, transparent),
+    transparent
+  );
+  --gradient-player-bottom: linear-gradient(
+    0deg,
+    color-mix(in oklab, var(--scrim) 92%, transparent),
+    transparent
+  );
+  --shadow-glow:
+    0 0 0 1px color-mix(in oklab, var(--cerulean) 35%, transparent),
+    0 18px 50px -12px color-mix(in oklab, var(--violet) 55%, transparent);
   --shadow-card: 0 20px 40px -18px oklch(0 0 0 / 80%);
 }
 

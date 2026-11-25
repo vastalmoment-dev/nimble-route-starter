@@ -30,7 +30,10 @@ export function buildShelves(items: MediaItem[], label: string): Shelf[] {
     {
       id: "top",
       title: "Top Rated",
-      items: [...items].filter((i) => (i.rating ?? 0) > 0).sort(byRating).slice(0, 24),
+      items: [...items]
+        .filter((i) => (i.rating ?? 0) > 0)
+        .sort(byRating)
+        .slice(0, 24),
     },
   ];
   return shelves.filter((s) => s.items.length >= 4);

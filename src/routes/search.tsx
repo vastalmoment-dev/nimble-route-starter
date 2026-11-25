@@ -5,7 +5,13 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { GenreChips } from "@/components/media/GenreChips";
 import { MediaCard, MediaCardSkeleton } from "@/components/media/MediaCard";
-import { filterByGenres, isGenreChipId, searchQuery, sectionQuery, type GenreChipId } from "@/lib/catalog";
+import {
+  filterByGenres,
+  isGenreChipId,
+  searchQuery,
+  sectionQuery,
+  type GenreChipId,
+} from "@/lib/catalog";
 import { dedupe } from "@/lib/catalog/shelves";
 
 const searchSchema = z.object({
@@ -18,7 +24,11 @@ export const Route = createFileRoute("/search")({
   head: () => ({
     meta: [
       { title: "Search — SHADOW" },
-      { name: "description", content: "Search anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons in real time." },
+      {
+        name: "description",
+        content:
+          "Search anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons in real time.",
+      },
       { property: "og:title", content: "Search — SHADOW" },
       { property: "og:description", content: "Find your next watch across every SHADOW genre." },
       { property: "og:type", content: "website" },
@@ -32,7 +42,10 @@ export const Route = createFileRoute("/search")({
 function SearchPage() {
   const { q = "", genres: rawGenres } = Route.useSearch();
   const navigate = useNavigate({ from: "/search" });
-  const genres = useMemo(() => (rawGenres ?? "").split(",").filter(isGenreChipId) as GenreChipId[], [rawGenres]);
+  const genres = useMemo(
+    () => (rawGenres ?? "").split(",").filter(isGenreChipId) as GenreChipId[],
+    [rawGenres],
+  );
   const term = q.trim();
 
   const home = useQuery(sectionQuery("home"));
@@ -47,7 +60,8 @@ function SearchPage() {
     return filterByGenres(merged, genres).filter((i) => i.poster);
   }, [term, home.data, remote.data, genres]);
 
-  const loading = (home.isLoading || (term.length >= 2 && remote.isLoading)) && results.length === 0;
+  const loading =
+    (home.isLoading || (term.length >= 2 && remote.isLoading)) && results.length === 0;
 
   return (
     <div className="min-h-screen px-4 pb-10 pt-24 sm:px-8 lg:px-12">
@@ -63,7 +77,12 @@ function SearchPage() {
         </h1>
         <GenreChips
           value={genres}
-          onChange={(next) => void navigate({ search: (prev) => ({ ...prev, genres: next.length ? next.join(",") : undefined }), replace: true })}
+          onChange={(next) =>
+            void navigate({
+              search: (prev) => ({ ...prev, genres: next.length ? next.join(",") : undefined }),
+              replace: true,
+            })
+          }
         />
         {term.length >= 2 && remote.isFetching && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -94,5 +113,9 @@ function SearchPage() {
 }
 
 function Grid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">{children}</div>;
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+      {children}
+    </div>
+  );
 }

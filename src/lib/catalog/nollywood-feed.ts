@@ -8,11 +8,17 @@ export const NOLLYWOOD_CHANNELS = [
 ] as const;
 
 export type FeedMovie = {
-  youtubeId: string; title: string; channel: string; image: string;
-  published: string; views: number; format: string;
+  youtubeId: string;
+  title: string;
+  channel: string;
+  image: string;
+  published: string;
+  views: number;
+  format: string;
 };
 
-const EXCLUDE = /\b(teaser|trailer|coming soon|coming to|promo|bts|behind the scenes|interview|skit|#shorts|reaction)\b/i;
+const EXCLUDE =
+  /\b(teaser|trailer|coming soon|coming to|promo|bts|behind the scenes|interview|skit|#shorts|reaction)\b/i;
 const INCLUDE = /\b(movie|film|starring|nollywood|full)\b/i;
 
 export function isFullMovieTitle(title: string): boolean {
@@ -20,7 +26,12 @@ export function isFullMovieTitle(title: string): boolean {
 }
 
 function decode(s: string) {
-  return s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
 
 function cleanTitle(raw: string) {
@@ -40,7 +51,9 @@ export function parseFeed(xml: string, channel: string): FeedMovie[] {
     if (!id || link.includes("/shorts/") || !isFullMovieTitle(raw)) continue;
     const part = raw.match(/\b(?:pt|part)\.?\s*(\d+)/i)?.[1];
     out.push({
-      youtubeId: id, title: cleanTitle(raw), channel,
+      youtubeId: id,
+      title: cleanTitle(raw),
+      channel,
       image: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
       published: get(/<published>([^<]+)</),
       views: Number(get(/views="(\d+)"/)) || 0,

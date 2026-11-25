@@ -49,7 +49,9 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
             {item.genres[0] && <span className="truncate">{item.genres[0]}</span>}
           </span>
         </span>
-        <span className={cn("absolute left-2 top-2 size-1.5 rounded-full", SECTION_DOT[item.section])} />
+        <span
+          className={cn("absolute left-2 top-2 size-1.5 rounded-full", SECTION_DOT[item.section])}
+        />
       </button>
       <Link
         to="/watch/$source/$id"

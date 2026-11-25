@@ -4,7 +4,14 @@ import { loadFallbackCatalog } from "./fallback";
 import { buildShelves, dedupe, interleave, pickFeatured } from "./shelves";
 import { getTmdbDetail, getTmdbSection } from "./tmdb.functions";
 import { fetchShowDetail, searchShows } from "./tvmaze";
-import { SECTION_META, type MediaDetail, type MediaItem, type SectionCatalog, type SectionId, type Source } from "./types";
+import {
+  SECTION_META,
+  type MediaDetail,
+  type MediaItem,
+  type SectionCatalog,
+  type SectionId,
+  type Source,
+} from "./types";
 
 type NonAnime = Exclude<SectionId, "anime">;
 
@@ -20,7 +27,13 @@ async function loadAnime(): Promise<SectionCatalog> {
     { id: "top", title: "Top Rated", items: s.top },
   ];
   const items = dedupe(shelves.flatMap((sh) => sh.items));
-  return { section: "anime", featured: pickFeatured(s.trending, 6), shelves, items, provider: "AniList" };
+  return {
+    section: "anime",
+    featured: pickFeatured(s.trending, 6),
+    shelves,
+    items,
+    provider: "AniList · AniLast",
+  };
 }
 
 async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
@@ -37,14 +50,24 @@ async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
   }
   if (!items.length) items = (await loadFallbackCatalog())[section] ?? [];
   const label = SECTION_META[section].label.split(" /")[0] ?? SECTION_META[section].label;
-  return { section, featured: pickFeatured(items, 6), shelves: buildShelves(items, label), items, provider };
+  return {
+    section,
+    featured: pickFeatured(items, 6),
+    shelves: buildShelves(items, label),
+    items,
+    provider,
+  };
 }
 
 export function loadSection(section: SectionId): Promise<SectionCatalog> {
   return section === "anime" ? loadAnime() : loadNonAnime(section);
 }
 
-const settle = <T,>(p: Promise<T>) => p.then((v) => v, () => null);
+const settle = <T>(p: Promise<T>) =>
+  p.then(
+    (v) => v,
+    () => null,
+  );
 
 export async function loadHome(): Promise<SectionCatalog> {
   const ids: SectionId[] = ["anime", "k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"];
@@ -55,7 +78,11 @@ export async function loadHome(): Promise<SectionCatalog> {
   const shelf = (id: string) => results.map((r) => r.shelves.find((s) => s.id === id)?.items ?? []);
   const shelves = [
     { id: "trending", title: "Trending Now", items: interleave(...shelf("trending")).slice(0, 30) },
-    { id: "action", title: "Action Blockbusters", items: interleave(...shelf("action")).slice(0, 30) },
+    {
+      id: "action",
+      title: "Action Blockbusters",
+      items: interleave(...shelf("action")).slice(0, 30),
+    },
     { id: "horror", title: "Zombie & Horror", items: interleave(...shelf("horror")).slice(0, 30) },
     { id: "scifi", title: "Sci-Fi Epics", items: interleave(...shelf("scifi")).slice(0, 30) },
     { id: "top", title: "Top Rated", items: interleave(...shelf("top")).slice(0, 30) },

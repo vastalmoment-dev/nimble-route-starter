@@ -65,7 +65,10 @@ export async function searchShows(q: string): Promise<MediaItem[]> {
 export async function fetchShowDetail(id: string): Promise<MediaDetail> {
   type R = TvmShow & {
     _embedded?: {
-      cast?: { person: { name: string; image: { medium: string } | null }; character: { name: string } }[];
+      cast?: {
+        person: { name: string; image: { medium: string } | null };
+        character: { name: string };
+      }[];
       episodes?: {
         id: number;
         name: string;

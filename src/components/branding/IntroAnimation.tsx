@@ -3,7 +3,14 @@ import { cn } from "@/lib/utils";
 import { ShadowMark } from "./ShadowLogo";
 
 const STORAGE_KEY = "shadow:intro-played";
-const COLORS = ["bg-genre-anime", "bg-genre-kdrama", "bg-genre-hollywood", "bg-genre-bollywood", "bg-genre-cartoons", "bg-cerulean"];
+const COLORS = [
+  "bg-genre-anime",
+  "bg-genre-kdrama",
+  "bg-genre-hollywood",
+  "bg-genre-bollywood",
+  "bg-genre-cartoons",
+  "bg-cerulean",
+];
 
 // Deterministic so server and client render the same particles.
 const PARTICLES = Array.from({ length: 42 }, (_, i) => {

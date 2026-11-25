@@ -32,7 +32,11 @@ export function parseMasterPlaylist(text: string, baseUrl: string): Variant[] {
     const uri = lines[j];
     // Skip audio-only renditions; they have no video codec.
     if (!uri || (codecs && !/avc1|hvc1|hev1|av01|vp09/.test(codecs))) continue;
-    variants.push({ uri: resolve(uri, baseUrl), bandwidth: Number(bw ?? 0), ...(res ? { resolution: res } : {}) });
+    variants.push({
+      uri: resolve(uri, baseUrl),
+      bandwidth: Number(bw ?? 0),
+      ...(res ? { resolution: res } : {}),
+    });
   }
   return variants.sort((a, b) => a.bandwidth - b.bandwidth);
 }

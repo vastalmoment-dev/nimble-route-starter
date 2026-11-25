@@ -7,17 +7,31 @@ afterEach(cleanup);
 describe("Trailer playback lifecycle", () => {
   it("stops playback immediately when leaving the watch page", () => {
     let stop = () => {};
-    const view = render(<TrailerFrame youtubeId="test123" title="Test" registerStop={(callback) => { stop = callback; return () => {}; }} />);
+    const view = render(
+      <TrailerFrame
+        youtubeId="test123"
+        title="Test"
+        registerStop={(callback) => {
+          stop = callback;
+          return () => {};
+        }}
+      />,
+    );
     const frame = view.container.querySelector("iframe");
     const post = vi.spyOn(frame?.contentWindow ?? window, "postMessage");
     act(() => stop());
     expect(frame?.getAttribute("src")).toBe("about:blank");
-    expect(post).toHaveBeenCalledWith(JSON.stringify({ event: "command", func: "stopVideo", args: [] }), "https://www.youtube-nocookie.com");
+    expect(post).toHaveBeenCalledWith(
+      JSON.stringify({ event: "command", func: "stopVideo", args: [] }),
+      "https://www.youtube-nocookie.com",
+    );
     expect(view.container.querySelector("iframe")).toBeNull();
   });
 
   it("stops when the viewer leaves the tab and does not autoplay on return", () => {
-    const view = render(<TrailerFrame youtubeId="test123" title="Test" registerStop={() => () => {}} />);
+    const view = render(
+      <TrailerFrame youtubeId="test123" title="Test" registerStop={() => () => {}} />,
+    );
     const frame = view.container.querySelector("iframe");
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     fireEvent(document, new Event("visibilitychange"));
@@ -31,7 +45,9 @@ describe("Trailer playback lifecycle", () => {
   });
 
   it("clears the player document when the watch page unmounts", () => {
-    const view = render(<TrailerFrame youtubeId="test123" title="Test" registerStop={() => () => {}} />);
+    const view = render(
+      <TrailerFrame youtubeId="test123" title="Test" registerStop={() => () => {}} />,
+    );
     const frame = view.container.querySelector("iframe");
     view.unmount();
     expect(frame?.getAttribute("src")).toBe("about:blank");

@@ -22,7 +22,14 @@ export function ShadowMark({
   return (
     <svg viewBox="0 0 100 100" className={cn("overflow-visible", className)} aria-hidden="true">
       <defs>
-        <linearGradient id={`g-${id}`} x1="26" y1="16" x2="74" y2="86" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id={`g-${id}`}
+          x1="26"
+          y1="16"
+          x2="74"
+          y2="86"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" style={{ stopColor: "var(--cerulean)" }} />
           <stop offset="58%" style={{ stopColor: "var(--violet)" }} />
           <stop offset="100%" style={{ stopColor: "var(--magenta)" }} />
@@ -66,7 +73,13 @@ export function ShadowMark({
   );
 }
 
-export function ShadowWordmark({ className, compact = false }: { className?: string; compact?: boolean }) {
+export function ShadowWordmark({
+  className,
+  compact = false,
+}: {
+  className?: string;
+  compact?: boolean;
+}) {
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <ShadowMark className="size-8 shrink-0" />

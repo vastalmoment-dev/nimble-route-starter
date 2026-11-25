@@ -14,9 +14,19 @@ export interface AdSlotConfig {
 
 export const AD_SLOTS: Record<AdSlotId, AdSlotConfig> = {
   sidebar: { width: 160, height: 600, label: "Skyscraper", envKey: "VITE_ADSTERRA_SIDEBAR_KEY" },
-  leaderboard: { width: 728, height: 90, label: "Leaderboard", envKey: "VITE_ADSTERRA_LEADERBOARD_KEY" },
+  leaderboard: {
+    width: 728,
+    height: 90,
+    label: "Leaderboard",
+    envKey: "VITE_ADSTERRA_LEADERBOARD_KEY",
+  },
   rectangle: { width: 300, height: 250, label: "Rectangle", envKey: "VITE_ADSTERRA_RECTANGLE_KEY" },
-  "player-companion": { width: 300, height: 250, label: "Companion", envKey: "VITE_ADSTERRA_COMPANION_KEY" },
+  "player-companion": {
+    width: 300,
+    height: 250,
+    label: "Companion",
+    envKey: "VITE_ADSTERRA_COMPANION_KEY",
+  },
 };
 
 export function getAdKey(slot: AdSlotId): string | null {

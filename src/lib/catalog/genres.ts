@@ -29,7 +29,8 @@ export function matchesGenre(item: MediaItem, chip: GenreChipId): boolean {
   const genres = item.genres.map((g) => g.toLowerCase());
   if (genres.some((g) => GENRE_ALIASES[chip].includes(g))) return true;
   if (chip === "animation") return item.source === "anilist" || item.section === "cartoons";
-  if (chip === "horror") return /\bzombie|undead|the dead\b/i.test(`${item.title} ${item.description}`);
+  if (chip === "horror")
+    return /\bzombie|undead|the dead\b/i.test(`${item.title} ${item.description}`);
   return false;
 }
 

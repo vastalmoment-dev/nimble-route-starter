@@ -14,6 +14,7 @@ import { useEffect, type ReactNode } from "react";
 import { IntroAnimation } from "../components/branding/IntroAnimation";
 import { FloatingPromo, PromoPopup } from "../components/ads/PromoPopup";
 import { AppShell } from "../components/layout/AppShell";
+import { DownloadsTray } from "../components/media/DownloadsTray";
 import { MediaModalProvider } from "../components/media/MediaModalContext";
 import { WatchNavigationProvider } from "../components/player/WatchNavigation";
 
@@ -88,9 +89,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { name: "theme-color", content: "#141418" },
       { title: "SHADOW — Stream anime, K-dramas, Hollywood & more" },
-      { name: "description", content: "SHADOW is a cinematic streaming hub for anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons." },
+      {
+        name: "description",
+        content:
+          "SHADOW is a cinematic streaming hub for anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons.",
+      },
       { property: "og:title", content: "SHADOW — Stream anime, K-dramas, Hollywood & more" },
-      { property: "og:description", content: "A cinematic streaming hub for anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons." },
+      {
+        property: "og:description",
+        content:
+          "A cinematic streaming hub for anime, K-dramas, Hollywood, Bollywood/Tollywood and cartoons.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -138,14 +147,21 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <WatchNavigationProvider>
-      <MediaModalProvider>
-        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-        {isPlayer ? <Outlet /> : <AppShell><Outlet /></AppShell>}
-      </MediaModalProvider>
-      <IntroAnimation />
-      {/* 1xBet: popup once per visit (after the intro), floating side ad while exploring anime. */}
-      {!isPlayer && <PromoPopup delay={4500} storageKey="shadow-promo-entry" />}
-      {isAnime && <FloatingPromo />}
+        <MediaModalProvider>
+          {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+          {isPlayer ? (
+            <Outlet />
+          ) : (
+            <AppShell>
+              <Outlet />
+            </AppShell>
+          )}
+        </MediaModalProvider>
+        <IntroAnimation />
+        {/* 1xBet: popup once per visit (after the intro), floating side ad while exploring anime. */}
+        {!isPlayer && <PromoPopup delay={4500} storageKey="shadow-promo-entry" />}
+        {isAnime && <FloatingPromo />}
+        <DownloadsTray />
       </WatchNavigationProvider>
     </QueryClientProvider>
   );

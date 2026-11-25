@@ -33,7 +33,10 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
           <div
             key={item.key}
             aria-hidden={!active}
-            className={cn("absolute inset-0 transition-opacity duration-1000", active ? "opacity-100" : "pointer-events-none opacity-0")}
+            className={cn(
+              "absolute inset-0 transition-opacity duration-1000",
+              active ? "opacity-100" : "pointer-events-none opacity-0",
+            )}
           >
             <img
               src={item.backdrop ?? item.posterHd ?? item.poster ?? ""}
@@ -47,8 +50,15 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
             <div className="absolute inset-0 bg-hero-left" />
             <div className="absolute inset-0 bg-hero-bottom" />
             <div className="relative flex h-full max-w-3xl flex-col justify-end gap-4 px-4 pb-20 sm:px-8 sm:pb-24 lg:px-12">
-              <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>{meta.label}</span>
-              <h1 className={cn("font-display text-4xl font-bold leading-[1.02] sm:text-6xl", active && "animate-fade-up")}>
+              <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
+                {meta.label}
+              </span>
+              <h1
+                className={cn(
+                  "font-display text-4xl font-bold leading-[1.02] sm:text-6xl",
+                  active && "animate-fade-up",
+                )}
+              >
                 {item.title}
               </h1>
               <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -59,15 +69,24 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
                 ) : null}
                 {item.year && <span>{item.year}</span>}
                 {item.genres.slice(0, 3).map((g) => (
-                  <span key={g} className="rounded-full border border-foreground/15 bg-foreground/5 px-2.5 py-0.5 text-xs text-foreground/85">
+                  <span
+                    key={g}
+                    className="rounded-full border border-foreground/15 bg-foreground/5 px-2.5 py-0.5 text-xs text-foreground/85"
+                  >
                     {g}
                   </span>
                 ))}
               </div>
-              <p className="line-clamp-3 max-w-xl text-sm leading-relaxed text-foreground/80 sm:text-base">{item.description}</p>
+              <p className="line-clamp-3 max-w-xl text-sm leading-relaxed text-foreground/80 sm:text-base">
+                {item.description}
+              </p>
               <div className="flex flex-wrap gap-3 pt-2">
                 <Button asChild variant="hero" size="xl">
-                  <Link to="/watch/$source/$id" params={{ source: item.source, id: item.id }} search={{ ep: 1 }}>
+                  <Link
+                    to="/watch/$source/$id"
+                    params={{ source: item.source, id: item.id }}
+                    search={{ ep: 1 }}
+                  >
                     <Play /> Watch Now
                   </Link>
                 </Button>
@@ -86,7 +105,10 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
             type="button"
             aria-label={`Show ${item.title}`}
             onClick={() => setIndex(i)}
-            className={cn("h-1 rounded-full transition-all", i === index ? "w-8 bg-brand-gradient" : "w-3 bg-foreground/30 hover:bg-foreground/60")}
+            className={cn(
+              "h-1 rounded-full transition-all",
+              i === index ? "w-8 bg-brand-gradient" : "w-3 bg-foreground/30 hover:bg-foreground/60",
+            )}
           />
         ))}
       </div>

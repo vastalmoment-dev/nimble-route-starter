@@ -12,22 +12,45 @@ const TMDB_SECTIONS = ["k-dramas", "hollywood", "bollywood", "tollywood", "carto
 type TmdbSection = (typeof TMDB_SECTIONS)[number];
 
 const GENRES: Record<number, string> = {
-  28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime", 99: "Documentary",
-  18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
-  9648: "Mystery", 10749: "Romance", 878: "Science-Fiction", 10770: "TV Movie", 53: "Thriller",
-  10752: "War", 37: "Western", 10759: "Action & Adventure", 10762: "Kids", 10763: "News",
-  10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap", 10767: "Talk", 10768: "War & Politics",
+  28: "Action",
+  12: "Adventure",
+  16: "Animation",
+  35: "Comedy",
+  80: "Crime",
+  99: "Documentary",
+  18: "Drama",
+  10751: "Family",
+  14: "Fantasy",
+  36: "History",
+  27: "Horror",
+  10402: "Music",
+  9648: "Mystery",
+  10749: "Romance",
+  878: "Science-Fiction",
+  10770: "TV Movie",
+  53: "Thriller",
+  10752: "War",
+  37: "Western",
+  10759: "Action & Adventure",
+  10762: "Kids",
+  10763: "News",
+  10764: "Reality",
+  10765: "Sci-Fi & Fantasy",
+  10766: "Soap",
+  10767: "Talk",
+  10768: "War & Politics",
 };
 
 const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> = {
   "k-dramas": [{ type: "tv", params: "with_original_language=ko&without_genres=16,10764,10767" }],
   hollywood: [
     { type: "movie", params: "with_original_language=en&region=US" },
-    { type: "tv", params: "with_original_language=en&with_origin_country=US&without_genres=16,10764,10767" },
+    {
+      type: "tv",
+      params: "with_original_language=en&with_origin_country=US&without_genres=16,10764,10767",
+    },
   ],
-  bollywood: [
-    { type: "movie", params: "with_original_language=hi" },
-  ],
+  bollywood: [{ type: "movie", params: "with_original_language=hi" }],
   tollywood: [
     { type: "movie", params: "with_original_language=te" },
     { type: "tv", params: "with_original_language=te&without_genres=16,10764,10767" },
@@ -57,7 +80,9 @@ function tmdbFetch(path: string, key: string) {
   const isBearer = key.startsWith("eyJ");
   const url = `https://api.themoviedb.org/3${path}${path.includes("?") ? "&" : "?"}${isBearer ? "" : `api_key=${key}`}`;
   return fetch(url, {
-    headers: isBearer ? { Authorization: `Bearer ${key}`, Accept: "application/json" } : { Accept: "application/json" },
+    headers: isBearer
+      ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
+      : { Accept: "application/json" },
   });
 }
 
@@ -75,7 +100,9 @@ function mapRow(r: TmdbRow, type: "tv" | "movie", section: TmdbSection): MediaIt
     backdrop: r.backdrop_path ? `${IMG}/w1280${r.backdrop_path}` : null,
     year: date ? Number(date.slice(0, 4)) : null,
     rating: r.vote_average || null,
-    genres: r.genres?.map((g) => g.name) ?? (r.genre_ids ?? []).map((g) => GENRES[g] ?? "").filter(Boolean),
+    genres:
+      r.genres?.map((g) => g.name) ??
+      (r.genre_ids ?? []).map((g) => GENRES[g] ?? "").filter(Boolean),
     description: r.overview,
     language: r.original_language,
     popularity: r.popularity,
@@ -91,10 +118,15 @@ export const getTmdbSection = createServerFn({ method: "GET" })
     try {
       const requests = DISCOVER[data.section].flatMap((d) =>
         [1, 2].map(async (page) => {
-          const res = await tmdbFetch(`/discover/${d.type}?sort_by=popularity.desc&include_adult=false&page=${page}&${d.params}`, key);
+          const res = await tmdbFetch(
+            `/discover/${d.type}?sort_by=popularity.desc&include_adult=false&page=${page}&${d.params}`,
+            key,
+          );
           if (!res.ok) throw new Error(`TMDB ${res.status}`);
           const json = (await res.json()) as { results: TmdbRow[] };
-          return json.results.filter((r) => r.poster_path).map((r) => mapRow(r, d.type, data.section));
+          return json.results
+            .filter((r) => r.poster_path)
+            .map((r) => mapRow(r, d.type, data.section));
         }),
       );
       const items = (await Promise.all(requests)).flat();
@@ -124,8 +156,15 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         credits?: { cast: { name: string; character: string; profile_path: string | null }[] };
       };
       const lang = r.original_language;
-      const section: TmdbSection =
-        r.genres?.some((g) => g.id === 16) ? "cartoons" : lang === "ko" ? "k-dramas" : lang === "te" ? "tollywood" : ["hi", "ta", "ml", "kn"].includes(lang) ? "bollywood" : "hollywood";
+      const section: TmdbSection = r.genres?.some((g) => g.id === 16)
+        ? "cartoons"
+        : lang === "ko"
+          ? "k-dramas"
+          : lang === "te"
+            ? "tollywood"
+            : ["hi", "ta", "ml", "kn"].includes(lang)
+              ? "bollywood"
+              : "hollywood";
       const base = mapRow(r, type, section);
       let episodes: MediaDetail["episodes"] = [];
       if (type === "tv") {
@@ -133,7 +172,14 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         const sRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key);
         if (sRes.ok) {
           const season = (await sRes.json()) as {
-            episodes: { id: number; episode_number: number; name: string; still_path: string | null; overview: string; runtime: number | null }[];
+            episodes: {
+              id: number;
+              episode_number: number;
+              name: string;
+              still_path: string | null;
+              overview: string;
+              runtime: number | null;
+            }[];
           };
           episodes = season.episodes.map((e) => ({
             id: String(e.id),
@@ -146,7 +192,16 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
           }));
         }
       } else {
-        episodes = [{ id: data.id, number: 1, season: null, title: "Feature film", thumbnail: base.backdrop ?? null, runtime: r.runtime ?? null }];
+        episodes = [
+          {
+            id: data.id,
+            number: 1,
+            season: null,
+            title: "Feature film",
+            thumbnail: base.backdrop ?? null,
+            runtime: r.runtime ?? null,
+          },
+        ];
       }
       return {
         ...base,

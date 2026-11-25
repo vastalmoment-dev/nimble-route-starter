@@ -4,6 +4,7 @@ const ENDPOINT = "https://graphql.anilist.co";
 
 const MEDIA_FIELDS = `
   id
+  idMal
   title { english romaji }
   coverImage { extraLarge large }
   bannerImage
@@ -20,6 +21,7 @@ const MEDIA_FIELDS = `
 
 interface AniMedia {
   id: number;
+  idMal: number | null;
   title: { english: string | null; romaji: string | null };
   coverImage: { extraLarge: string | null; large: string | null };
   bannerImage: string | null;
@@ -53,6 +55,9 @@ export function mapAniMedia(m: AniMedia): MediaItem {
     source: "anilist",
     section: "anime",
     title: m.title.english || m.title.romaji || "Untitled",
+    malId: m.idMal,
+    englishTitle: m.title.english,
+    romajiTitle: m.title.romaji,
     poster: m.coverImage.large ?? m.coverImage.extraLarge,
     posterHd: m.coverImage.extraLarge ?? m.coverImage.large,
     backdrop: m.bannerImage,
@@ -83,7 +88,10 @@ export async function fetchAnimeShelves() {
     ${shelfQuery("comedy", 'sort: POPULARITY_DESC, genre: "Comedy"')}
     ${shelfQuery("top", "sort: SCORE_DESC")}
   }`;
-  type R = Record<"trending" | "action" | "horror" | "scifi" | "drama" | "comedy" | "top", { media: AniMedia[] }>;
+  type R = Record<
+    "trending" | "action" | "horror" | "scifi" | "drama" | "comedy" | "top",
+    { media: AniMedia[] }
+  >;
   const data = await gql<R>(query);
   const map = (k: keyof R) => data[k].media.map(mapAniMedia);
   return {
@@ -111,7 +119,10 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
       streamingEpisodes: { title: string | null; thumbnail: string | null }[];
       externalLinks: { site: string; url: string; type: string | null }[] | null;
       characters: {
-        edges: { role: string; node: { name: { full: string }; image: { medium: string | null } } }[];
+        edges: {
+          role: string;
+          node: { name: { full: string }; image: { medium: string | null } };
+        }[];
       };
     };
   };
@@ -127,9 +138,12 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
   const m = data.Media;
   const base = mapAniMedia(m);
   const streaming = m.streamingEpisodes ?? [];
-  const total = Math.max(m.episodes ?? 0, streaming.length, base.mediaType === "movie" ? 1 : 0) || 12;
+  const total =
+    Math.max(m.episodes ?? 0, streaming.length, base.mediaType === "movie" ? 1 : 0) || 12;
   const episodes = Array.from({ length: Math.min(total, 200) }, (_, i) => {
-    const se = streaming.find((s) => s.title && new RegExp(`^Episode ${i + 1}\\b`, "i").test(s.title));
+    const se = streaming.find(
+      (s) => s.title && new RegExp(`^Episode ${i + 1}\\b`, "i").test(s.title),
+    );
     const title = se?.title?.replace(/^Episode \d+\s*-\s*/i, "") || `Episode ${i + 1}`;
     return {
       id: `${id}-${i + 1}`,
@@ -143,7 +157,9 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
   return {
     ...base,
     episodes,
-    watchLinks: (m.externalLinks ?? []).filter((l) => l.type === "STREAMING").map((l) => ({ site: l.site, url: l.url })),
+    watchLinks: (m.externalLinks ?? [])
+      .filter((l) => l.type === "STREAMING")
+      .map((l) => ({ site: l.site, url: l.url })),
     cast: m.characters.edges.map((e) => ({
       name: e.node.name.full,
       role: e.role.toLowerCase(),

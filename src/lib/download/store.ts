@@ -29,10 +29,12 @@ export const downloads = {
   },
   snapshot: () => jobs,
   async start(req: StreamRequest) {
-    const id = `${req.source}:${req.id}:${req.episode}`;
+    const audio = req.audio ?? "sub";
+    const audioTag = req.source === "anilist" ? ` (${audio.toUpperCase()})` : "";
+    const id = `${req.source}:${req.id}:${req.episode}:${audio}`;
     const existing = jobs.find((j) => j.id === id);
     if (existing && (existing.status === "downloading" || existing.status === "resolving")) return;
-    const title = `${req.title} — Ep ${req.episode}`;
+    const title = `${req.title} — Ep ${req.episode}${audioTag}`;
     jobs = [{ id, title, status: "resolving", progress: 0 }, ...jobs.filter((j) => j.id !== id)];
     emit();
     const controller = new AbortController();
@@ -41,14 +43,20 @@ export const downloads = {
       const stream = await resolveStream(req);
       update(id, { status: "downloading" });
       await downloadStream(stream, {
-        filename: safeFilename(`${req.title}_E${req.episode}`),
+        filename: safeFilename(
+          `${req.title}_E${req.episode}${req.source === "anilist" ? `_${audio.toUpperCase()}` : ""}`,
+        ),
         signal: controller.signal,
         onProgress: (p) => update(id, { progress: p }),
       });
       update(id, { status: "done", progress: 1 });
     } catch (error) {
       if (controller.signal.aborted) update(id, { status: "cancelled" });
-      else update(id, { status: "error", error: error instanceof Error ? error.message : "Download failed" });
+      else
+        update(id, {
+          status: "error",
+          error: error instanceof Error ? error.message : "Download failed",
+        });
     } finally {
       controllers.delete(id);
     }

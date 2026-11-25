@@ -16,10 +16,20 @@ export function Shelf({ title, items }: { title: string; items: MediaItem[] }) {
       <div className="mb-3 flex items-end justify-between px-4 sm:px-8 lg:px-12">
         <h2 className="font-display text-base font-semibold sm:text-lg">{title}</h2>
         <div className="hidden gap-1.5 opacity-0 transition-opacity group-hover/shelf:opacity-100 sm:flex">
-          <button type="button" aria-label="Scroll left" onClick={() => scroll(-1)} className="rounded-full border bg-surface p-1.5 hover:bg-accent">
+          <button
+            type="button"
+            aria-label="Scroll left"
+            onClick={() => scroll(-1)}
+            className="rounded-full border bg-surface p-1.5 hover:bg-accent"
+          >
             <ChevronLeft className="size-4" />
           </button>
-          <button type="button" aria-label="Scroll right" onClick={() => scroll(1)} className="rounded-full border bg-surface p-1.5 hover:bg-accent">
+          <button
+            type="button"
+            aria-label="Scroll right"
+            onClick={() => scroll(1)}
+            className="rounded-full border bg-surface p-1.5 hover:bg-accent"
+          >
             <ChevronRight className="size-4" />
           </button>
         </div>

@@ -19,7 +19,12 @@ function saveBlob(blob: Blob, filename: string) {
 }
 
 export function safeFilename(name: string) {
-  return name.replace(/[^\p{L}\p{N}\-_. ]+/gu, "").replace(/\s+/g, "_").slice(0, 80) || "shadow_video";
+  return (
+    name
+      .replace(/[^\p{L}\p{N}\-_. ]+/gu, "")
+      .replace(/\s+/g, "_")
+      .slice(0, 80) || "shadow_video"
+  );
 }
 
 async function fetchText(url: string, signal?: AbortSignal) {
@@ -57,7 +62,8 @@ async function downloadHls(stream: ResolvedStream, opts: DownloadOptions) {
   };
   await Promise.all(Array.from({ length: 4 }, worker));
 
-  const isFmp4 = Boolean(playlist.initSegment) || /\.(m4s|mp4)(\?|$)/i.test(playlist.segments[0] ?? "");
+  const isFmp4 =
+    Boolean(playlist.initSegment) || /\.(m4s|mp4)(\?|$)/i.test(playlist.segments[0] ?? "");
   const blob = new Blob(parts, { type: isFmp4 ? "video/mp4" : "video/mp2t" });
   saveBlob(blob, `${opts.filename}.${isFmp4 ? "mp4" : "ts"}`);
 }
