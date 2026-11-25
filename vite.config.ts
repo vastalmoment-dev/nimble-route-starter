@@ -10,7 +10,9 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  nitro: { preset: "node-server" },
+  // On Netlify, build with Nitro's Netlify preset: static assets go to `dist` (the publish
+  // directory) and the SSR server is emitted as a Netlify Function. Elsewhere keep node-server.
+  nitro: { preset: process.env.NETLIFY ? "netlify" : "node-server" },
   vite: {
     server: {
       host: "0.0.0.0",
