@@ -1,5 +1,5 @@
 import { Globe } from "lucide-react";
-import { siteLanguage, useSiteLanguage, type SiteLanguage } from "@/lib/i18n/language";
+import { useT, type SiteLanguage } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export function LanguageToggle({
@@ -9,12 +9,12 @@ export function LanguageToggle({
   compact?: boolean;
   className?: string;
 }) {
-  const lang = useSiteLanguage();
+  const { lang, setLang, t } = useT();
 
   return (
     <div
       role="group"
-      aria-label="Language filter"
+      aria-label={t("shell.langFilter")}
       className={cn(
         "inline-flex items-center rounded-full border border-foreground/15 bg-scrim/75 p-0.5 backdrop-blur-md",
         compact ? "min-h-[44px] sm:h-9 sm:min-h-0" : "min-h-[44px] sm:h-10 sm:min-h-0",
@@ -34,7 +34,7 @@ export function LanguageToggle({
           key={opt.id}
           type="button"
           aria-pressed={lang === opt.id}
-          onClick={() => siteLanguage.set(opt.id)}
+          onClick={() => setLang(opt.id)}
           className={cn(
             "min-h-[38px] rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider transition sm:min-h-0",
             lang === opt.id

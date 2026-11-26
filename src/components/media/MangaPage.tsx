@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cachedAsync } from "@/lib/cache/client-cache";
+import { translateMangaGenre, useT, type TranslationKey } from "@/lib/i18n";
 import {
   getMangaCatalog,
   getMangaChapterPages,
@@ -25,14 +26,14 @@ import {
   type MangaFeedKind,
   type MangaItem,
   type MangaPageSource,
-} from "@/lib/manga/mangadex";
+} from "@/lib/manga/types";
 import { cn } from "@/lib/utils";
 
-const FEED_TABS: { id: MangaFeedKind; label: string }[] = [
-  { id: "latest", label: "New Releases" },
-  { id: "popular", label: "Popular" },
-  { id: "top", label: "Top Rated" },
-  { id: "newest", label: "Newly Added" },
+const FEED_TABS: { id: MangaFeedKind; labelKey: TranslationKey }[] = [
+  { id: "latest", labelKey: "manga.feedLatest" },
+  { id: "popular", labelKey: "manga.feedPopular" },
+  { id: "top", labelKey: "manga.feedTop" },
+  { id: "newest", labelKey: "manga.feedNewest" },
 ];
 
 const GENRES = ["All", ...Object.keys(MANGA_GENRE_TAGS)];
@@ -133,6 +134,7 @@ function MangaReaderImage({
   entry: string | MangaPageSource;
   pageNumber: number;
 }) {
+  const { t } = useT();
   const { url, fallbackUrl } = useMemo(() => normalizePageSource(entry), [entry]);
   const [useFallback, setUseFallback] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -147,7 +149,9 @@ function MangaReaderImage({
   if (failed) {
     return (
       <div className="flex h-48 w-full flex-col items-center justify-center gap-2 rounded bg-surface px-4 text-center text-xs text-muted-foreground">
-        <p>Page {pageNumber} failed to load.</p>
+        <p>
+          {t("manga.page")} {pageNumber} {t("manga.pageFailed")}
+        </p>
         <Button
           type="button"
           size="sm"
@@ -157,7 +161,7 @@ function MangaReaderImage({
             setUseFallback(false);
           }}
         >
-          <RefreshCw className="size-3.5" /> Retry
+          <RefreshCw className="size-3.5" /> {t("common.retry")}
         </Button>
       </div>
     );
@@ -166,7 +170,7 @@ function MangaReaderImage({
   return (
     <img
       src={activeSrc}
-      alt={`Page ${pageNumber}`}
+      alt={`${t("manga.page")} ${pageNumber}`}
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
@@ -190,16 +194,18 @@ function downloadChapterHref(chapterId: string, title: string, chNum: string) {
   return `/api/manga/download?${params.toString()}`;
 }
 
-function downloadQuickHref(mangaId: string, title: string) {
+function downloadQuickHref(mangaId: string, title: string, lang: "en" | "fr") {
   const params = new URLSearchParams({
     mangaId,
     which: "latest",
     title,
+    lang,
   });
   return `/api/manga/download?${params.toString()}`;
 }
 
 export function MangaPage() {
+  const { lang, t } = useT();
   const [feed, setFeed] = useState<MangaFeedKind>("latest");
   const [genre, setGenre] = useState<string>("All");
   const [q, setQ] = useState("");
@@ -217,26 +223,30 @@ export function MangaPage() {
   }, [q]);
 
   const catalog = useQuery({
-    queryKey: ["manga-catalog", feed, genre, debouncedQ, offset],
+    queryKey: ["manga-catalog", lang, feed, genre, debouncedQ, offset],
     queryFn: () =>
-      cachedAsync(`manga:catalog:v2:${feed}:${genre}:${debouncedQ}:${offset}`, 1000 * 60 * 5, () =>
-        getMangaCatalog({
-          data: {
-            feed,
-            genre,
-            q: debouncedQ || undefined,
-            offset,
-          },
-        }),
+      cachedAsync(
+        `manga:catalog:v3:${lang}:${feed}:${genre}:${debouncedQ}:${offset}`,
+        1000 * 60 * 5,
+        () =>
+          getMangaCatalog({
+            data: {
+              feed,
+              genre,
+              q: debouncedQ || undefined,
+              offset,
+              lang,
+            },
+          }),
       ),
     staleTime: 1000 * 60 * 3,
   });
 
   const chaptersQuery = useQuery({
-    queryKey: ["manga-chapters", selectedManga?.id],
+    queryKey: ["manga-chapters", lang, selectedManga?.id],
     queryFn: () =>
-      cachedAsync(`manga:chapters:${selectedManga!.id}`, 1000 * 60 * 10, () =>
-        getMangaChapters({ data: { mangaId: selectedManga!.id } }),
+      cachedAsync(`manga:chapters:v2:${lang}:${selectedManga!.id}`, 1000 * 60 * 10, () =>
+        getMangaChapters({ data: { mangaId: selectedManga!.id, lang } }),
       ),
     enabled: Boolean(selectedManga),
     staleTime: 1000 * 60 * 10,
@@ -277,57 +287,92 @@ export function MangaPage() {
   }, [readingChapter, prevChapter, nextChapter]);
 
   const items = catalog.data?.items ?? [];
+  const total = catalog.data?.total ?? items.length;
+
+  const clearSearch = () => {
+    setQ("");
+    setDebouncedQ("");
+    setOffset(0);
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDebouncedQ(q.trim());
+    setOffset(0);
+  };
 
   return (
     <div className="px-4 pb-16 pt-24 sm:px-8 lg:px-12">
       <header className="mb-8 border-b border-foreground/10 pb-6">
         <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-cerulean">
-          <BookOpen className="size-4" /> Free Manga Library
+          <BookOpen className="size-4" /> {t("manga.kicker")}
         </p>
-        <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Manga</h1>
+        <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+          {t("manga.title")}
+        </h1>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Read chapters online or download full chapters free as CBZ comic archives. New manga
-          releases and freshly translated chapters appear here automatically.
+          {t("manga.subtitle")}
         </p>
       </header>
 
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div role="tablist" aria-label="Manga feeds" className="flex flex-wrap gap-2">
-          {FEED_TABS.map((t) => (
+        <div role="tablist" aria-label={t("manga.feedsAria")} className="flex flex-wrap gap-2">
+          {FEED_TABS.map((tab) => (
             <button
-              key={t.id}
+              key={tab.id}
               type="button"
               role="tab"
-              aria-selected={feed === t.id && !debouncedQ}
+              aria-selected={feed === tab.id && !debouncedQ}
               onClick={() => {
-                setFeed(t.id);
+                setFeed(tab.id);
+                setQ("");
+                setDebouncedQ("");
                 setOffset(0);
               }}
               className={cn(
                 "min-h-[44px] whitespace-nowrap rounded-md border px-3.5 py-2 text-xs font-semibold transition sm:min-h-0 sm:py-1.5",
-                feed === t.id && !debouncedQ
+                feed === tab.id && !debouncedQ
                   ? "border-cerulean bg-brand-gradient text-primary-foreground"
                   : "border-foreground/10 bg-surface text-muted-foreground hover:text-foreground",
               )}
             >
-              {t.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
 
-        <label className="relative w-full lg:w-80">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search manga title…"
-            aria-label="Search manga"
-            className="min-h-[44px] pl-9 sm:min-h-0"
-          />
-        </label>
+        <form
+          role="search"
+          onSubmit={handleSearchSubmit}
+          className="flex w-full items-center gap-2 lg:w-96"
+        >
+          <label className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder={t("manga.searchPlaceholder")}
+              aria-label={t("manga.searchAria")}
+              className={cn("min-h-[44px] pl-9 sm:min-h-0", q ? "pr-9" : "")}
+            />
+            {q && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label={t("shell.clearSearch")}
+                className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition hover:bg-surface-raised hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </label>
+          <Button type="submit" size="sm" variant="secondary" className="min-h-[44px] sm:min-h-9">
+            {t("manga.searchBtn")}
+          </Button>
+        </form>
       </div>
 
-      <div className="mb-8 flex flex-wrap gap-1.5" role="group" aria-label="Filter by genre">
+      <div className="mb-6 flex flex-wrap gap-1.5" role="group" aria-label={t("genre.filterAria")}>
         {GENRES.map((g) => (
           <button
             key={g}
@@ -344,10 +389,44 @@ export function MangaPage() {
                 : "border-foreground/10 bg-surface/60 text-muted-foreground hover:text-foreground",
             )}
           >
-            {g}
+            {translateMangaGenre(g, lang)}
           </button>
         ))}
       </div>
+
+      {debouncedQ && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-foreground/10 bg-surface/60 px-4 py-2.5 text-xs">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            {catalog.isFetching ? (
+              <Loader2 className="size-3.5 animate-spin text-cerulean" />
+            ) : (
+              <Search className="size-3.5 text-cerulean" />
+            )}
+            <span>
+              {t("search.resultsFor")} <strong className="text-foreground">“{debouncedQ}”</strong>
+              {genre !== "All" && (
+                <>
+                  {" "}
+                  {t("manga.in")}{" "}
+                  <strong className="text-foreground">{translateMangaGenre(genre, lang)}</strong>
+                </>
+              )}
+              {!catalog.isLoading && (
+                <span className="ml-1.5 tabular-nums">
+                  ({total} {t("manga.found")})
+                </span>
+              )}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="font-semibold text-cerulean transition hover:underline"
+          >
+            {t("shell.clearSearch")}
+          </button>
+        </div>
+      )}
 
       {catalog.isLoading ? (
         <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
@@ -357,15 +436,31 @@ export function MangaPage() {
         </div>
       ) : catalog.isError ? (
         <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-center">
-          <p className="font-display text-lg font-semibold">Unable to load live manga catalog</p>
+          <p className="font-display text-lg font-semibold">{t("manga.errorLoad")}</p>
           <Button variant="brand" onClick={() => void catalog.refetch()}>
-            <RefreshCw className="size-4" /> Retry
+            <RefreshCw className="size-4" /> {t("common.retry")}
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <p className="py-16 text-center text-sm text-muted-foreground">
-          No manga matched those filters right now. Try another search or genre.
-        </p>
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <p className="text-sm text-muted-foreground">
+            {t("manga.emptyPrefix")} {debouncedQ ? `“${debouncedQ}”` : t("manga.emptyFilters")}{" "}
+            {t("manga.emptySuffix")}
+          </p>
+          {(debouncedQ || genre !== "All") && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                clearSearch();
+                setGenre("All");
+              }}
+            >
+              {t("manga.resetFilters")}
+            </Button>
+          )}
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
@@ -377,14 +472,22 @@ export function MangaPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedManga(item)}
-                  aria-label={`Open ${item.title} chapters`}
+                  aria-label={
+                    lang === "fr"
+                      ? `Ouvrir les chapitres de ${item.title}`
+                      : `Open ${item.title} chapters`
+                  }
                   className="relative aspect-[2/3] w-full overflow-hidden bg-scrim text-left"
                 >
                   <MangaCover item={item} />
                 </button>
                 <div className="flex flex-1 flex-col gap-2 p-3.5">
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                    {item.genres[0] && <span className="text-cerulean">{item.genres[0]}</span>}
+                    {item.genres[0] && (
+                      <span className="text-cerulean">
+                        {translateMangaGenre(item.genres[0], lang)}
+                      </span>
+                    )}
                     {item.genres[0] && (item.lastChapter || item.year) && (
                       <span aria-hidden="true">·</span>
                     )}
@@ -404,11 +507,15 @@ export function MangaPage() {
                   <div className="mt-auto flex flex-col gap-2 pt-2">
                     <Button asChild size="sm" className="w-full">
                       <a
-                        href={downloadQuickHref(item.id, item.title)}
+                        href={downloadQuickHref(item.id, item.title, lang)}
                         download
-                        aria-label={`Free download ${item.title}`}
+                        aria-label={
+                          lang === "fr"
+                            ? `${t("manga.freeDownload")} ${item.title}`
+                            : `Free download ${item.title}`
+                        }
                       >
-                        <Download className="size-3.5" /> Free Download
+                        <Download className="size-3.5" /> {t("manga.freeDownload")}
                       </a>
                     </Button>
                     <Button
@@ -418,7 +525,7 @@ export function MangaPage() {
                       onClick={() => setSelectedManga(item)}
                       className="w-full"
                     >
-                      <BookOpen className="size-3.5" /> Chapters
+                      <BookOpen className="size-3.5" /> {t("manga.chapters")}
                     </Button>
                   </div>
                 </div>
@@ -433,15 +540,15 @@ export function MangaPage() {
               disabled={offset === 0}
               onClick={() => setOffset((o) => Math.max(0, o - 30))}
             >
-              Previous page
+              {t("manga.prevPage")}
             </Button>
             <Button
               type="button"
               variant="secondary"
-              disabled={items.length < 30}
+              disabled={items.length < 30 || (total > 0 && offset + items.length >= total)}
               onClick={() => setOffset((o) => o + 30)}
             >
-              Next page
+              {t("manga.nextPage")}
             </Button>
           </div>
         </>
@@ -483,15 +590,14 @@ export function MangaPage() {
                     )}
                   </div>
                   <DialogDescription className="text-sm leading-relaxed text-foreground/85 line-clamp-4">
-                    {selectedManga.description ||
-                      "Read chapters online or download CBZ archives free."}
+                    {selectedManga.description || t("manga.modalDescFallback")}
                   </DialogDescription>
                 </div>
               </div>
 
               <div className="border-t border-foreground/10 pt-4">
                 <h2 className="mb-3 font-display text-sm font-semibold">
-                  Chapters{" "}
+                  {t("manga.chapters")}{" "}
                   {chapters.length > 0 && (
                     <span className="tabular-nums text-muted-foreground">· {chapters.length}</span>
                   )}
@@ -502,13 +608,9 @@ export function MangaPage() {
                     <Loader2 className="size-6 animate-spin text-cerulean" />
                   </div>
                 ) : chaptersQuery.isError ? (
-                  <p className="text-sm text-muted-foreground">
-                    Chapter list is temporarily unavailable.
-                  </p>
+                  <p className="text-sm text-muted-foreground">{t("manga.chaptersUnavailable")}</p>
                 ) : chapters.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No English chapters available for this title yet.
-                  </p>
+                  <p className="text-sm text-muted-foreground">{t("manga.noChapters")}</p>
                 ) : (
                   <ol
                     data-testid="manga-chapter-list"
@@ -539,15 +641,19 @@ export function MangaPage() {
                             className="min-h-[44px] sm:min-h-0"
                             onClick={() => setReadingChapter(ch)}
                           >
-                            Read
+                            {t("manga.read")}
                           </Button>
                           <Button asChild size="sm" className="min-h-[44px] sm:min-h-0">
                             <a
                               href={downloadChapterHref(ch.id, selectedManga.title, ch.chapter)}
                               download
-                              aria-label={`Free download chapter ${ch.chapter}`}
+                              aria-label={
+                                lang === "fr"
+                                  ? `Télécharger gratuitement le chapitre ${ch.chapter}`
+                                  : `Free download chapter ${ch.chapter}`
+                              }
                             >
-                              <Download className="size-3.5" /> Free CBZ
+                              <Download className="size-3.5" /> {t("manga.freeCbz")}
                             </a>
                           </Button>
                         </div>
@@ -565,7 +671,7 @@ export function MangaPage() {
       {selectedManga && readingChapter && (
         <div
           role="dialog"
-          aria-label={`${selectedManga.title} Chapter ${readingChapter.chapter}`}
+          aria-label={`${selectedManga.title} ${t("manga.chapter")} ${readingChapter.chapter}`}
           className="fixed inset-0 z-50 flex flex-col bg-scrim"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-foreground/10 bg-background/95 px-3 py-2.5 backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
@@ -574,7 +680,7 @@ export function MangaPage() {
                 {selectedManga.title}
               </p>
               <p className="text-xs text-muted-foreground tabular-nums">
-                Chapter {readingChapter.chapter}
+                {t("manga.chapter")} {readingChapter.chapter}
                 {readingChapter.title ? ` — ${readingChapter.title}` : ""}
               </p>
             </div>
@@ -586,9 +692,9 @@ export function MangaPage() {
                 className="min-h-[44px] sm:min-h-0"
                 disabled={!prevChapter}
                 onClick={() => prevChapter && setReadingChapter(prevChapter)}
-                aria-label="Previous chapter"
+                aria-label={t("manga.prevChapterAria")}
               >
-                <ChevronLeft className="size-4" /> Prev
+                <ChevronLeft className="size-4" /> {t("manga.prev")}
               </Button>
               <Button
                 type="button"
@@ -597,9 +703,9 @@ export function MangaPage() {
                 className="min-h-[44px] sm:min-h-0"
                 disabled={!nextChapter}
                 onClick={() => nextChapter && setReadingChapter(nextChapter)}
-                aria-label="Next chapter"
+                aria-label={t("manga.nextChapterAria")}
               >
-                Next <ChevronRight className="size-4" />
+                {t("manga.next")} <ChevronRight className="size-4" />
               </Button>
               <Button asChild size="sm" className="min-h-[44px] sm:min-h-0">
                 <a
@@ -610,7 +716,7 @@ export function MangaPage() {
                   )}
                   download
                 >
-                  <Download className="size-3.5" /> Download
+                  <Download className="size-3.5" /> {t("common.download")}
                 </a>
               </Button>
               <Button
@@ -618,7 +724,7 @@ export function MangaPage() {
                 size="icon"
                 variant="ghost"
                 className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
-                aria-label="Close reader"
+                aria-label={t("manga.closeReaderAria")}
                 onClick={() => setReadingChapter(null)}
               >
                 <X className="size-4" />
@@ -630,13 +736,11 @@ export function MangaPage() {
             {pagesQuery.isLoading ? (
               <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
                 <Loader2 className="size-10 animate-spin text-cerulean" />
-                <p className="text-sm text-muted-foreground">Loading chapter pages…</p>
+                <p className="text-sm text-muted-foreground">{t("manga.loadingPages")}</p>
               </div>
             ) : pagesQuery.isError || !pagesQuery.data?.length ? (
               <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
-                <p className="font-display text-lg font-semibold">
-                  Chapter pages unavailable right now.
-                </p>
+                <p className="font-display text-lg font-semibold">{t("manga.pagesUnavailable")}</p>
                 <Button asChild size="sm">
                   <a
                     href={downloadChapterHref(
@@ -646,7 +750,7 @@ export function MangaPage() {
                     )}
                     download
                   >
-                    <Download className="size-4" /> Try CBZ Download
+                    <Download className="size-4" /> {t("manga.tryCbz")}
                   </a>
                 </Button>
               </div>

@@ -10,6 +10,7 @@ import {
   Wand2,
   type LucideIcon,
 } from "lucide-react";
+import type { TranslationKey } from "@/lib/i18n";
 
 export const NAV_ITEMS: {
   to:
@@ -24,67 +25,84 @@ export const NAV_ITEMS: {
     | "/cartoons"
     | "/mood"
     | "/manga";
+  labelKey: TranslationKey;
   label: string;
   icon: LucideIcon;
   accent: string;
 }[] = [
-  { to: "/", label: "Home", icon: Home, accent: "group-data-[status=active]/nav:text-cerulean" },
+  {
+    to: "/",
+    labelKey: "nav.home",
+    label: "Home",
+    icon: Home,
+    accent: "group-data-[status=active]/nav:text-cerulean",
+  },
   {
     to: "/watchlist",
+    labelKey: "nav.watchlist",
     label: "My Watchlist",
     icon: Bookmark,
     accent: "group-data-[status=active]/nav:text-cerulean",
   },
   {
     to: "/anime",
+    labelKey: "nav.anime",
     label: "Anime",
     icon: Sparkles,
     accent: "group-data-[status=active]/nav:text-genre-anime",
   },
   {
     to: "/k-dramas",
+    labelKey: "nav.kdramas",
     label: "K-Dramas",
     icon: Drama,
     accent: "group-data-[status=active]/nav:text-genre-kdrama",
   },
   {
     to: "/hollywood",
+    labelKey: "nav.hollywood",
     label: "Hollywood",
     icon: Clapperboard,
     accent: "group-data-[status=active]/nav:text-genre-hollywood",
   },
   {
     to: "/bollywood",
+    labelKey: "nav.bollywood",
     label: "Bollywood",
     icon: Popcorn,
     accent: "group-data-[status=active]/nav:text-genre-bollywood",
   },
   {
     to: "/tollywood",
+    labelKey: "nav.tollywood",
     label: "Tollywood",
     icon: Popcorn,
     accent: "group-data-[status=active]/nav:text-genre-bollywood",
   },
   {
     to: "/nollywood",
+    labelKey: "nav.nollywood",
     label: "Nollywood",
     icon: Clapperboard,
     accent: "group-data-[status=active]/nav:text-cerulean",
   },
   {
     to: "/cartoons",
+    labelKey: "nav.cartoons",
     label: "Cartoons",
     icon: Smile,
     accent: "group-data-[status=active]/nav:text-genre-cartoons",
   },
   {
     to: "/manga",
+    labelKey: "nav.manga",
     label: "Manga",
     icon: BookOpen,
     accent: "group-data-[status=active]/nav:text-cerulean",
   },
   {
     to: "/mood",
+    labelKey: "nav.mood",
     label: "Mood Match",
     icon: Wand2,
     accent: "group-data-[status=active]/nav:text-cerulean",

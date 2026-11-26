@@ -6,7 +6,7 @@ import { PromoBanner } from "@/components/ads/PromoBanner";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
-import { useSiteLanguage } from "@/lib/i18n/language";
+import { getSectionMeta, useT } from "@/lib/i18n";
 import { useWatchlist } from "@/lib/watchlist/store";
 import { GenreChips } from "./GenreChips";
 import { HeroCarousel, HeroSkeleton } from "./HeroCarousel";
@@ -20,7 +20,7 @@ export function SectionPage({
   section: SectionId | "home";
   renderAfterShelves?: ((genres: GenreChipId[]) => ReactNode) | undefined;
 }) {
-  const lang = useSiteLanguage();
+  const { lang, t } = useT();
   const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section, lang));
   const [genres, setGenres] = useState<GenreChipId[]>([]);
   const watchlistEntries = useWatchlist();
@@ -60,18 +60,17 @@ export function SectionPage({
   if (isError || !data) {
     return (
       <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-4 text-center">
-        <h1 className="font-display text-2xl font-bold">This shelf went dark</h1>
-        <p className="max-w-sm text-muted-foreground">
-          We couldn't reach the catalog just now. Check your connection and try again.
-        </p>
+        <h1 className="font-display text-2xl font-bold">{t("section.shelfErrorTitle")}</h1>
+        <p className="max-w-sm text-muted-foreground">{t("section.shelfErrorDesc")}</p>
         <Button variant="brand" size="xl" onClick={() => void refetch()} disabled={isFetching}>
-          <RefreshCw className={isFetching ? "animate-spin" : ""} /> Try again
+          <RefreshCw className={isFetching ? "animate-spin" : ""} /> {t("common.tryAgain")}
         </Button>
       </div>
     );
   }
 
   const meta = section === "home" ? null : SECTION_META[section];
+  const localizedMeta = section === "home" ? null : getSectionMeta(section, lang);
   const showLanguageToggle = section !== "anime";
 
   return (
@@ -82,8 +81,12 @@ export function SectionPage({
           <div className="flex flex-wrap items-center justify-between gap-3">
             {meta ? (
               <div className="flex flex-wrap items-baseline gap-x-3">
-                <h2 className="font-display text-2xl font-bold sm:text-3xl">{meta.label}</h2>
-                <p className="text-sm text-muted-foreground">{meta.tagline}</p>
+                <h2 className="font-display text-2xl font-bold sm:text-3xl">
+                  {localizedMeta?.label ?? meta.label}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {localizedMeta?.tagline ?? meta.tagline}
+                </p>
               </div>
             ) : (
               <div />
@@ -92,10 +95,10 @@ export function SectionPage({
           </div>
           <GenreChips value={genres} onChange={setGenres} />
         </div>
-        {watchlistItems.length > 0 && <Shelf title="My Watchlist" items={watchlistItems} />}
+        {watchlistItems.length > 0 && <Shelf title={t("watchlist.title")} items={watchlistItems} />}
         {shelves.length === 0 ? (
           <div className="px-4 py-16 text-center text-muted-foreground sm:px-8 lg:px-12">
-            Nothing here matches those genres yet — try another mix.
+            {t("section.emptyGenres")}
           </div>
         ) : (
           shelves.map((shelf, i) => (

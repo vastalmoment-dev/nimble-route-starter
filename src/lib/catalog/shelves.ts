@@ -1,3 +1,4 @@
+import type { SiteLanguage } from "@/lib/i18n/language";
 import { matchesGenre } from "./genres";
 import type { MediaItem, Shelf } from "./types";
 
@@ -21,19 +22,48 @@ export function interleave(...lists: MediaItem[][]): MediaItem[] {
   return dedupe(out);
 }
 
-export function buildShelves(items: MediaItem[], label: string): Shelf[] {
+export function buildShelves(
+  items: MediaItem[],
+  label: string,
+  lang: SiteLanguage = "en",
+): Shelf[] {
   const sorted = [...items].sort(byPopularity);
   const pick = (fn: (i: MediaItem) => boolean) => sorted.filter(fn).slice(0, 24);
+  const isFr = lang === "fr";
   const shelves: Shelf[] = [
-    { id: "trending", title: `Trending in ${label}`, items: sorted.slice(0, 24) },
-    { id: "action", title: "Action Blockbusters", items: pick((i) => matchesGenre(i, "action")) },
-    { id: "horror", title: "Zombie & Horror", items: pick((i) => matchesGenre(i, "horror")) },
-    { id: "scifi", title: "Sci-Fi Epics", items: pick((i) => matchesGenre(i, "scifi")) },
-    { id: "drama", title: "Heartfelt Drama", items: pick((i) => matchesGenre(i, "drama")) },
-    { id: "comedy", title: "Laugh Out Loud", items: pick((i) => matchesGenre(i, "comedy")) },
+    {
+      id: "trending",
+      title: isFr ? `Tendances · ${label}` : `Trending in ${label}`,
+      items: sorted.slice(0, 24),
+    },
+    {
+      id: "action",
+      title: isFr ? "Films & Séries d'Action" : "Action Blockbusters",
+      items: pick((i) => matchesGenre(i, "action")),
+    },
+    {
+      id: "horror",
+      title: isFr ? "Horreur & Zombies" : "Zombie & Horror",
+      items: pick((i) => matchesGenre(i, "horror")),
+    },
+    {
+      id: "scifi",
+      title: isFr ? "Épopées Science-Fiction" : "Sci-Fi Epics",
+      items: pick((i) => matchesGenre(i, "scifi")),
+    },
+    {
+      id: "drama",
+      title: isFr ? "Drames & Émotions" : "Heartfelt Drama",
+      items: pick((i) => matchesGenre(i, "drama")),
+    },
+    {
+      id: "comedy",
+      title: isFr ? "Comédies" : "Laugh Out Loud",
+      items: pick((i) => matchesGenre(i, "comedy")),
+    },
     {
       id: "top",
-      title: "Top Rated",
+      title: isFr ? "Mieux Notés" : "Top Rated",
       items: [...items]
         .filter((i) => (i.rating ?? 0) > 0)
         .sort(byRating)

@@ -25,8 +25,9 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useT, type SiteLanguage } from "@/lib/i18n";
 import { activeCueText, parseVtt, type SubtitleCue } from "@/lib/player/subtitles";
-import type { ResolvedStream, StreamSource } from "@/lib/stream/resolver";
+import type { ResolvedStream, StreamSource, SubtitleTrack } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
 
 export interface VideoPlayerProps {
@@ -110,6 +111,25 @@ function getFullscreenElement(): Element | null {
   return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
 }
 
+function pickPreferredSubTrack(subtitles: SubtitleTrack[], lang: SiteLanguage): number {
+  if (subtitles.length === 0) return -1;
+  if (lang === "fr") {
+    const frIdx = subtitles.findIndex(
+      (s) =>
+        /^(fr|fre|fra)\b/i.test((s.lang ?? "").trim()) ||
+        /\b(french|fran[cç]ais)\b/i.test(s.label ?? ""),
+    );
+    if (frIdx >= 0) return frIdx;
+  } else {
+    const enIdx = subtitles.findIndex(
+      (s) =>
+        /^(en|eng)\b/i.test((s.lang ?? "").trim()) || /\b(english|anglais)\b/i.test(s.label ?? ""),
+    );
+    if (enIdx >= 0) return enIdx;
+  }
+  return 0;
+}
+
 export default function VideoPlayer({
   stream,
   title,
@@ -126,6 +146,7 @@ export default function VideoPlayer({
   topRight,
   pausedOverlay,
 }: VideoPlayerProps) {
+  const { lang, t } = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -188,19 +209,22 @@ export default function VideoPlayer({
   }, []);
 
   const subtitles = useMemo(() => stream.subtitles ?? [], [stream.subtitles]);
-  const [subTrack, setSubTrack] = useState<number>(() => (subtitles.length > 0 ? 0 : -1));
+  const [subTrack, setSubTrack] = useState<number>(() => pickPreferredSubTrack(subtitles, lang));
 
   useEffect(() => {
     setSourceIndex(0);
     setReloadNonce(0);
     setSwitchingMessage(null);
     resumeOverrideRef.current = null;
-    setSubTrack(subtitles.length > 0 ? 0 : -1);
     setIntroDismissed(false);
     setUpNextIn(null);
     setEndedManual(false);
     appliedSeekUrlRef.current = null;
-  }, [stream.url, stream.sources, subtitles.length]);
+  }, [stream.url, stream.sources]);
+
+  useEffect(() => {
+    setSubTrack(pickPreferredSubTrack(subtitles, lang));
+  }, [stream.url, stream.sources, subtitles, lang]);
 
   const switchToSource = useCallback(
     (nextIdx: number, statusMessage?: string) => {
@@ -212,28 +236,30 @@ export default function VideoPlayer({
       appliedSeekUrlRef.current = null;
       setError(null);
       setWaiting(true);
-      setSwitchingMessage(statusMessage ?? `Switching to ${activeSources[nextIdx]!.label}…`);
+      setSwitchingMessage(
+        statusMessage ?? `${t("player.switchingTo")} ${activeSources[nextIdx]!.label}…`,
+      );
       setSourceIndex(nextIdx);
       setMenu(null);
     },
-    [activeSources],
+    [activeSources, t],
   );
 
   const triggerFallback = useCallback(() => {
     if (sourceIndex + 1 < activeSources.length) {
       const nextIdx = sourceIndex + 1;
-      switchToSource(nextIdx, `Switching to backup server (${activeSources[nextIdx]!.label})…`);
+      switchToSource(nextIdx, `${t("player.switchingBackup")} (${activeSources[nextIdx]!.label})…`);
       return;
     }
     if (onSwitchEmbed) {
-      setSwitchingMessage("Switching to alternate player…");
+      setSwitchingMessage(t("player.switchingAlternate"));
       onSwitchEmbed();
       return;
     }
     setSwitchingMessage(null);
     setWaiting(false);
-    setError("This stream couldn't be played.");
-  }, [sourceIndex, activeSources, switchToSource, onSwitchEmbed]);
+    setError(t("player.errorTitle"));
+  }, [sourceIndex, activeSources, switchToSource, onSwitchEmbed, t]);
 
   const triggerFallbackRef = useRef(triggerFallback);
   triggerFallbackRef.current = triggerFallback;
@@ -450,13 +476,13 @@ export default function VideoPlayer({
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
-      announce("Play");
+      announce(t("player.play"));
       void v.play?.()?.catch?.(() => {});
     } else {
-      announce("Pause");
+      announce(t("player.pause"));
       v.pause();
     }
-  }, [announce]);
+  }, [announce, t]);
 
   const seekBy = useCallback(
     (delta: number) => {
@@ -500,7 +526,7 @@ export default function VideoPlayer({
 
     const doc = document as FullscreenDocument;
     if (getFullscreenElement()) {
-      announce("Exit full screen");
+      announce(t("player.exitFullScreen"));
       unlockOrientation();
       try {
         if (document.exitFullscreen) {
@@ -514,7 +540,7 @@ export default function VideoPlayer({
       return;
     }
 
-    announce("Full screen");
+    announce(t("player.fullScreen"));
     let entered = false;
     try {
       if (el.requestFullscreen) {
@@ -540,7 +566,7 @@ export default function VideoPlayer({
     if (entered) {
       await lockLandscapeOrientation();
     }
-  }, [announce, lockLandscapeOrientation, unlockOrientation]);
+  }, [announce, lockLandscapeOrientation, unlockOrientation, t]);
 
   const toggleMute = useCallback(() => {
     const v = videoRef.current;
@@ -548,20 +574,26 @@ export default function VideoPlayer({
     const nextMuted = !v.muted;
     v.muted = nextMuted;
     setMuted(nextMuted);
-    announce(nextMuted ? "Muted" : `Volume ${Math.round((v.volume || 1) * 100)}%`);
-  }, [announce]);
+    announce(
+      nextMuted ? t("player.muted") : `${t("player.volume")} ${Math.round((v.volume || 1) * 100)}%`,
+    );
+  }, [announce, t]);
 
   const cycleSubtitles = useCallback(() => {
     if (subtitles.length === 0) {
-      announce("No subtitles available");
+      announce(t("player.noSubtitles"));
       return;
     }
     setSubTrack((prev) => {
       const next = prev + 1 >= subtitles.length ? -1 : prev + 1;
-      announce(next >= 0 ? `Subtitles: ${subtitles[next]!.label}` : "Subtitles: Off");
+      announce(
+        next >= 0
+          ? `${t("player.subtitles")}: ${subtitles[next]!.label}`
+          : t("player.subtitlesOff"),
+      );
       return next;
     });
-  }, [subtitles, announce]);
+  }, [subtitles, announce, t]);
 
   const poke = useCallback(() => {
     setControlsVisible(true);
@@ -582,8 +614,8 @@ export default function VideoPlayer({
     v.currentTime = next;
     setCurrent(next);
     setIntroDismissed(true);
-    announce("Skipped Intro");
-  }, [skipIntroSeconds, announce]);
+    announce(t("player.skippedIntro"));
+  }, [skipIntroSeconds, announce, t]);
 
   useEffect(() => {
     if (upNextIn === null) return;
@@ -690,7 +722,7 @@ export default function VideoPlayer({
           if (nextVol > 0 && v.muted) v.muted = false;
           setVolume(nextVol);
           setMuted(v.muted);
-          announce(`Volume ${Math.round(nextVol * 100)}%`);
+          announce(`${t("player.volume")} ${Math.round(nextVol * 100)}%`);
           break;
         }
         case "ArrowDown": {
@@ -700,7 +732,11 @@ export default function VideoPlayer({
           v.muted = nextVol === 0;
           setVolume(nextVol);
           setMuted(v.muted);
-          announce(nextVol === 0 ? "Muted" : `Volume ${Math.round(nextVol * 100)}%`);
+          announce(
+            nextVol === 0
+              ? t("player.muted")
+              : `${t("player.volume")} ${Math.round(nextVol * 100)}%`,
+          );
           break;
         }
         case "f":
@@ -734,7 +770,7 @@ export default function VideoPlayer({
             const targetTime = (v.duration * pctJump) / 100;
             v.currentTime = targetTime;
             setCurrent(targetTime);
-            announce(`Jump ${pctJump}%`);
+            announce(`${t("player.jump")} ${pctJump}%`);
             break;
           }
           return;
@@ -755,6 +791,7 @@ export default function VideoPlayer({
     announce,
     shortcutsOpen,
     menu,
+    t,
   ]);
 
   useEffect(
@@ -792,10 +829,10 @@ export default function VideoPlayer({
     l.height ? `${l.height}p` : `${Math.round(l.bitrate / 1000)} kbps`;
   const currentQuality =
     level === -1
-      ? `Auto${levels[activeLevel] ? ` (${levelLabel(levels[activeLevel]!)})` : ""}`
+      ? `${t("player.auto")}${levels[activeLevel] ? ` (${levelLabel(levels[activeLevel]!)})` : ""}`
       : levels[level]
         ? levelLabel(levels[level]!)
-        : "Auto";
+        : t("player.auto");
 
   const videoBox = fitAspectBox(containerSize.width, containerSize.height, videoAspect);
   const controlsTouchBottom = !videoBox || containerSize.height - videoBox.height < 140;
@@ -881,14 +918,14 @@ export default function VideoPlayer({
           }}
           onError={() => triggerFallback()}
         >
-          {subtitles.map((t, i) => (
+          {subtitles.map((track, i) => (
             <track
-              key={t.url}
+              key={track.url}
               kind="subtitles"
-              src={t.url}
-              srcLang={t.lang}
-              label={t.label}
-              default={i === 0}
+              src={track.url}
+              srcLang={track.lang}
+              label={track.label}
+              default={i === Math.max(0, subTrack)}
             />
           ))}
         </video>
@@ -927,9 +964,7 @@ export default function VideoPlayer({
       {error && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-scrim/85 p-6 text-center backdrop-blur-sm">
           <p className="font-display text-lg font-semibold">{error}</p>
-          <p className="text-sm text-muted-foreground">
-            Try switching servers, switching to the alternate player, or picking another episode.
-          </p>
+          <p className="text-sm text-muted-foreground">{t("player.errorHint")}</p>
           <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
@@ -940,7 +975,7 @@ export default function VideoPlayer({
               }}
               className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-brand-gradient px-4 py-2 text-xs font-semibold text-primary-foreground transition hover:brightness-110"
             >
-              <RefreshCw className="size-3.5" /> Retry Stream
+              <RefreshCw className="size-3.5" /> {t("player.retryStream")}
             </button>
             {activeSources.length > 1 && (
               <button
@@ -948,7 +983,7 @@ export default function VideoPlayer({
                 onClick={() => switchToSource((sourceIndex + 1) % activeSources.length)}
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-foreground/20 bg-surface px-4 py-2 text-xs font-semibold text-foreground transition hover:border-cerulean/60"
               >
-                <Server className="size-3.5" /> Try Next Server
+                <Server className="size-3.5" /> {t("player.tryNextServer")}
               </button>
             )}
             {onSwitchEmbed && (
@@ -957,7 +992,7 @@ export default function VideoPlayer({
                 onClick={onSwitchEmbed}
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-foreground/20 bg-surface px-4 py-2 text-xs font-semibold text-foreground transition hover:border-cerulean/60"
               >
-                <MonitorPlay className="size-3.5" /> Alternate Player
+                <MonitorPlay className="size-3.5" /> {t("watch.alternatePlayer")}
               </button>
             )}
           </div>
@@ -982,7 +1017,7 @@ export default function VideoPlayer({
             className="absolute bottom-24 right-4 z-20 inline-flex min-h-[44px] items-center gap-2 rounded-full border border-foreground/20 bg-scrim/85 px-4 py-2 font-display text-xs font-semibold text-foreground shadow-card backdrop-blur-md transition hover:border-cerulean hover:bg-brand-gradient hover:text-primary-foreground sm:bottom-28 sm:right-6"
           >
             <FastForward className="size-3.5" />
-            <span>Skip Intro</span>
+            <span>{t("player.skipIntro")}</span>
           </button>
         )}
 
@@ -1000,7 +1035,7 @@ export default function VideoPlayer({
       {shortcutsOpen && (
         <div
           role="dialog"
-          aria-label="Keyboard shortcuts"
+          aria-label={t("player.shortcuts")}
           onClick={(e) => e.stopPropagation()}
           className="absolute inset-0 z-30 flex items-center justify-center bg-scrim/75 p-4 backdrop-blur-sm"
         >
@@ -1008,11 +1043,11 @@ export default function VideoPlayer({
             <div className="mb-4 flex items-center justify-between border-b border-foreground/10 pb-3">
               <div className="flex items-center gap-2">
                 <Keyboard className="size-4 text-cerulean" />
-                <h2 className="font-display text-sm font-semibold">Keyboard Shortcuts</h2>
+                <h2 className="font-display text-sm font-semibold">{t("player.shortcutsTitle")}</h2>
               </div>
               <button
                 type="button"
-                aria-label="Close shortcuts"
+                aria-label={t("player.closeShortcuts")}
                 onClick={() => setShortcutsOpen(false)}
                 className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
               >
@@ -1021,43 +1056,43 @@ export default function VideoPlayer({
             </div>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Play / Pause</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutPlayPause")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">Space / K</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Mute / Unmute</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutMute")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">M</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Seek -10s / +10s</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutSeek")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">J / L</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Seek Arrows</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutArrows")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">← / →</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Volume</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutVolume")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">↑ / ↓</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Full Screen</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutFullscreen")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">F</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Subtitles</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutSubtitles")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">C</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Skip Intro</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutSkipIntro")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">S</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Jump 0%–90%</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutJump")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">0 – 9</dd>
               </div>
               <div className="flex items-center justify-between gap-2">
-                <dt className="text-muted-foreground">Next Episode</dt>
+                <dt className="text-muted-foreground">{t("player.shortcutNext")}</dt>
                 <dd className="font-mono text-[11px] font-semibold text-foreground">Shift + N</dd>
               </div>
             </dl>
@@ -1071,10 +1106,12 @@ export default function VideoPlayer({
           className="absolute bottom-24 right-4 z-20 w-72 rounded-2xl border border-foreground/15 bg-popover/95 p-4 shadow-card backdrop-blur-xl sm:bottom-28 sm:right-6"
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-cerulean">
-            {upNextIn !== null ? `Up next in ${upNextIn}s` : "Episode finished"}
+            {upNextIn !== null
+              ? `${t("player.upNextIn")} ${upNextIn}s`
+              : t("player.episodeFinished")}
           </p>
           <p className="mt-1 truncate font-display text-sm font-semibold">
-            {nextLabel || "Next episode"}
+            {nextLabel || t("player.nextEpisode")}
           </p>
           <div className="mt-3 flex items-center gap-2">
             <button
@@ -1087,7 +1124,7 @@ export default function VideoPlayer({
               className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-full bg-brand-gradient px-3 py-1.5 text-xs font-semibold text-primary-foreground transition hover:brightness-110"
             >
               <SkipForward className="size-3.5" />
-              <span>Play Next</span>
+              <span>{t("player.playNext")}</span>
             </button>
             <button
               type="button"
@@ -1097,7 +1134,7 @@ export default function VideoPlayer({
               }}
               className="min-h-[44px] rounded-full border border-foreground/15 px-3 py-1.5 text-xs font-medium text-foreground/80 transition hover:bg-foreground/10 hover:text-foreground"
             >
-              Stay
+              {t("player.stay")}
             </button>
           </div>
         </div>
@@ -1118,7 +1155,7 @@ export default function VideoPlayer({
             }
             onBack();
           }}
-          aria-label="Back"
+          aria-label={t("common.back")}
           className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full p-2 transition hover:bg-foreground/15"
         >
           <ArrowLeft className="size-6" />
@@ -1144,7 +1181,7 @@ export default function VideoPlayer({
         <button
           type="button"
           onClick={togglePlay}
-          aria-label="Play"
+          aria-label={t("player.play")}
           className="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-brand-gradient shadow-glow transition hover:scale-105 sm:size-20"
         >
           <Play className="size-7 translate-x-0.5 fill-current sm:size-8" />
@@ -1170,7 +1207,7 @@ export default function VideoPlayer({
             max={duration || 0}
             step={0.1}
             value={current}
-            aria-label="Seek"
+            aria-label={t("player.seek")}
             onChange={(e) => {
               const v = videoRef.current;
               if (v) v.currentTime = Number(e.target.value);
@@ -1182,29 +1219,33 @@ export default function VideoPlayer({
         <div className="flex flex-wrap items-center justify-between gap-1 sm:flex-nowrap sm:gap-2">
           <div className="flex items-center gap-0.5 sm:gap-1.5">
             {onPrev && (
-              <CtrlButton label="Previous episode" shortcutHint="Previous episode" onClick={onPrev}>
+              <CtrlButton
+                label={t("player.prevEpisode")}
+                shortcutHint={t("player.prevEpisode")}
+                onClick={onPrev}
+              >
                 <SkipBack />
               </CtrlButton>
             )}
             <CtrlButton
-              label={playing ? "Pause" : "Play"}
-              shortcutHint={playing ? "Pause (Space / K)" : "Play (Space / K)"}
+              label={playing ? t("player.pause") : t("player.play")}
+              shortcutHint={`${playing ? t("player.pause") : t("player.play")} (Space / K)`}
               keyShortcuts="Space k"
               onClick={togglePlay}
             >
               {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
             </CtrlButton>
             <CtrlButton
-              label="Back 10 seconds"
-              shortcutHint="Back 10 seconds (Left Arrow / J)"
+              label={t("player.back10")}
+              shortcutHint={`${t("player.back10")} (← / J)`}
               keyShortcuts="ArrowLeft j"
               onClick={() => seekBy(-10)}
             >
               <RotateCcw />
             </CtrlButton>
             <CtrlButton
-              label="Forward 10 seconds"
-              shortcutHint="Forward 10 seconds (Right Arrow / L)"
+              label={t("player.forward10")}
+              shortcutHint={`${t("player.forward10")} (→ / L)`}
               keyShortcuts="ArrowRight l"
               onClick={() => seekBy(10)}
             >
@@ -1212,8 +1253,8 @@ export default function VideoPlayer({
             </CtrlButton>
             {onNext && (
               <CtrlButton
-                label="Next episode"
-                shortcutHint="Next episode (Shift+N)"
+                label={t("player.nextEpisode")}
+                shortcutHint={`${t("player.nextEpisode")} (Shift+N)`}
                 keyShortcuts="Shift+N"
                 onClick={onNext}
               >
@@ -1224,18 +1265,18 @@ export default function VideoPlayer({
               <button
                 type="button"
                 aria-keyshortcuts="s"
-                title="Skip Intro (S)"
+                title={`${t("player.skipIntro")} (S)`}
                 onClick={skipIntro}
                 className="hidden min-h-[36px] items-center gap-1 rounded-full border border-foreground/15 bg-foreground/10 px-2.5 py-1 text-xs font-medium text-foreground/90 transition hover:border-cerulean/60 hover:bg-cerulean/20 sm:inline-flex"
               >
                 <FastForward className="size-3.5" />
-                <span>Skip Intro</span>
+                <span>{t("player.skipIntro")}</span>
               </button>
             )}
             <div className="group/vol flex items-center">
               <CtrlButton
-                label={muted ? "Unmute" : "Mute"}
-                shortcutHint={muted ? "Unmute (M)" : "Mute (M)"}
+                label={muted ? t("player.unmute") : t("player.mute")}
+                shortcutHint={`${muted ? t("player.unmute") : t("player.mute")} (M)`}
                 keyShortcuts="m"
                 onClick={toggleMute}
               >
@@ -1247,7 +1288,7 @@ export default function VideoPlayer({
                 max={1}
                 step={0.02}
                 value={muted ? 0 : volume}
-                aria-label="Volume"
+                aria-label={t("player.volume")}
                 onChange={(e) => {
                   const v = videoRef.current;
                   if (!v) return;
@@ -1270,7 +1311,7 @@ export default function VideoPlayer({
                 type="button"
                 onClick={toggleAutoNext}
                 aria-pressed={autoNext}
-                title="Automatically play the next episode when this one finishes"
+                title={t("player.autoNextTitle")}
                 className={cn(
                   "hidden min-h-[36px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition md:inline-flex",
                   autoNext
@@ -1278,15 +1319,15 @@ export default function VideoPlayer({
                     : "border-foreground/15 bg-foreground/5 text-muted-foreground hover:text-foreground",
                 )}
               >
-                <span>Auto Next: {autoNext ? "On" : "Off"}</span>
+                <span>{autoNext ? t("player.autoNextOn") : t("player.autoNextOff")}</span>
               </button>
             )}
 
             {hasServerMenu && (
               <div className="relative">
                 <CtrlButton
-                  label="Switch server"
-                  shortcutHint="Switch stream server"
+                  label={t("player.switchServer")}
+                  shortcutHint={t("player.switchServer")}
                   onClick={() => setMenu((m) => (m === "servers" ? null : "servers"))}
                 >
                   <Server className={cn(menu === "servers" && "text-cerulean")} />
@@ -1294,11 +1335,11 @@ export default function VideoPlayer({
                 {menu === "servers" && (
                   <div
                     role="menu"
-                    aria-label="Stream servers"
+                    aria-label={t("player.streamServers")}
                     className="absolute bottom-12 right-0 max-h-72 w-56 overflow-y-auto rounded-xl border border-foreground/10 bg-popover/95 p-2 text-sm shadow-card backdrop-blur-xl"
                   >
                     <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      Stream Servers
+                      {t("player.streamServers")}
                     </p>
                     {activeSources.map((src, idx) => (
                       <MenuItem
@@ -1321,7 +1362,7 @@ export default function VideoPlayer({
                         >
                           <span className="flex items-center gap-1.5">
                             <MonitorPlay className="size-3.5 text-cerulean" />
-                            Alternate Player
+                            {t("watch.alternatePlayer")}
                           </span>
                         </MenuItem>
                       </>
@@ -1333,8 +1374,8 @@ export default function VideoPlayer({
 
             <div className="hidden sm:block">
               <CtrlButton
-                label="Keyboard shortcuts"
-                shortcutHint="Keyboard shortcuts (?)"
+                label={t("player.shortcuts")}
+                shortcutHint={`${t("player.shortcuts")} (?)`}
                 keyShortcuts="?"
                 onClick={() => setShortcutsOpen((o) => !o)}
               >
@@ -1343,7 +1384,7 @@ export default function VideoPlayer({
             </div>
             <div className="relative">
               <CtrlButton
-                label="Settings"
+                label={t("player.settings")}
                 onClick={() => setMenu((m) => (m === "settings" ? null : "settings"))}
               >
                 <Settings className={cn("transition", menu === "settings" && "rotate-45")} />
@@ -1353,7 +1394,7 @@ export default function VideoPlayer({
                   {hasServerMenu && (
                     <>
                       <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        <Server className="size-3" /> Server · {currentSource.label}
+                        <Server className="size-3" /> {t("player.server")} · {currentSource.label}
                       </p>
                       {activeSources.map((src, idx) => (
                         <MenuItem
@@ -1372,7 +1413,7 @@ export default function VideoPlayer({
                             onSwitchEmbed();
                           }}
                         >
-                          <span>Alternate Player</span>
+                          <span>{t("watch.alternatePlayer")}</span>
                         </MenuItem>
                       )}
                       <div className="my-1.5 h-px bg-foreground/10" />
@@ -1381,10 +1422,10 @@ export default function VideoPlayer({
                   {levels.length > 0 && (
                     <>
                       <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        Quality · {currentQuality}
+                        {t("player.quality")} · {currentQuality}
                       </p>
                       <MenuItem active={level === -1} onClick={() => chooseLevel(-1)}>
-                        Auto
+                        {t("player.auto")}
                       </MenuItem>
                       {levels
                         .map((l, i) => ({ l, i }))
@@ -1400,25 +1441,25 @@ export default function VideoPlayer({
                   {subtitles.length > 0 && (
                     <>
                       <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        <Captions className="size-3" /> Subtitles (C)
+                        <Captions className="size-3" /> {t("player.subtitles")} (C)
                       </p>
                       <MenuItem active={subTrack === -1} onClick={() => setSubTrack(-1)}>
-                        Off
+                        {t("player.off")}
                       </MenuItem>
-                      {subtitles.map((t, i) => (
+                      {subtitles.map((track, i) => (
                         <MenuItem
-                          key={t.url}
+                          key={track.url}
                           active={subTrack === i}
                           onClick={() => setSubTrack(i)}
                         >
-                          <span className="truncate">{t.label}</span>
+                          <span className="truncate">{track.label}</span>
                         </MenuItem>
                       ))}
                       <div className="my-1.5 h-px bg-foreground/10" />
                     </>
                   )}
                   <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    <Gauge className="size-3" /> Speed
+                    <Gauge className="size-3" /> {t("player.speed")}
                   </p>
                   <div className="grid grid-cols-3 gap-1 px-1 pb-1">
                     {SPEEDS.map((s) => (
@@ -1439,7 +1480,7 @@ export default function VideoPlayer({
                     <>
                       <div className="my-1.5 h-px bg-foreground/10" />
                       <MenuItem active={autoNext} onClick={toggleAutoNext}>
-                        <span>Auto-play next episode</span>
+                        <span>{t("player.autoPlayNextMenu")}</span>
                       </MenuItem>
                     </>
                   )}
@@ -1451,19 +1492,19 @@ export default function VideoPlayer({
                       setShortcutsOpen(true);
                     }}
                   >
-                    <span>Keyboard shortcuts (?)</span>
+                    <span>{t("player.shortcuts")} (?)</span>
                   </MenuItem>
                 </div>
               )}
             </div>
             <div className="hidden sm:block">
-              <CtrlButton label="Picture in picture" onClick={() => void togglePip()}>
+              <CtrlButton label={t("player.pip")} onClick={() => void togglePip()}>
                 <PictureInPicture2 />
               </CtrlButton>
             </div>
             <CtrlButton
-              label={fullscreen ? "Exit full screen" : "Full screen"}
-              shortcutHint={fullscreen ? "Exit full screen (F)" : "Full screen (F)"}
+              label={fullscreen ? t("player.exitFullScreen") : t("player.fullScreen")}
+              shortcutHint={`${fullscreen ? t("player.exitFullScreen") : t("player.fullScreen")} (F)`}
               keyShortcuts="f"
               onClick={() => void toggleFullscreen()}
             >

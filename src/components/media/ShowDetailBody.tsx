@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { detailQuery } from "@/lib/catalog";
 import { SECTION_META, itemKey, type MediaDetail, type MediaItem } from "@/lib/catalog/types";
+import { getSectionMeta, useT } from "@/lib/i18n";
 import { playbackProgress, type LastWatchedEntry } from "@/lib/player/progress";
 import type { AudioOption } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
@@ -51,8 +52,9 @@ export function ShowDetailBody({
   onClose,
   onBack,
 }: ShowDetailBodyProps) {
+  const { lang, t } = useT();
   const { open } = useMediaModal();
-  const { data, isLoading, isError } = useQuery(detailQuery(item.source, item.id));
+  const { data, isLoading, isError } = useQuery(detailQuery(item.source, item.id, lang));
   const [audio, setAudio] = useState<AudioOption>(initialAudio ?? "sub");
   const [includeSubtitles, setIncludeSubtitles] = useState(false);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(initialSeason ?? null);
@@ -95,6 +97,7 @@ export function ShowDetailBody({
   }, [allEpisodes, isAnime, seasons.length, activeSeason]);
 
   const meta = SECTION_META[d.section ?? item.section];
+  const localizedMeta = getSectionMeta(d.section ?? item.section, lang);
   const art = data?.backdrop ?? d.backdrop ?? d.posterHd ?? d.poster;
   const isMovie = d.mediaType === "movie";
   const firstEpisode = seasonEpisodes[0]?.number ?? 1;
@@ -111,13 +114,13 @@ export function ShowDetailBody({
 
   const primaryCtaLabel = lastWatched
     ? isMovie
-      ? "Resume Movie"
+      ? t("common.resumeMovie")
       : !isAnime && seasons.length > 1
-        ? `Resume S${resumeSeason} · E${resumeEp}`
-        : `Resume Ep ${resumeEp}`
+        ? `${t("common.resume")} S${resumeSeason} · E${resumeEp}`
+        : `${t("common.resume")} ${lang === "fr" ? "Ép." : "Ep"} ${resumeEp}`
     : isMovie
-      ? "Watch Movie"
-      : "Watch Now";
+      ? t("common.watchMovie")
+      : t("common.watchNow");
 
   const TitleHeading = mode === "modal" ? DialogTitle : "h1";
   const SynopsisEl = mode === "modal" ? DialogDescription : "p";
@@ -131,14 +134,14 @@ export function ShowDetailBody({
             variant="glass"
             size="sm"
             onClick={onBack}
-            aria-label="Back to Home"
+            aria-label={t("common.backHome")}
             className="gap-2 rounded-full px-4"
           >
             <ArrowLeft className="size-4" />
-            <span>Back to Home</span>
+            <span>{t("common.backHome")}</span>
           </Button>
           <span className={cn("text-xs font-bold uppercase tracking-[0.28em]", meta.colorClass)}>
-            {meta.label}
+            {localizedMeta?.label ?? meta.label}
           </span>
         </div>
       )}
@@ -162,7 +165,7 @@ export function ShowDetailBody({
         <div className="absolute inset-0 bg-hero-bottom" />
         <div className="absolute inset-x-0 bottom-0 space-y-3 p-4 sm:space-y-4 sm:p-8">
           <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
-            {meta.label}
+            {localizedMeta?.label ?? meta.label}
           </span>
           <TitleHeading className="font-display text-2xl font-bold leading-tight sm:text-4xl">
             {d.title}
@@ -184,7 +187,7 @@ export function ShowDetailBody({
               <>
                 <div
                   role="group"
-                  aria-label="Audio version"
+                  aria-label={t("detail.audioVersion")}
                   className="inline-flex h-12 items-center rounded-full border border-foreground/15 bg-scrim/70 p-1 backdrop-blur-md"
                 >
                   {(["sub", "dub"] as const).map((opt) => (
@@ -206,7 +209,7 @@ export function ShowDetailBody({
                 <button
                   type="button"
                   onClick={() => setIncludeSubtitles((s) => !s)}
-                  title="Choose whether downloaded episodes include subtitle files"
+                  title={t("detail.subsToggleHint")}
                   className={cn(
                     "inline-flex h-12 items-center gap-2 rounded-full border px-4 text-xs font-semibold backdrop-blur-md transition",
                     includeSubtitles
@@ -216,11 +219,11 @@ export function ShowDetailBody({
                 >
                   {includeSubtitles ? (
                     <>
-                      <Subtitles className="size-4 text-cerulean" /> Download + Subs
+                      <Subtitles className="size-4 text-cerulean" /> {t("detail.downloadPlusSubs")}
                     </>
                   ) : (
                     <>
-                      <CaptionsOff className="size-4 text-gold" /> No Subtitles
+                      <CaptionsOff className="size-4 text-gold" /> {t("detail.noSubtitles")}
                     </>
                   )}
                 </button>
@@ -260,7 +263,7 @@ export function ShowDetailBody({
             {d.status && <span className="capitalize">{d.status}</span>}
           </div>
           <SynopsisEl className="text-base leading-relaxed text-foreground/85">
-            {d.description || "No synopsis available yet."}
+            {d.description || t("detail.noSynopsis")}
           </SynopsisEl>
           {d.genres.length > 0 && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -277,7 +280,7 @@ export function ShowDetailBody({
             <div>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-display text-sm font-semibold">
-                  Episodes{" "}
+                  {t("detail.episodes")}{" "}
                   {seasonEpisodes.length ? (
                     <span className="tabular-nums text-muted-foreground">
                       · {seasonEpisodes.length}
@@ -285,7 +288,11 @@ export function ShowDetailBody({
                   ) : null}
                 </h2>
                 {!isAnime && seasons.length > 1 && (
-                  <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Seasons">
+                  <div
+                    className="flex flex-wrap gap-1.5"
+                    role="tablist"
+                    aria-label={t("detail.seasons")}
+                  >
                     {seasons.map((s) => (
                       <button
                         key={s}
@@ -300,7 +307,7 @@ export function ShowDetailBody({
                             : "border-foreground/10 bg-surface text-muted-foreground hover:text-foreground",
                         )}
                       >
-                        Season {s}
+                        {t("detail.season")} {s}
                       </button>
                     ))}
                   </div>
@@ -314,14 +321,11 @@ export function ShowDetailBody({
                 </div>
               )}
               {isError && (
-                <p className="text-sm text-muted-foreground">
-                  Episode list is unavailable right now.
-                </p>
+                <p className="text-sm text-muted-foreground">{t("detail.episodesUnavailable")}</p>
               )}
               {!isLoading && !isError && seasonEpisodes.length === 0 && seasons.length > 1 && (
                 <p className="rounded-xl border border-foreground/10 bg-surface/50 px-4 py-3 text-sm text-muted-foreground">
-                  Season {activeSeason} is announced or upcoming — episodes will appear
-                  automatically once released.
+                  {t("detail.upcomingSeasonStart")} {activeSeason} {t("detail.upcomingSeasonEnd")}
                 </p>
               )}
               {!isLoading && !isError && seasonEpisodes.length > 0 && (
@@ -387,7 +391,7 @@ export function ShowDetailBody({
           {isMovie && (
             <div className="flex items-center gap-2 rounded-xl border border-foreground/10 bg-surface/50 px-4 py-3 text-sm text-muted-foreground">
               <Film className="size-4 text-cerulean" />
-              <span>Full feature movie ready to watch or download offline.</span>
+              <span>{t("detail.featureMovieReady")}</span>
             </div>
           )}
 
@@ -396,10 +400,10 @@ export function ShowDetailBody({
               <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold">
                 <Layers className="size-4 text-cerulean" />{" "}
                 {isAnime
-                  ? "Season 2, Sequels & Future Seasons"
+                  ? t("detail.relationsAnime")
                   : isMovie
-                    ? "Sequels, Future Releases & Series"
-                    : "More Seasons, Sequels & Related"}
+                    ? t("detail.relationsMovie")
+                    : t("detail.relationsDefault")}
               </h2>
               <div className="grid gap-2 sm:grid-cols-2">
                 {relations.map((rel) => {
@@ -430,12 +434,16 @@ export function ShowDetailBody({
                         <p className="line-clamp-1 text-sm font-semibold">{rel.title}</p>
                         <p className="text-xs text-muted-foreground">
                           {isUpcoming
-                            ? "Upcoming release"
+                            ? t("detail.upcomingRelease")
                             : rel.episodesCount
-                              ? `${rel.episodesCount} ${rel.episodesCount === 1 ? "episode" : "episodes"}`
+                              ? `${rel.episodesCount} ${
+                                  rel.episodesCount === 1
+                                    ? t("detail.episodeLower")
+                                    : t("detail.episodesLower")
+                                }`
                               : rel.mediaType === "movie"
-                                ? "Feature movie"
-                                : "View details"}
+                                ? t("detail.featureMovie")
+                                : t("detail.viewDetails")}
                         </p>
                       </div>
                     </>
@@ -488,7 +496,7 @@ export function ShowDetailBody({
           {(data?.cast.length ?? 0) > 0 && (
             <div>
               <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold">
-                <Users className="size-4 text-cerulean" /> Cast
+                <Users className="size-4 text-cerulean" /> {t("detail.cast")}
               </h2>
               <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
                 {data!.cast.map((c) => (

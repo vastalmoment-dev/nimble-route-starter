@@ -387,7 +387,11 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     ...topAnimSeries,
     ...extraFallback,
   ]);
-  const genreShelves = buildShelves(items, "Cartoons").filter((s) => s.id !== "trending");
+  const genreShelves = buildShelves(
+    items,
+    lang === "fr" ? "Dessins Animés" : "Cartoons",
+    lang,
+  ).filter((s) => s.id !== "trending");
 
   const shelves = [
     ...(lang === "fr" && frenchCartoons.length
@@ -414,15 +418,27 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
         ]
       : []),
     ...(newReleases.length
-      ? [{ id: "new-releases", title: "New Cartoon Releases", items: newReleases.slice(0, 24) }]
+      ? [
+          {
+            id: "new-releases",
+            title: lang === "fr" ? "Nouvelles sorties animées" : "New Cartoon Releases",
+            items: newReleases.slice(0, 24),
+          },
+        ]
       : []),
     {
       id: "trending",
-      title: "Popular Cartoons",
+      title: lang === "fr" ? "Dessins animés populaires" : "Popular Cartoons",
       items: interleave(extra, topAnimMovies, topAnimSeries, extraFallback).slice(0, 24),
     },
     ...(seriesAll.length
-      ? [{ id: "cartoon-series", title: "Full Cartoon Series", items: seriesAll.slice(0, 24) }]
+      ? [
+          {
+            id: "cartoon-series",
+            title: lang === "fr" ? "Séries animées complètes" : "Full Cartoon Series",
+            items: seriesAll.slice(0, 24),
+          },
+        ]
       : []),
     ...genreShelves,
   ].filter((s) => s.items.length >= 2);
@@ -513,7 +529,7 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
     ...trending,
     ...extraFallback,
   ]);
-  const genreShelves = buildShelves(items, "Hollywood").filter((s) => s.id !== "trending");
+  const genreShelves = buildShelves(items, "Hollywood", lang).filter((s) => s.id !== "trending");
 
   const shelves = [
     ...(lang === "fr" && frenchMerged.length
@@ -538,17 +554,21 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
       ? [
           {
             id: "new-releases",
-            title: "New Movies & Series Just Out",
+            title: lang === "fr" ? "Nouveaux films & séries" : "New Movies & Series Just Out",
             items: newReleases.slice(0, 24),
           },
         ]
       : []),
-    { id: "trending", title: "Trending in Hollywood", items: trending.slice(0, 24) },
+    {
+      id: "trending",
+      title: lang === "fr" ? "Tendances Hollywood" : "Trending in Hollywood",
+      items: trending.slice(0, 24),
+    },
     ...(topSeries.length || extraFallback.some((i) => i.mediaType === "tv")
       ? [
           {
             id: "hollywood-series",
-            title: "Hollywood Series",
+            title: lang === "fr" ? "Séries Hollywood" : "Hollywood Series",
             items: dedupe([
               ...curatedEnglish.filter((i) => i.mediaType === "tv"),
               ...newSeries,
@@ -622,7 +642,7 @@ async function buildRegionalCatalog(
     ...items.filter((i) => (i.year ?? 0) >= new Date().getFullYear() - 2),
   ]);
 
-  const genreShelves = buildShelves(items, label).filter((s) => s.id !== "trending");
+  const genreShelves = buildShelves(items, label, lang).filter((s) => s.id !== "trending");
   const shelves = [
     ...(newReleases.length >= 2
       ? [
@@ -639,10 +659,22 @@ async function buildRegionalCatalog(
       items: items.slice(0, 24),
     },
     ...(movies.length >= 2
-      ? [{ id: `${section}-movies`, title: `${label} Movies`, items: movies.slice(0, 24) }]
+      ? [
+          {
+            id: `${section}-movies`,
+            title: lang === "fr" ? `Films ${label}` : `${label} Movies`,
+            items: movies.slice(0, 24),
+          },
+        ]
       : []),
     ...(series.length >= 2
-      ? [{ id: `${section}-series`, title: `${label} Series`, items: series.slice(0, 24) }]
+      ? [
+          {
+            id: `${section}-series`,
+            title: lang === "fr" ? `Séries ${label}` : `${label} Series`,
+            items: series.slice(0, 24),
+          },
+        ]
       : []),
     ...genreShelves,
   ].filter((s) => s.items.length >= 2);

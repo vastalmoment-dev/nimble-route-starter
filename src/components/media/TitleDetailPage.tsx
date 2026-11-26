@@ -5,6 +5,7 @@ import { ShowDetailBody } from "@/components/media/ShowDetailBody";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { itemKey, type MediaItem, type Source } from "@/lib/catalog/types";
+import { useT } from "@/lib/i18n";
 import type { AudioOption } from "@/lib/stream/resolver";
 
 function inferSectionFromId(src: Source, id: string): MediaItem["section"] {
@@ -21,8 +22,9 @@ export interface TitleDetailPageProps {
 }
 
 export function TitleDetailPage({ source, id, season, audio }: TitleDetailPageProps) {
+  const { lang, t } = useT();
   const navigate = useNavigate();
-  const detail = useQuery(detailQuery(source, id));
+  const detail = useQuery(detailQuery(source, id, lang));
 
   const goHome = () => {
     void navigate({ to: "/" });
@@ -33,7 +35,7 @@ export function TitleDetailPage({ source, id, season, audio }: TitleDetailPagePr
     id,
     source,
     section: inferSectionFromId(source, id),
-    title: "Loading title…",
+    title: t("common.loadingTitle"),
     poster: null,
     genres: [],
     description: "",
@@ -48,15 +50,15 @@ export function TitleDetailPage({ source, id, season, audio }: TitleDetailPagePr
           variant="glass"
           size="sm"
           onClick={goHome}
-          aria-label="Back to Home"
+          aria-label={t("common.backHome")}
           className="mb-6 gap-2 rounded-full px-4"
         >
           <ArrowLeft className="size-4" />
-          <span>Back to Home</span>
+          <span>{t("common.backHome")}</span>
         </Button>
         <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 text-center">
           <Loader2 className="size-10 animate-spin text-cerulean" />
-          <p className="text-sm text-muted-foreground">Loading seasons and episodes…</p>
+          <p className="text-sm text-muted-foreground">{t("common.loadingEpisodes")}</p>
         </div>
       </div>
     );

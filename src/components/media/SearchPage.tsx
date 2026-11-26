@@ -13,7 +13,7 @@ import {
   type GenreChipId,
 } from "@/lib/catalog";
 import { dedupe } from "@/lib/catalog/shelves";
-import { useSiteLanguage } from "@/lib/i18n/language";
+import { useT } from "@/lib/i18n";
 
 export interface SearchPageProps {
   q?: string | undefined;
@@ -24,7 +24,7 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
   const q = typeof rawQ === "string" ? rawQ : rawQ != null ? String(rawQ) : "";
   const rawGenres = typeof rawGenresProp === "string" ? rawGenresProp : "";
   const navigate = useNavigate({ from: "/search" });
-  const lang = useSiteLanguage();
+  const { lang, t } = useT();
   const genres = useMemo(
     () => rawGenres.split(",").filter(isGenreChipId) as GenreChipId[],
     [rawGenres],
@@ -32,7 +32,7 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
   const term = q.trim();
 
   const home = useQuery(sectionQuery("home", lang));
-  const remote = useQuery(searchQuery(term));
+  const remote = useQuery(searchQuery(term, lang));
 
   const results = useMemo(() => {
     const homeItems = Array.isArray(home.data?.items) ? home.data.items : [];
@@ -62,10 +62,10 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
           <h1 className="font-display text-2xl font-bold sm:text-3xl">
             {term ? (
               <>
-                Results for <span className="text-brand-gradient">“{term}”</span>
+                {t("search.resultsFor")} <span className="text-brand-gradient">“{term}”</span>
               </>
             ) : (
-              "Browse everything"
+              t("search.browseAll")
             )}
           </h1>
           <LanguageToggle compact />
@@ -84,7 +84,7 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
         />
         {term.length >= 2 && remote.isFetching && (
           <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Searching full catalog…
+            <Loader2 className="size-3.5 animate-spin" /> {t("search.searchingFull")}
           </p>
         )}
       </div>
@@ -103,7 +103,7 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
       ) : (
         <div className="flex flex-col items-center gap-3 py-24 text-center text-muted-foreground">
           <SearchX className="size-10" />
-          <p>No titles match that yet. Try a different spelling or genre.</p>
+          <p>{t("search.empty")}</p>
         </div>
       )}
     </div>

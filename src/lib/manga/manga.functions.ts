@@ -10,6 +10,7 @@ export const getMangaCatalog = createServerFn({ method: "GET" })
         q: z.string().max(120).optional(),
         genre: z.string().max(40).optional(),
         offset: z.number().int().min(0).max(1000).default(0),
+        lang: z.enum(["en", "fr"]).default("en"),
       })
       .parse(input),
   )
@@ -20,6 +21,7 @@ export const getMangaCatalog = createServerFn({ method: "GET" })
       genre: data.genre && data.genre !== "All" ? data.genre : undefined,
       limit: 30,
       offset: data.offset,
+      lang: data.lang,
     });
   });
 
@@ -30,11 +32,12 @@ export const getMangaChapters = createServerFn({ method: "GET" })
         mangaId: z
           .string()
           .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i),
+        lang: z.enum(["en", "fr"]).default("en"),
       })
       .parse(input),
   )
   .handler(async ({ data }) => {
-    return fetchMangaChaptersList(data.mangaId);
+    return fetchMangaChaptersList(data.mangaId, data.lang);
   });
 
 export const getMangaChapterPages = createServerFn({ method: "GET" })

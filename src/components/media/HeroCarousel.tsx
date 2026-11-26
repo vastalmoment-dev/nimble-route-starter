@@ -3,12 +3,14 @@ import { Info, Play, Star } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
+import { getSectionMeta, useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
 import { WatchlistButton } from "./WatchlistButton";
 
 export function HeroCarousel({ items }: { items: MediaItem[] }) {
+  const { lang, t } = useT();
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const { open } = useMediaModal();
@@ -31,6 +33,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
       {items.map((item, i) => {
         const active = i === index;
         const meta = SECTION_META[item.section];
+        const localizedMeta = getSectionMeta(item.section, lang);
         return (
           <div
             key={item.key}
@@ -56,7 +59,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
             <div className="absolute inset-0 bg-hero-bottom" />
             <div className="relative flex h-full max-w-3xl flex-col justify-end gap-3 px-4 pb-20 pt-20 sm:gap-4 sm:px-8 sm:pb-24 lg:px-12">
               <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
-                {meta.label}
+                {localizedMeta?.label ?? meta.label}
               </span>
               <h1
                 className={cn(
@@ -92,12 +95,12 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
                     params={{ source: item.source, id: item.id }}
                     search={{}}
                   >
-                    <Play /> Watch Now
+                    <Play /> {t("common.watchNow")}
                   </Link>
                 </Button>
                 <WatchlistButton item={item} />
                 <Button variant="glass" size="xl" onClick={() => open(item)}>
-                  <Info /> More Info
+                  <Info /> {t("common.moreInfo")}
                 </Button>
               </div>
             </div>

@@ -5,20 +5,31 @@ import { MediaCard } from "@/components/media/MediaCard";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { recommendAnime, type Recommendation } from "@/lib/ai/recommend.functions";
+import { useT } from "@/lib/i18n";
 
-const PROMPTS = [
+const PROMPTS_EN = [
   "Cozy and wholesome, something to unwind after work",
   "Hyped up — epic fights and big emotions",
   "Dark, mind-bending mystery, no romance",
   "Want to laugh, short episodes",
 ];
 
+const PROMPTS_FR = [
+  "Doux et réconfortant, idéal pour décompresser",
+  "Épique — des combats intenses et de grandes émotions",
+  "Mystère sombre et psychologique, sans romance",
+  "Envie de rire, épisodes courts",
+];
+
 export function MoodPage() {
+  const { lang, t } = useT();
   const recommend = useServerFn(recommendAnime);
   const [mood, setMood] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picks, setPicks] = useState<Recommendation[]>([]);
+
+  const prompts = lang === "fr" ? PROMPTS_FR : PROMPTS_EN;
 
   async function submit(text = mood) {
     if (text.trim().length < 3) return;
@@ -30,7 +41,7 @@ export function MoodPage() {
       if (r.error) setError(r.error);
       else setPicks(r.picks);
     } catch {
-      setError("Couldn't get recommendations right now.");
+      setError(t("mood.error"));
     } finally {
       setLoading(false);
     }
@@ -39,11 +50,9 @@ export function MoodPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 pb-12 pt-24 md:px-8">
       <h1 className="font-display text-3xl font-bold md:text-4xl">
-        <span className="text-brand-gradient">Mood Match</span>
+        <span className="text-brand-gradient">{t("mood.title")}</span>
       </h1>
-      <p className="mt-2 text-muted-foreground">
-        Describe how you feel and what you're into — we'll find anime that fits.
-      </p>
+      <p className="mt-2 text-muted-foreground">{t("mood.subtitle")}</p>
 
       <form
         className="mt-6 space-y-3"
@@ -57,10 +66,10 @@ export function MoodPage() {
           onChange={(e) => setMood(e.target.value)}
           maxLength={800}
           rows={4}
-          placeholder="e.g. Feeling nostalgic, want a heartfelt story with great music, nothing too gory"
+          placeholder={t("mood.placeholder")}
         />
         <div className="flex flex-wrap gap-2">
-          {PROMPTS.map((p) => (
+          {prompts.map((p) => (
             <button
               key={p}
               type="button"
@@ -76,7 +85,7 @@ export function MoodPage() {
         </div>
         <Button type="submit" disabled={loading || mood.trim().length < 3}>
           {loading ? <Loader2 className="animate-spin" /> : <Wand2 />}{" "}
-          {loading ? "Finding matches…" : "Recommend anime"}
+          {loading ? t("mood.finding") : t("mood.submit")}
         </Button>
       </form>
 

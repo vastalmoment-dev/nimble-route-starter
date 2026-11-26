@@ -17,8 +17,9 @@ const TMDB_SECTIONS = [
   "cartoons",
 ] as const;
 type TmdbSection = (typeof TMDB_SECTIONS)[number];
+type TmdbLang = "en" | "fr";
 
-const GENRES: Record<number, string> = {
+const GENRES_EN: Record<number, string> = {
   28: "Action",
   12: "Adventure",
   16: "Animation",
@@ -46,6 +47,36 @@ const GENRES: Record<number, string> = {
   10766: "Soap",
   10767: "Talk",
   10768: "War & Politics",
+};
+
+const GENRES_FR: Record<number, string> = {
+  28: "Action",
+  12: "Aventure",
+  16: "Animation",
+  35: "Comédie",
+  80: "Crime",
+  99: "Documentaire",
+  18: "Drame",
+  10751: "Familial",
+  14: "Fantastique",
+  36: "Histoire",
+  27: "Horreur",
+  10402: "Musique",
+  9648: "Mystère",
+  10749: "Romance",
+  878: "Science-Fiction",
+  10770: "Téléfilm",
+  53: "Thriller",
+  10752: "Guerre",
+  37: "Western",
+  10759: "Action & Aventure",
+  10762: "Enfants",
+  10763: "Actualités",
+  10764: "Téléréalité",
+  10765: "Science-Fiction & Fantastique",
+  10766: "Feuilleton",
+  10767: "Talk-show",
+  10768: "Guerre & Politique",
 };
 
 const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> = {
@@ -94,9 +125,18 @@ interface TmdbRow {
   popularity: number;
 }
 
-function tmdbFetch(path: string, key: string) {
+function tmdbLangParam(lang: TmdbLang): string {
+  return lang === "fr" ? "fr-FR" : "en-US";
+}
+
+function tmdbFetch(path: string, key: string, lang: TmdbLang = "en") {
   const isBearer = key.startsWith("eyJ");
-  const url = `https://api.themoviedb.org/3${path}${path.includes("?") ? "&" : "?"}${isBearer ? "" : `api_key=${key}`}`;
+  const sep = path.includes("?") ? "&" : "?";
+  const hasLang = /([?&])language=/.test(path);
+  const langQuery = hasLang ? "" : `language=${tmdbLangParam(lang)}`;
+  const keyQuery = isBearer ? "" : `api_key=${key}`;
+  const extras = [langQuery, keyQuery].filter(Boolean).join("&");
+  const url = `https://api.themoviedb.org/3${path}${extras ? `${sep}${extras}` : ""}`;
   return fetch(url, {
     headers: isBearer
       ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
@@ -105,9 +145,15 @@ function tmdbFetch(path: string, key: string) {
   });
 }
 
-function mapRow(r: TmdbRow, type: "tv" | "movie", section: TmdbSection): MediaItem {
+function mapRow(
+  r: TmdbRow,
+  type: "tv" | "movie",
+  section: TmdbSection,
+  lang: TmdbLang = "en",
+): MediaItem {
   const id = `${type}-${r.id}`;
   const date = r.release_date || r.first_air_date;
+  const genreTable = lang === "fr" ? GENRES_FR : GENRES_EN;
   return {
     key: itemKey("tmdb", id),
     id,
@@ -121,7 +167,7 @@ function mapRow(r: TmdbRow, type: "tv" | "movie", section: TmdbSection): MediaIt
     rating: r.vote_average || null,
     genres:
       r.genres?.map((g) => g.name) ??
-      (r.genre_ids ?? []).map((g) => GENRES[g] ?? "").filter(Boolean),
+      (r.genre_ids ?? []).map((g) => genreTable[g] ?? "").filter(Boolean),
     description: r.overview,
     language: r.original_language,
     popularity: r.popularity,
@@ -130,7 +176,14 @@ function mapRow(r: TmdbRow, type: "tv" | "movie", section: TmdbSection): MediaIt
 }
 
 export const getTmdbSection = createServerFn({ method: "GET" })
-  .inputValidator((input) => z.object({ section: z.enum(TMDB_SECTIONS) }).parse(input))
+  .inputValidator((input) =>
+    z
+      .object({
+        section: z.enum(TMDB_SECTIONS),
+        lang: z.enum(["en", "fr"]).default("en"),
+      })
+      .parse(input),
+  )
   .handler(async ({ data }) => {
     const key = process.env["TMDB_API_KEY"];
     if (!key) return { enabled: false as const, items: [] as MediaItem[] };
@@ -140,12 +193,13 @@ export const getTmdbSection = createServerFn({ method: "GET" })
           const res = await tmdbFetch(
             `/discover/${d.type}?sort_by=popularity.desc&include_adult=false&page=${page}&${d.params}`,
             key,
+            data.lang,
           );
           if (!res.ok) throw new Error(`TMDB ${res.status}`);
           const json = (await res.json()) as { results: TmdbRow[] };
           return json.results
             .filter((r) => r.poster_path)
-            .map((r) => mapRow(r, d.type, data.section));
+            .map((r) => mapRow(r, d.type, data.section, data.lang));
         }),
       );
       const items = (await Promise.all(requests)).flat();
@@ -157,13 +211,24 @@ export const getTmdbSection = createServerFn({ method: "GET" })
   });
 
 export const getTmdbDetail = createServerFn({ method: "GET" })
-  .inputValidator((input) => z.object({ id: z.string().regex(/^(tv|movie)-\d+$/) }).parse(input))
+  .inputValidator((input) =>
+    z
+      .object({
+        id: z.string().regex(/^(tv|movie)-\d+$/),
+        lang: z.enum(["en", "fr"]).default("en"),
+      })
+      .parse(input),
+  )
   .handler(async ({ data }): Promise<MediaDetail | null> => {
     const key = process.env["TMDB_API_KEY"];
     if (!key) return null;
     const [type, rawId] = data.id.split("-") as ["tv" | "movie", string];
     try {
-      const res = await tmdbFetch(`/${type}/${rawId}?append_to_response=credits,external_ids`, key);
+      const res = await tmdbFetch(
+        `/${type}/${rawId}?append_to_response=credits,external_ids`,
+        key,
+        data.lang,
+      );
       if (!res.ok) return null;
       const r = (await res.json()) as TmdbRow & {
         runtime?: number;
@@ -178,23 +243,37 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         external_ids?: { imdb_id?: string | null };
         credits?: { cast: { name: string; character: string; profile_path: string | null }[] };
       };
-      const lang = r.original_language;
+
+      // Fall back to English overview cleanly if French overview is empty.
+      if (data.lang === "fr" && !r.overview?.trim()) {
+        try {
+          const enRes = await tmdbFetch(`/${type}/${rawId}`, key, "en");
+          if (enRes.ok) {
+            const enRow = (await enRes.json()) as { overview?: string };
+            if (enRow.overview?.trim()) r.overview = enRow.overview;
+          }
+        } catch {
+          /* English overview fallback optional */
+        }
+      }
+
+      const origLang = r.original_language;
       const isNigeria =
         Boolean(r.origin_country?.includes("NG")) ||
         Boolean(r.production_countries?.some((c) => c.iso_3166_1 === "NG")) ||
-        ["yo", "ig", "ha"].includes(lang);
+        ["yo", "ig", "ha"].includes(origLang);
       const section: TmdbSection = r.genres?.some((g) => g.id === 16)
         ? "cartoons"
         : isNigeria
           ? "nollywood"
-          : lang === "ko"
+          : origLang === "ko"
             ? "k-dramas"
-            : lang === "te"
+            : origLang === "te"
               ? "tollywood"
-              : ["hi", "ta", "ml", "kn"].includes(lang)
+              : ["hi", "ta", "ml", "kn"].includes(origLang)
                 ? "bollywood"
                 : "hollywood";
-      const base = mapRow(r, type, section);
+      const base = mapRow(r, type, section, data.lang);
       let episodes: MediaDetail["episodes"] = [];
       let seasons: number[] = [];
       let relations: NonNullable<MediaDetail["relations"]> = [];
@@ -206,7 +285,7 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         seasons = validSeasons.length ? validSeasons : [1];
         const seasonResults = await Promise.all(
           seasons.slice(0, 12).map(async (seasonNo) => {
-            const sRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key);
+            const sRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key, data.lang);
             if (!sRes.ok) return [];
             const season = (await sRes.json()) as {
               episodes: {
@@ -218,17 +297,44 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
                 runtime: number | null;
               }[];
             };
+            let enMap: Map<number, { name: string; overview: string }> | null = null;
+            if (
+              data.lang === "fr" &&
+              season.episodes.some((ep) => !ep.overview?.trim() || !ep.name?.trim())
+            ) {
+              try {
+                const enSeasonRes = await tmdbFetch(`/tv/${rawId}/season/${seasonNo}`, key, "en");
+                if (enSeasonRes.ok) {
+                  const enSeason = (await enSeasonRes.json()) as {
+                    episodes: { episode_number: number; name: string; overview: string }[];
+                  };
+                  enMap = new Map(
+                    enSeason.episodes.map((ep) => [
+                      ep.episode_number,
+                      { name: ep.name, overview: ep.overview },
+                    ]),
+                  );
+                }
+              } catch {
+                /* English episode fallback optional */
+              }
+            }
             return [...season.episodes]
               .sort((a, b) => a.episode_number - b.episode_number)
-              .map((e) => ({
-                id: String(e.id),
-                number: e.episode_number,
-                season: seasonNo,
-                title: `S${seasonNo}·E${e.episode_number} — ${e.name}`,
-                thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
-                description: e.overview,
-                runtime: e.runtime,
-              }));
+              .map((e) => {
+                const enFallback = enMap?.get(e.episode_number);
+                const epName = e.name?.trim() || enFallback?.name || `Episode ${e.episode_number}`;
+                const epOverview = e.overview?.trim() || enFallback?.overview || "";
+                return {
+                  id: String(e.id),
+                  number: e.episode_number,
+                  season: seasonNo,
+                  title: `S${seasonNo}·E${e.episode_number} — ${epName}`,
+                  thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
+                  description: epOverview,
+                  runtime: e.runtime,
+                };
+              });
           }),
         );
         episodes = seasonResults
@@ -240,14 +346,18 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
             id: data.id,
             number: 1,
             season: null,
-            title: "Feature film",
+            title: data.lang === "fr" ? "Long métrage" : "Feature film",
             thumbnail: base.backdrop ?? null,
             runtime: r.runtime ?? null,
           },
         ];
         if (r.belongs_to_collection?.id) {
           try {
-            const colRes = await tmdbFetch(`/collection/${r.belongs_to_collection.id}`, key);
+            const colRes = await tmdbFetch(
+              `/collection/${r.belongs_to_collection.id}`,
+              key,
+              data.lang,
+            );
             if (colRes.ok) {
               const col = (await colRes.json()) as {
                 parts?: (TmdbRow & { release_date?: string })[];
@@ -260,13 +370,25 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
                   const yr = p.release_date ? Number(p.release_date.slice(0, 4)) : null;
                   const isFuture = Boolean(yr && yr > currentYear);
                   const isSequel = Boolean(yr && base.year && yr > base.year);
+                  const relationType =
+                    data.lang === "fr"
+                      ? isFuture
+                        ? "Suite à venir"
+                        : isSequel
+                          ? "Suite"
+                          : "Volet"
+                      : isFuture
+                        ? "Upcoming Sequel"
+                        : isSequel
+                          ? "Sequel"
+                          : "Part";
                   return {
                     id: `movie-${p.id}`,
                     source: "tmdb" as const,
                     section,
                     mediaType: "movie" as const,
                     title: p.title ?? p.name ?? "Untitled",
-                    relationType: isFuture ? "Upcoming Sequel" : isSequel ? "Sequel" : "Part",
+                    relationType,
                     status: isFuture ? "upcoming" : null,
                     format: "MOVIE",
                     year: yr,

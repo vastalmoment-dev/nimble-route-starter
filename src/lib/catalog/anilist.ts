@@ -1,4 +1,5 @@
 import { cachedAsync } from "@/lib/cache/client-cache";
+import type { SiteLanguage } from "@/lib/i18n/language";
 import { itemKey, stripHtml, type MediaDetail, type MediaItem } from "./types";
 
 const ENDPOINT = "https://graphql.anilist.co";
@@ -8,6 +9,7 @@ const MEDIA_FIELDS = `
   idMal
   isAdult
   title { english romaji }
+  synonyms
   coverImage { extraLarge large medium }
   bannerImage
   seasonYear
@@ -27,6 +29,7 @@ interface AniMedia {
   idMal: number | null;
   isAdult?: boolean | null;
   title: { english: string | null; romaji: string | null };
+  synonyms?: string[] | null;
   coverImage: { extraLarge: string | null; large: string | null; medium?: string | null };
   bannerImage: string | null;
   seasonYear: number | null;
@@ -39,6 +42,51 @@ interface AniMedia {
   duration: number | null;
   status: string | null;
   format: string | null;
+}
+
+const ANILIST_GENRES_FR: Record<string, string> = {
+  Action: "Action",
+  Adventure: "Aventure",
+  Comedy: "Comédie",
+  Drama: "Drame",
+  Ecchi: "Ecchi",
+  Fantasy: "Fantaisie",
+  Horror: "Horreur",
+  "Mahou Shoujo": "Magical Girl",
+  Mecha: "Mécha",
+  Music: "Musique",
+  Mystery: "Mystère",
+  Psychological: "Psychologique",
+  Romance: "Romance",
+  "Sci-Fi": "Science-Fiction",
+  "Slice of Life": "Tranche de vie",
+  Sports: "Sports",
+  Supernatural: "Surnaturel",
+  Thriller: "Thriller",
+};
+
+function localizeAniGenre(g: string, lang: SiteLanguage): string {
+  return lang === "fr" ? (ANILIST_GENRES_FR[g] ?? g) : g;
+}
+
+function localizeAniStatus(raw: string | null, lang: SiteLanguage): string | null {
+  if (!raw) return null;
+  const clean = raw.replace(/_/g, " ").toLowerCase();
+  if (lang !== "fr") return clean;
+  switch (clean) {
+    case "finished":
+      return "terminé";
+    case "releasing":
+      return "en cours";
+    case "not yet released":
+      return "à venir";
+    case "cancelled":
+      return "annulé";
+    case "hiatus":
+      return "en pause";
+    default:
+      return clean;
+  }
 }
 
 async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
@@ -69,7 +117,15 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
   throw lastError ?? new Error("AniList request failed");
 }
 
-export function mapAniMedia(m: AniMedia, overrideLatestEp?: number): MediaItem {
+function pickAniTitle(title: { english: string | null; romaji: string | null }): string {
+  return title.english || title.romaji || "Untitled";
+}
+
+export function mapAniMedia(
+  m: AniMedia,
+  overrideLatestEp?: number,
+  lang: SiteLanguage = "en",
+): MediaItem {
   const poster = m.coverImage.large ?? m.coverImage.extraLarge ?? m.coverImage.medium ?? null;
   const posterHd = m.coverImage.extraLarge ?? m.coverImage.large ?? m.coverImage.medium ?? null;
   const airedEpisodes = m.nextAiringEpisode?.episode
@@ -80,7 +136,7 @@ export function mapAniMedia(m: AniMedia, overrideLatestEp?: number): MediaItem {
     id: String(m.id),
     source: "anilist",
     section: "anime",
-    title: m.title.english || m.title.romaji || "Untitled",
+    title: pickAniTitle(m.title),
     malId: m.idMal,
     englishTitle: m.title.english,
     romajiTitle: m.title.romaji,
@@ -89,10 +145,10 @@ export function mapAniMedia(m: AniMedia, overrideLatestEp?: number): MediaItem {
     backdrop: m.bannerImage,
     year: m.seasonYear,
     rating: m.averageScore != null ? m.averageScore / 10 : null,
-    genres: m.genres ?? [],
+    genres: (m.genres ?? []).map((g) => localizeAniGenre(g, lang)),
     description: stripHtml(m.description),
-    language: "Japanese",
-    status: m.status ? m.status.replace(/_/g, " ").toLowerCase() : null,
+    language: lang === "fr" ? "Japonais" : "Japanese",
+    status: localizeAniStatus(m.status, lang),
     runtime: m.duration,
     episodesCount: airedEpisodes ?? m.episodes,
     latestEpisode: overrideLatestEp ?? airedEpisodes ?? null,
@@ -105,8 +161,8 @@ const shelfQuery = (alias: string, args: string) =>
   `${alias}: Page(perPage: 25) { media(type: ANIME, isAdult: false, ${args}) { ${MEDIA_FIELDS} } }`;
 
 /** One round-trip for live releasing episodes + every anime shelf. */
-export async function fetchAnimeShelves() {
-  return cachedAsync("anilist:shelves", 1000 * 60 * 5, async () => {
+export async function fetchAnimeShelves(lang: SiteLanguage = "en") {
+  return cachedAsync(`anilist:shelves:${lang}`, 1000 * 60 * 5, async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const query = `query {
       latest: Page(perPage: 40) {
@@ -148,7 +204,8 @@ export async function fetchAnimeShelves() {
     >;
 
     const data = await gql<R>(query);
-    const map = (k: Exclude<keyof R, "latest">) => data[k].media.map((m) => mapAniMedia(m));
+    const map = (k: Exclude<keyof R, "latest">) =>
+      data[k].media.map((m) => mapAniMedia(m, undefined, lang));
 
     const seenLatest = new Set<number>();
     const latest: MediaItem[] = [];
@@ -156,7 +213,7 @@ export async function fetchAnimeShelves() {
       const m = entry.media;
       if (!m || m.isAdult || seenLatest.has(m.id)) continue;
       seenLatest.add(m.id);
-      latest.push(mapAniMedia(m, entry.episode));
+      latest.push(mapAniMedia(m, entry.episode, lang));
     }
 
     return {
@@ -189,15 +246,17 @@ export async function fetchAllAnimePage({
   perPage = 36,
   sort = "POPULARITY_DESC",
   search,
+  lang = "en",
 }: {
   page?: number;
   perPage?: number;
   sort?: AnimeBrowseSort;
   search?: string;
+  lang?: SiteLanguage;
 }): Promise<AnimeBrowsePage> {
   const q = search?.trim() ?? "";
   return cachedAsync(
-    `anilist:page:${sort}:${page}:${perPage}:${q.toLowerCase()}`,
+    `anilist:page:${lang}:${sort}:${page}:${perPage}:${q.toLowerCase()}`,
     1000 * 60 * 5,
     async () => {
       const data = await gql<{
@@ -222,7 +281,7 @@ export async function fetchAllAnimePage({
         },
       );
       return {
-        items: data.Page.media.map((m) => mapAniMedia(m)),
+        items: data.Page.media.map((m) => mapAniMedia(m, undefined, lang)),
         hasNextPage: data.Page.pageInfo.hasNextPage,
         currentPage: data.Page.pageInfo.currentPage,
         total: data.Page.pageInfo.total,
@@ -231,12 +290,18 @@ export async function fetchAllAnimePage({
   );
 }
 
-export async function searchAnime(search: string): Promise<MediaItem[]> {
-  const data = await gql<{ Page: { media: AniMedia[] } }>(
-    `query ($search: String) { Page(perPage: 36) { media(type: ANIME, isAdult: false, search: $search, sort: SEARCH_MATCH) { ${MEDIA_FIELDS} } } }`,
-    { search },
+export async function searchAnime(search: string, lang: SiteLanguage = "en"): Promise<MediaItem[]> {
+  return cachedAsync(
+    `anilist:search:${lang}:${search.trim().toLowerCase()}`,
+    1000 * 60 * 3,
+    async () => {
+      const data = await gql<{ Page: { media: AniMedia[] } }>(
+        `query ($search: String) { Page(perPage: 36) { media(type: ANIME, isAdult: false, search: $search, sort: SEARCH_MATCH) { ${MEDIA_FIELDS} } } }`,
+        { search },
+      );
+      return data.Page.media.map((m) => mapAniMedia(m, undefined, lang));
+    },
   );
-  return data.Page.media.map((m) => mapAniMedia(m));
 }
 
 interface AniRelationNode {
@@ -268,18 +333,40 @@ const SEASON_RELATIONS = new Set([
   "SPIN_OFF",
 ]);
 
-function relationLabel(raw: string, format: string | null, status: string | null): string {
+function relationLabel(
+  raw: string,
+  format: string | null,
+  status: string | null,
+  lang: SiteLanguage = "en",
+): string {
   if (status === "NOT_YET_RELEASED") {
+    if (lang === "fr") return format === "MOVIE" ? "Film à venir" : "Saison à venir";
     return format === "MOVIE" ? "Upcoming Movie" : "Upcoming Season";
   }
-  if (format === "MOVIE") return "Movie";
+  if (format === "MOVIE") return lang === "fr" ? "Film" : "Movie";
   if (format === "OVA" || format === "SPECIAL") return format;
-  return raw.replace(/_/g, " ").toLowerCase();
+  const clean = raw.replace(/_/g, " ").toLowerCase();
+  if (lang !== "fr") return clean;
+  switch (clean) {
+    case "sequel":
+      return "suite";
+    case "prequel":
+      return "préquelle";
+    case "side story":
+      return "histoire parallèle";
+    case "spin off":
+      return "dérivé";
+    case "alternative":
+      return "alternatif";
+    default:
+      return clean;
+  }
 }
 
 async function collectSeasonRelations(
   rootId: number,
   initialEdges: AniRelationEdge[],
+  lang: SiteLanguage = "en",
 ): Promise<MediaDetail["relations"]> {
   const seen = new Map<number, { node: AniRelationNode; relationType: string }>();
   const frontier: number[] = [];
@@ -358,8 +445,8 @@ async function collectSeasonRelations(
         source: "anilist" as const,
         section: "anime" as const,
         mediaType: node.format === "MOVIE" ? ("movie" as const) : ("tv" as const),
-        title: node.title.english || node.title.romaji || "Untitled",
-        relationType: relationLabel(relationType, node.format, node.status),
+        title: pickAniTitle(node.title),
+        relationType: relationLabel(relationType, node.format, node.status, lang),
         status: node.status ? node.status.replace(/_/g, " ").toLowerCase() : null,
         format: node.format,
         year: node.seasonYear,
@@ -369,8 +456,11 @@ async function collectSeasonRelations(
     });
 }
 
-export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
-  return cachedAsync(`anilist:detail:${id}`, 1000 * 60 * 10, async () => {
+export async function fetchAnimeDetail(
+  id: string,
+  lang: SiteLanguage = "en",
+): Promise<MediaDetail> {
+  return cachedAsync(`anilist:detail:${lang}:${id}`, 1000 * 60 * 10, async () => {
     type R = {
       Media: AniMedia & {
         streamingEpisodes: { title: string | null; thumbnail: string | null }[];
@@ -407,7 +497,7 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
       { id: Number(id) },
     );
     const m = data.Media;
-    const base = mapAniMedia(m);
+    const base = mapAniMedia(m, undefined, lang);
     const streaming = m.streamingEpisodes ?? [];
     const airedFromSchedule = m.nextAiringEpisode?.episode
       ? Math.max(1, m.nextAiringEpisode.episode - 1)
@@ -420,11 +510,12 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
         base.mediaType === "movie" ? 1 : 0,
       ) || 12;
 
+    const epWord = lang === "fr" ? "Épisode" : "Episode";
     const episodes = Array.from({ length: Math.min(total, 5000) }, (_, i) => {
       const se = streaming.find(
         (s) => s.title && new RegExp(`^Episode ${i + 1}\\b`, "i").test(s.title),
       );
-      const title = se?.title?.replace(/^Episode \d+\s*-\s*/i, "") || `Episode ${i + 1}`;
+      const title = se?.title?.replace(/^Episode \d+\s*-\s*/i, "") || `${epWord} ${i + 1}`;
       return {
         id: `${id}-${i + 1}`,
         number: i + 1,
@@ -435,7 +526,7 @@ export async function fetchAnimeDetail(id: string): Promise<MediaDetail> {
       };
     });
 
-    const relations = await collectSeasonRelations(m.id, m.relations?.edges ?? []);
+    const relations = await collectSeasonRelations(m.id, m.relations?.edges ?? [], lang);
 
     return {
       ...base,

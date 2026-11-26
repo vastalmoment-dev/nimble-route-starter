@@ -161,28 +161,35 @@ function safeDownloadFilename(raw: string | null): string {
 async function resolveDefaultChapterId(
   mangaId: string,
   which: "first" | "latest",
+  lang: "en" | "fr" = "en",
 ): Promise<{ chapterId: string; chLabel: string } | null> {
   const order = which === "first" ? "asc" : "desc";
-  const url = `${MANGADEX_API}/manga/${mangaId}/feed?translatedLanguage[]=en&limit=20&order[chapter]=${order}&contentRating[]=safe&contentRating[]=suggestive&includeFuturePublishAt=0`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) return null;
-  const json = (await res.json()) as {
-    data?: {
-      id?: string;
-      attributes?: { chapter?: string | null; pages?: number; externalUrl?: string | null };
-    }[];
-  };
-  const valid = (json.data ?? []).find(
-    (c) => c.id && !c.attributes?.externalUrl && (c.attributes?.pages ?? 0) > 0,
-  );
-  if (!valid?.id) return null;
-  return {
-    chapterId: valid.id,
-    chLabel: valid.attributes?.chapter ? `Ch-${valid.attributes.chapter}` : "Ch-1",
-  };
+  const langsToTry: ("en" | "fr")[] = lang === "fr" ? ["fr", "en"] : ["en"];
+
+  for (const translatedLang of langsToTry) {
+    const url = `${MANGADEX_API}/manga/${mangaId}/feed?translatedLanguage[]=${translatedLang}&limit=20&order[chapter]=${order}&contentRating[]=safe&contentRating[]=suggestive&includeFuturePublishAt=0&includeExternalUrl=0`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      data?: {
+        id?: string;
+        attributes?: { chapter?: string | null; pages?: number; externalUrl?: string | null };
+      }[];
+    };
+    const valid = (json.data ?? []).find(
+      (c) => c.id && !c.attributes?.externalUrl && (c.attributes?.pages ?? 0) > 0,
+    );
+    if (valid?.id) {
+      return {
+        chapterId: valid.id,
+        chLabel: valid.attributes?.chapter ? `Ch-${valid.attributes.chapter}` : "Ch-1",
+      };
+    }
+  }
+  return null;
 }
 
 export async function handleMangaProxyRequest(request: Request): Promise<Response | null> {
@@ -248,10 +255,11 @@ export async function handleMangaProxyRequest(request: Request): Promise<Respons
     if (!chapterId) {
       const mangaId = url.searchParams.get("mangaId") ?? "";
       const which = url.searchParams.get("which") === "first" ? "first" : "latest";
+      const reqLang = url.searchParams.get("lang") === "fr" ? "fr" : "en";
       if (!UUID_RE.test(mangaId)) {
         return new Response("Missing valid chapterId or mangaId", { status: 400 });
       }
-      const resolved = await resolveDefaultChapterId(mangaId, which);
+      const resolved = await resolveDefaultChapterId(mangaId, which, reqLang);
       if (!resolved) {
         return new Response("No downloadable chapter available yet", { status: 404 });
       }

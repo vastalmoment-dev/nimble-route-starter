@@ -4,28 +4,31 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, type GenreChipId } from "@/lib/catalog";
 import { fetchAllAnimePage, type AnimeBrowseSort } from "@/lib/catalog/anilist";
+import { useT, type TranslationKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { MediaCard, MediaCardSkeleton } from "./MediaCard";
 
-const SORTS: { id: AnimeBrowseSort; label: string }[] = [
-  { id: "POPULARITY_DESC", label: "Most Popular" },
-  { id: "TRENDING_DESC", label: "Trending" },
-  { id: "START_DATE_DESC", label: "Newest" },
-  { id: "SCORE_DESC", label: "Top Rated" },
-  { id: "TITLE_ROMAJI", label: "A–Z" },
+const SORTS: { id: AnimeBrowseSort; labelKey: TranslationKey }[] = [
+  { id: "POPULARITY_DESC", labelKey: "anime.sortPopular" },
+  { id: "TRENDING_DESC", labelKey: "anime.sortTrending" },
+  { id: "START_DATE_DESC", labelKey: "anime.sortNewest" },
+  { id: "SCORE_DESC", labelKey: "anime.sortTop" },
+  { id: "TITLE_ROMAJI", labelKey: "anime.sortAZ" },
 ];
 
 export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
+  const { lang, t } = useT();
   const [sort, setSort] = useState<AnimeBrowseSort>("POPULARITY_DESC");
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery({
-    queryKey: ["anime-all", sort],
+    queryKey: ["anime-all", sort, lang],
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
       fetchAllAnimePage({
         page: pageParam,
         perPage: 36,
         sort,
+        lang,
       }),
     getNextPageParam: (last) => (last.hasNextPage ? last.currentPage + 1 : undefined),
     staleTime: 1000 * 60 * 5,
@@ -49,11 +52,11 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
     <section className="space-y-5 px-4 pt-6 sm:px-8 lg:px-12">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-display text-xl font-bold sm:text-2xl">All Anime</h2>
+          <h2 className="font-display text-xl font-bold sm:text-2xl">{t("anime.allTitle")}</h2>
           <p className="text-xs text-muted-foreground">
             {totalAvailable
-              ? `${totalAvailable.toLocaleString()} titles · Full seasons & episodes with Sub & Dub`
-              : "Browse the complete anime catalog with Sub & Dub playback"}
+              ? `${totalAvailable.toLocaleString()} ${t("anime.allSubtitleCount")}`
+              : t("anime.allSubtitleDefault")}
           </p>
         </div>
         <div className="flex flex-wrap gap-1 rounded-2xl border border-foreground/10 bg-surface p-1 sm:rounded-full">
@@ -69,7 +72,7 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {s.label}
+              {t(s.labelKey)}
             </button>
           ))}
         </div>
@@ -83,7 +86,7 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-xl border border-foreground/5 bg-surface/40 py-14 text-center text-sm text-muted-foreground">
-          No anime matched those genres yet — try clearing the genre chips above.
+          {t("anime.emptyGenres")}
         </div>
       ) : (
         <>
@@ -103,10 +106,10 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
               >
                 {isFetchingNextPage ? (
                   <>
-                    <Loader2 className="animate-spin" /> Loading more anime…
+                    <Loader2 className="animate-spin" /> {t("anime.loadingMore")}
                   </>
                 ) : (
-                  `Load more anime (${items.length} shown)`
+                  `${t("anime.loadMore")} (${items.length} ${t("anime.shown")})`
                 )}
               </Button>
             </div>

@@ -3,20 +3,22 @@ import { Bookmark, Clapperboard, Smile, Sparkles, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { MediaCard } from "@/components/media/MediaCard";
 import { Button } from "@/components/ui/button";
+import { useT, type TranslationKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useWatchlist, watchlist } from "@/lib/watchlist/store";
 
 type WatchlistFilter = "all" | "anime" | "cartoons" | "movies" | "series";
 
-const FILTERS: { id: WatchlistFilter; label: string }[] = [
-  { id: "all", label: "All Saved" },
-  { id: "anime", label: "Anime" },
-  { id: "cartoons", label: "Cartoons" },
-  { id: "movies", label: "Movies" },
-  { id: "series", label: "Shows & Dramas" },
+const FILTERS: { id: WatchlistFilter; labelKey: TranslationKey }[] = [
+  { id: "all", labelKey: "watchlist.filterAll" },
+  { id: "anime", labelKey: "watchlist.filterAnime" },
+  { id: "cartoons", labelKey: "watchlist.filterCartoons" },
+  { id: "movies", labelKey: "watchlist.filterMovies" },
+  { id: "series", labelKey: "watchlist.filterSeries" },
 ];
 
 export function WatchlistPage() {
+  const { t } = useT();
   const entries = useWatchlist();
   const [filter, setFilter] = useState<WatchlistFilter>("all");
 
@@ -43,12 +45,14 @@ export function WatchlistPage() {
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-foreground/5 pb-6">
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
-            My Watchlist
+            {t("watchlist.title")}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             {entries.length === 0
-              ? "Save your favorite anime, cartoons, and movies here for instant playback."
-              : `${entries.length} ${entries.length === 1 ? "title" : "titles"} saved in this browser`}
+              ? t("watchlist.emptySubtitle")
+              : `${entries.length} ${
+                  entries.length === 1 ? t("watchlist.titleSingular") : t("watchlist.titlePlural")
+                } ${t("watchlist.savedCountSuffix")}`}
           </p>
         </div>
         {entries.length > 0 && (
@@ -60,7 +64,7 @@ export function WatchlistPage() {
             className="rounded-full px-4 text-xs text-muted-foreground hover:text-foreground"
           >
             <Trash2 className="size-3.5" />
-            <span>Clear Watchlist</span>
+            <span>{t("watchlist.clear")}</span>
           </Button>
         )}
       </div>
@@ -68,7 +72,7 @@ export function WatchlistPage() {
       {entries.length > 0 && (
         <div
           role="tablist"
-          aria-label="Filter watchlist"
+          aria-label={t("watchlist.filterAria")}
           className="mt-6 flex flex-wrap items-center gap-2"
         >
           {FILTERS.map((tab) => (
@@ -85,7 +89,7 @@ export function WatchlistPage() {
                   : "border-foreground/10 bg-surface text-muted-foreground hover:text-foreground",
               )}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
@@ -96,32 +100,29 @@ export function WatchlistPage() {
           <div className="flex size-14 items-center justify-center rounded-2xl bg-cerulean/15 text-cerulean">
             <Bookmark className="size-7" />
           </div>
-          <h2 className="mt-5 font-display text-xl font-semibold">Your watchlist is empty</h2>
-          <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Tap the bookmark button on any anime, cartoon, or movie card to keep it handy right
-            here.
-          </p>
+          <h2 className="mt-5 font-display text-xl font-semibold">{t("watchlist.emptyTitle")}</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">{t("watchlist.emptyBody")}</p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <Button asChild variant="brand" size="lg">
               <Link to="/anime">
-                <Sparkles /> Browse Anime
+                <Sparkles /> {t("watchlist.browseAnime")}
               </Link>
             </Button>
             <Button asChild variant="glass" size="lg">
               <Link to="/cartoons">
-                <Smile /> Browse Cartoons
+                <Smile /> {t("watchlist.browseCartoons")}
               </Link>
             </Button>
             <Button asChild variant="glass" size="lg">
               <Link to="/hollywood">
-                <Clapperboard /> Browse Movies
+                <Clapperboard /> {t("watchlist.browseMovies")}
               </Link>
             </Button>
           </div>
         </div>
       ) : filtered.length === 0 ? (
         <div className="mt-12 rounded-2xl border border-foreground/10 bg-surface/40 px-6 py-12 text-center text-sm text-muted-foreground">
-          No saved titles match that filter yet.
+          {t("watchlist.noFilterMatch")}
         </div>
       ) : (
         <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">

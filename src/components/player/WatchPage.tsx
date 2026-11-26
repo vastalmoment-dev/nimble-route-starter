@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { getTrailer } from "@/lib/catalog/trailer.functions";
 import type { Source } from "@/lib/catalog/types";
-import { useSiteLanguage } from "@/lib/i18n/language";
+import { useT } from "@/lib/i18n";
 import { playbackProgress } from "@/lib/player/progress";
 import { getAniLastAnimeStream } from "@/lib/stream/anilast.functions";
 import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
@@ -37,17 +37,18 @@ const LazyTrailerFrame = lazy(() =>
 const DISCORD_URL = "https://discord.gg/uKtF6Efs2";
 
 function WatchDiscordPrompt() {
+  const { t } = useT();
   return (
     <div className="shrink-0 border-t border-foreground/10 bg-background/95 px-3 py-1.5 text-center text-xs text-muted-foreground backdrop-blur-md">
       <p className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 leading-snug">
-        <span>Stream buffering or not loading?</span>
+        <span>{t("watch.discordPrompt")}</span>
         <a
           href={DISCORD_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex min-h-[44px] items-center font-semibold text-cerulean underline decoration-cerulean/50 underline-offset-4 transition hover:text-foreground hover:decoration-foreground sm:min-h-0"
         >
-          Report it or request titles on our Discord
+          {t("watch.discordCta")}
         </a>
       </p>
     </div>
@@ -69,10 +70,11 @@ function AudioToggle({
   value: AudioOption;
   onChange: (next: AudioOption) => void;
 }) {
+  const { t } = useT();
   return (
     <div
       role="group"
-      aria-label="Audio track"
+      aria-label={t("watch.audioTrack")}
       className="inline-flex min-h-[44px] items-center rounded-full border border-foreground/15 bg-scrim/75 p-0.5 backdrop-blur-md sm:min-h-9"
     >
       {(["sub", "dub"] as const).map((opt) => (
@@ -110,7 +112,7 @@ export function WatchPage({
   audio: searchAudio,
 }: WatchPageProps) {
   const isAnime = source === "anilist";
-  const lang = useSiteLanguage();
+  const { lang, t } = useT();
 
   const lastWatched =
     typeof window !== "undefined" ? playbackProgress.getLastWatched(source, id) : null;
@@ -202,7 +204,7 @@ export function WatchPage({
     };
   }, [source, id, season, ep, audio, isAnime]);
 
-  const detail = useQuery(detailQuery(source, id));
+  const detail = useQuery(detailQuery(source, id, lang));
   const title = detail.data?.title ?? "";
   const streamUrl = detail.data
     ? customStreamUrl(detail.data.key, detail.data.videoStreamUrl)
@@ -420,7 +422,7 @@ export function WatchPage({
         ? () => switchAnimeSeason(nextSequel.id)
         : null;
     const nextLabel = hasNextInSeason
-      ? `Episode ${ep + 1}`
+      ? `${t("detail.episode")} ${ep + 1}`
       : nextSequel
         ? `${nextSequel.title} · Ep 1`
         : null;
@@ -444,7 +446,7 @@ export function WatchPage({
             size="round"
             className="size-11 sm:size-9"
             disabled={!hasPrev}
-            aria-label="Previous episode"
+            aria-label={t("watch.prevEpisode")}
             onClick={() => switchEpisode(ep - 1)}
           >
             <ChevronLeft className="size-4" />
@@ -455,7 +457,7 @@ export function WatchPage({
             size="round"
             className="size-11 sm:size-9"
             disabled={!hasNext}
-            aria-label="Next episode"
+            aria-label={t("watch.nextEpisode")}
             onClick={() => nextAction?.()}
           >
             <ChevronRight className="size-4" />
@@ -469,7 +471,9 @@ export function WatchPage({
           onClick={() => setEpisodesOpen((o) => !o)}
         >
           <ListVideo className="size-3.5" />
-          <span>Ep {ep}</span>
+          <span>
+            {lang === "fr" ? "Ép." : "Ep"} {ep}
+          </span>
           {episodes.length > 0 && (
             <span className="text-muted-foreground">/ {episodes.length}</span>
           )}
@@ -477,7 +481,7 @@ export function WatchPage({
         <button
           type="button"
           onClick={() => setIncludeSubtitles((s) => !s)}
-          title="Choose whether downloaded anime includes subtitle files"
+          title={t("detail.subsToggleHint")}
           className={cn(
             "inline-flex min-h-[44px] items-center gap-1.5 rounded-full border px-3 text-xs font-semibold backdrop-blur-md transition sm:h-9 sm:min-h-0",
             includeSubtitles
@@ -488,12 +492,12 @@ export function WatchPage({
           {includeSubtitles ? (
             <>
               <Subtitles className="size-3.5 text-cerulean" />
-              <span className="hidden sm:inline">+ Subs</span>
+              <span className="hidden sm:inline">{t("watch.plusSubs")}</span>
             </>
           ) : (
             <>
               <CaptionsOff className="size-3.5 text-gold" />
-              <span className="hidden sm:inline">No Subs</span>
+              <span className="hidden sm:inline">{t("watch.noSubs")}</span>
             </>
           )}
         </button>
@@ -511,11 +515,11 @@ export function WatchPage({
             size="sm"
             className="min-h-[44px] rounded-full px-3 text-xs sm:h-9 sm:min-h-0"
             onClick={() => setPlayerMode((m) => (m === "native" ? "embed" : "native"))}
-            title={showAniNative ? "Switch to alternate player" : "Switch back to SHADOW player"}
+            title={showAniNative ? t("watch.switchAlternate") : t("watch.switchShadow")}
           >
             <MonitorPlay className="size-3.5" />
             <span className="hidden md:inline">
-              {showAniNative ? "Alternate Player" : "SHADOW Player"}
+              {showAniNative ? t("watch.alternatePlayer") : t("watch.shadowPlayer")}
             </span>
           </Button>
         )}
@@ -524,14 +528,14 @@ export function WatchPage({
 
     const episodeDrawer = episodesOpen && (
       <aside
-        aria-label="Episode selector"
+        aria-label={t("watch.episodeSelector")}
         className="fixed inset-y-0 right-0 z-[55] flex w-80 max-w-full flex-col border-l border-foreground/10 bg-popover/95 shadow-card backdrop-blur-xl"
       >
         <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
           <div>
-            <p className="font-display text-sm font-semibold">Episodes</p>
+            <p className="font-display text-sm font-semibold">{t("detail.episodes")}</p>
             <p className="text-xs text-muted-foreground">
-              Audio: {audio.toUpperCase()} · {episodes.length || ep} available
+              Audio: {audio.toUpperCase()} · {episodes.length || ep} {t("watch.available")}
             </p>
           </div>
           <Button
@@ -539,7 +543,7 @@ export function WatchPage({
             variant="ghost"
             size="round"
             className="min-h-[44px] min-w-[44px] sm:size-8 sm:min-h-0 sm:min-w-0"
-            aria-label="Close episodes"
+            aria-label={t("watch.closeEpisodes")}
             onClick={() => setEpisodesOpen(false)}
           >
             <X className="size-4" />
@@ -548,7 +552,7 @@ export function WatchPage({
         {relations.length > 0 && (
           <div className="border-b border-foreground/10 p-3">
             <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              <Layers className="size-3.5 text-cerulean" /> All Seasons & Related
+              <Layers className="size-3.5 text-cerulean" /> {t("watch.allSeasonsRelated")}
             </p>
             <div className="flex max-h-36 flex-col gap-1 overflow-y-auto">
               {relations.map((rel) => (
@@ -623,8 +627,8 @@ export function WatchPage({
                   subtitles: aniStream.data.subtitles,
                   ...(aniStream.data.sources?.length ? { sources: aniStream.data.sources } : {}),
                 }}
-                title={title || "Loading…"}
-                subtitle={`Episode ${ep} · ${audio.toUpperCase()}${
+                title={title || t("common.loading")}
+                subtitle={`${t("detail.episode")} ${ep} · ${audio.toUpperCase()}${
                   currentEp?.title && currentEp.title !== `Episode ${ep}`
                     ? ` — ${currentEp.title}`
                     : ""
@@ -656,17 +660,17 @@ export function WatchPage({
               variant="glass"
               size="round"
               className="min-h-[44px] min-w-[44px] sm:size-10 sm:min-h-0 sm:min-w-0"
-              aria-label="Back"
+              aria-label={t("common.back")}
               onClick={goBack}
             >
               <ArrowLeft className="size-5" />
             </Button>
             <div className="min-w-0">
               <p className="truncate font-display text-base font-semibold sm:text-lg">
-                {title || "Loading…"}
+                {title || t("common.loading")}
               </p>
               <p className="text-xs text-muted-foreground">
-                Episode {ep} · {audio.toUpperCase()}
+                {t("detail.episode")} {ep} · {audio.toUpperCase()}
               </p>
             </div>
           </div>
@@ -677,7 +681,9 @@ export function WatchPage({
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="size-12 animate-spin text-cerulean" />
               <p className="text-sm text-muted-foreground">
-                Loading {audio.toUpperCase()} stream for Episode {ep}…
+                {t("watch.loadingAudioEp")
+                  .replace("{audio}", audio.toUpperCase())
+                  .replace("{ep}", String(ep))}
               </p>
             </div>
           ) : aniEmbedUrl ? (
@@ -685,7 +691,7 @@ export function WatchPage({
               <iframe
                 key={aniEmbedUrl}
                 src={aniEmbedUrl}
-                title={`${title || "Anime"} — Episode ${ep}`}
+                title={`${title || "Anime"} — ${t("detail.episode")} ${ep}`}
                 className="size-full border-0"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowFullScreen
@@ -695,7 +701,7 @@ export function WatchPage({
           ) : (
             <div className="flex max-w-md flex-col items-center gap-4 text-center">
               <p className="font-display text-xl font-semibold">
-                {aniStream.data?.error || "Stream temporarily unavailable for this episode."}
+                {aniStream.data?.error || t("watch.streamUnavailable")}
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button
@@ -703,18 +709,18 @@ export function WatchPage({
                   className="min-h-[44px]"
                   onClick={() => void aniStream.refetch()}
                 >
-                  <RefreshCw className="size-4" /> Retry stream
+                  <RefreshCw className="size-4" /> {t("watch.retryStream")}
                 </Button>
                 <Button
                   variant="glass"
                   className="min-h-[44px]"
                   onClick={() => switchAudio(audio === "sub" ? "dub" : "sub")}
                 >
-                  Switch to {audio === "sub" ? "DUB" : "SUB"}
+                  {t("watch.switchTo")} {audio === "sub" ? "DUB" : "SUB"}
                 </Button>
                 {hasNext && nextAction && (
                   <Button variant="glass" className="min-h-[44px]" onClick={nextAction}>
-                    Next episode
+                    {t("watch.nextEpisode")}
                   </Button>
                 )}
               </div>
@@ -813,7 +819,7 @@ export function WatchPage({
                 size="round"
                 className="size-11 sm:size-9"
                 disabled={!prevTarget}
-                aria-label="Previous episode"
+                aria-label={t("watch.prevEpisode")}
                 onClick={() => prevTarget && switchEpisode(prevTarget.ep, prevTarget.season)}
               >
                 <ChevronLeft className="size-4" />
@@ -824,7 +830,7 @@ export function WatchPage({
                 size="round"
                 className="size-11 sm:size-9"
                 disabled={!nextTarget}
-                aria-label="Next episode"
+                aria-label={t("watch.nextEpisode")}
                 onClick={() => nextTarget && switchEpisode(nextTarget.ep, nextTarget.season)}
               >
                 <ChevronRight className="size-4" />
@@ -838,7 +844,11 @@ export function WatchPage({
               onClick={() => setEpisodesOpen((o) => !o)}
             >
               <ListVideo className="size-3.5" />
-              <span>{seasons.length > 1 ? `S${season} · Ep ${ep}` : `Ep ${ep}`}</span>
+              <span>
+                {seasons.length > 1
+                  ? `S${season} · ${lang === "fr" ? "Ép." : "Ep"} ${ep}`
+                  : `${lang === "fr" ? "Ép." : "Ep"} ${ep}`}
+              </span>
               {seasonEpisodes.length > 0 && (
                 <span className="text-muted-foreground">/ {seasonEpisodes.length}</span>
               )}
@@ -858,11 +868,11 @@ export function WatchPage({
             size="sm"
             className="min-h-[44px] rounded-full px-3 text-xs sm:h-9 sm:min-h-0"
             onClick={() => setPlayerMode((m) => (m === "native" ? "embed" : "native"))}
-            title={showNative ? "Switch to alternate player" : "Switch back to SHADOW player"}
+            title={showNative ? t("watch.switchAlternate") : t("watch.switchShadow")}
           >
             <MonitorPlay className="size-3.5" />
             <span className="hidden md:inline">
-              {showNative ? "Alternate Player" : "SHADOW Player"}
+              {showNative ? t("watch.alternatePlayer") : t("watch.shadowPlayer")}
             </span>
           </Button>
         )}
@@ -871,16 +881,16 @@ export function WatchPage({
 
     const mediaDrawer = !isMovie && episodesOpen && (
       <aside
-        aria-label="Episode selector"
+        aria-label={t("watch.episodeSelector")}
         className="fixed inset-y-0 right-0 z-[55] flex w-80 max-w-full flex-col border-l border-foreground/10 bg-popover/95 shadow-card backdrop-blur-xl"
       >
         <div className="flex items-center justify-between border-b border-foreground/10 px-4 py-3">
           <div>
-            <p className="font-display text-sm font-semibold">Episodes</p>
+            <p className="font-display text-sm font-semibold">{t("detail.episodes")}</p>
             <p className="text-xs text-muted-foreground">
               {seasons.length > 1
-                ? `Season ${drawerSeason} · ${drawerEpisodes.length} episodes`
-                : `${drawerEpisodes.length || ep} available`}
+                ? `${t("detail.season")} ${drawerSeason} · ${drawerEpisodes.length} ${t("watch.episodesLower")}`
+                : `${drawerEpisodes.length || ep} ${t("watch.available")}`}
             </p>
           </div>
           <Button
@@ -888,7 +898,7 @@ export function WatchPage({
             variant="ghost"
             size="round"
             className="min-h-[44px] min-w-[44px] sm:size-8 sm:min-h-0 sm:min-w-0"
-            aria-label="Close episodes"
+            aria-label={t("watch.closeEpisodes")}
             onClick={() => setEpisodesOpen(false)}
           >
             <X className="size-4" />
@@ -983,11 +993,11 @@ export function WatchPage({
                     ? { sources: mediaStream.data.sources }
                     : {}),
                 }}
-                title={title || "Loading…"}
+                title={title || t("common.loading")}
                 subtitle={
                   isMovie
-                    ? `Full Movie${lang === "fr" ? " · FR" : ""}`
-                    : `${seasons.length > 1 ? `Season ${season} · ` : ""}Episode ${ep}${
+                    ? `${t("watch.fullMovie")}${lang === "fr" ? " · FR" : ""}`
+                    : `${seasons.length > 1 ? `${t("detail.season")} ${season} · ` : ""}${t("detail.episode")} ${ep}${
                         currentEp?.title && currentEp.title !== `Episode ${ep}`
                           ? ` — ${currentEp.title}`
                           : ""
@@ -1002,8 +1012,8 @@ export function WatchPage({
                 nextLabel={
                   nextTarget
                     ? seasons.length > 1
-                      ? `Season ${nextTarget.season} · Ep ${nextTarget.ep}`
-                      : `Episode ${nextTarget.ep}`
+                      ? `${t("detail.season")} ${nextTarget.season} · Ep ${nextTarget.ep}`
+                      : `${t("detail.episode")} ${nextTarget.ep}`
                     : null
                 }
                 onSwitchEmbed={mediaEmbedUrl ? () => setPlayerMode("embed") : undefined}
@@ -1027,19 +1037,19 @@ export function WatchPage({
                 variant="glass"
                 size="round"
                 className="min-h-[44px] min-w-[44px] sm:size-10 sm:min-h-0 sm:min-w-0"
-                aria-label="Back"
+                aria-label={t("common.back")}
                 onClick={goBack}
               >
                 <ArrowLeft className="size-5" />
               </Button>
               <div className="min-w-0">
                 <p className="truncate font-display text-base font-semibold sm:text-lg">
-                  {title || "Loading…"}
+                  {title || t("common.loading")}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {isMovie
-                    ? "Full Movie"
-                    : `${seasons.length > 1 ? `Season ${season} · ` : ""}Episode ${ep}`}
+                    ? t("watch.fullMovie")
+                    : `${seasons.length > 1 ? `${t("detail.season")} ${season} · ` : ""}${t("detail.episode")} ${ep}`}
                 </p>
               </div>
             </div>
@@ -1072,8 +1082,10 @@ export function WatchPage({
                 <Loader2 className="size-12 animate-spin text-cerulean" />
                 <p className="text-sm text-muted-foreground">
                   {isMovie
-                    ? "Loading full movie stream…"
-                    : `Loading Season ${season} Episode ${ep}…`}
+                    ? t("watch.loadingMovie")
+                    : t("watch.loadingSeasonEp")
+                        .replace("{season}", String(season))
+                        .replace("{ep}", String(ep))}
                 </p>
               </div>
             ) : mediaEmbedUrl ? (
@@ -1108,17 +1120,17 @@ export function WatchPage({
           variant="glass"
           size="round"
           className="min-h-[44px] min-w-[44px] sm:size-10 sm:min-h-0 sm:min-w-0"
-          aria-label="Back"
+          aria-label={t("common.back")}
           onClick={goBack}
         >
           <ArrowLeft className="size-5" />
         </Button>
         <div className="min-w-0">
           <p className="truncate font-display text-base font-semibold sm:text-lg">
-            {title || "Loading…"}
+            {title || t("common.loading")}
           </p>
           <p className="text-xs text-muted-foreground">
-            {streamUrl ? "Now playing" : "Official trailer"}
+            {streamUrl ? t("watch.nowPlaying") : t("watch.officialTrailer")}
           </p>
         </div>
       </div>
@@ -1152,11 +1164,9 @@ export function WatchPage({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4 text-center">
-            <p className="font-display text-xl font-semibold">
-              No trailer is available for this title yet.
-            </p>
+            <p className="font-display text-xl font-semibold">{t("watch.noTrailer")}</p>
             <Button variant="glass" size="xl" onClick={goBack}>
-              Go back
+              {t("common.goBack")}
             </Button>
           </div>
         )}

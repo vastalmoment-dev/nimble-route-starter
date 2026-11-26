@@ -320,6 +320,7 @@ async function findFranchiseRelations(base: MediaItem): Promise<MediaDetail["rel
 export async function fetchCinemetaDetail(
   rawId: string,
   sectionOverride?: SectionId,
+  lang: "en" | "fr" = "en",
 ): Promise<MediaDetail> {
   const parsed = parseCinemetaId(rawId);
   if (!parsed) throw new Error("Invalid media identifier");
@@ -353,11 +354,12 @@ export async function fetchCinemetaDetail(
       (a, b) => a.season - b.season || (a.episode ?? a.number ?? 0) - (b.episode ?? b.number ?? 0),
     );
 
+    const epWord = lang === "fr" ? "Épisode" : "Episode";
     episodes = sortedVideos
       .filter((v) => (nonZero.length > 0 ? v.season > 0 : true))
       .map((v) => {
         const epNum = v.episode ?? v.number ?? 1;
-        const epTitle = v.name || v.title || `Episode ${epNum}`;
+        const epTitle = v.name || v.title || `${epWord} ${epNum}`;
         return {
           id: v.id || `${parsed.imdbId}:${v.season}:${epNum}`,
           number: epNum,
@@ -376,7 +378,14 @@ export async function fetchCinemetaDetail(
         id: `${parsed.imdbId}:1`,
         number: 1,
         season: meta.type === "series" ? 1 : null,
-        title: meta.type === "movie" ? "Full Movie" : "Episode 1",
+        title:
+          meta.type === "movie"
+            ? lang === "fr"
+              ? "Film complet"
+              : "Full Movie"
+            : lang === "fr"
+              ? "Épisode 1"
+              : "Episode 1",
         thumbnail: base.backdrop ?? null,
         runtime: base.runtime ?? null,
       },

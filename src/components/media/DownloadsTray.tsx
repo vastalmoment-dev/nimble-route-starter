@@ -1,14 +1,16 @@
 import { CheckCircle2, Download, Loader2, X, XCircle } from "lucide-react";
-import { downloads, useDownloads } from "@/lib/download/store";
 import { Progress } from "@/components/ui/progress";
+import { downloads, useDownloads } from "@/lib/download/store";
+import { useT } from "@/lib/i18n";
 
 export function DownloadsTray() {
+  const { t } = useT();
   const jobs = useDownloads();
   if (!jobs.length) return null;
   return (
     <div className="fixed bottom-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover/95 shadow-card backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        <Download className="size-3.5" /> Downloads
+        <Download className="size-3.5" /> {t("downloads.title")}
       </div>
       <ul className="max-h-72 divide-y overflow-y-auto">
         {jobs.map((job) => {
@@ -28,17 +30,17 @@ export function DownloadsTray() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{job.title}</p>
                   <p className="text-xs text-muted-foreground">
-                    {job.status === "resolving" && "Finding stream…"}
+                    {job.status === "resolving" && t("downloads.resolving")}
                     {job.status === "downloading" &&
-                      `Saving for offline · ${Math.round(job.progress * 100)}%`}
-                    {job.status === "done" && "Saved to your device"}
-                    {job.status === "cancelled" && "Cancelled"}
+                      `${t("downloads.saving")} · ${Math.round(job.progress * 100)}%`}
+                    {job.status === "done" && t("downloads.done")}
+                    {job.status === "cancelled" && t("downloads.cancelled")}
                     {job.status === "error" && job.error}
                   </p>
                 </div>
                 <button
                   type="button"
-                  aria-label={active ? "Cancel download" : "Dismiss"}
+                  aria-label={active ? t("downloads.cancelAria") : t("downloads.dismissAria")}
                   className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                   onClick={() => (active ? downloads.cancel(job.id) : downloads.dismiss(job.id))}
                 >

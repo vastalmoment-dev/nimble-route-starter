@@ -16,6 +16,11 @@ describe("Language preference (EN / FR)", () => {
     siteLanguage.set("en");
   });
 
+  afterEach(() => {
+    window.localStorage.clear();
+    siteLanguage.set("en");
+  });
+
   it("defaults to English and persists switching to French", () => {
     expect(siteLanguage.get()).toBe("en");
     siteLanguage.set("fr");
@@ -248,6 +253,8 @@ describe("Signed segment proxy & AES-128 HLS downloader parser", () => {
 
 describe("Global playback keyboard shortcuts & accessibility", () => {
   beforeEach(() => {
+    window.localStorage.clear();
+    siteLanguage.set("en");
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => Promise.resolve());
     vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});

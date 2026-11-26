@@ -3,7 +3,9 @@ import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { ShadowMark, ShadowWordmark } from "@/components/branding/ShadowLogo";
+import { LanguageToggle } from "@/components/media/LanguageToggle";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useT } from "@/lib/i18n";
 import { useWatchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
@@ -31,34 +33,39 @@ function NavLinks({
   onNavigate?: () => void;
 }) {
   const savedCount = useWatchlist().length;
+  const { t } = useT();
   return (
-    <nav className="space-y-1" aria-label="Main">
-      {NAV_ITEMS.map(({ to, label, icon: Icon, accent }) => (
-        <Link
-          key={to}
-          to={to}
-          onClick={onNavigate}
-          activeOptions={{ exact: to === "/" }}
-          title={collapsed ? label : undefined}
-          className={cn(
-            "group/nav relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground",
-            "data-[status=active]:bg-sidebar-accent data-[status=active]:text-sidebar-accent-foreground",
-            collapsed && "justify-center px-0",
-          )}
-        >
-          <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand-gradient opacity-0 transition group-data-[status=active]/nav:opacity-100" />
-          <Icon className={cn("size-5 shrink-0 transition", accent)} />
-          {!collapsed && <span className="flex-1 truncate">{label}</span>}
-          {!collapsed && to === "/watchlist" && savedCount > 0 && (
-            <span className="text-xs font-semibold tabular-nums text-cerulean">{savedCount}</span>
-          )}
-        </Link>
-      ))}
+    <nav className="space-y-1" aria-label={t("nav.mainAria")}>
+      {NAV_ITEMS.map(({ to, labelKey, icon: Icon, accent }) => {
+        const label = t(labelKey);
+        return (
+          <Link
+            key={to}
+            to={to}
+            onClick={onNavigate}
+            activeOptions={{ exact: to === "/" }}
+            title={collapsed ? label : undefined}
+            className={cn(
+              "group/nav relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              "data-[status=active]:bg-sidebar-accent data-[status=active]:text-sidebar-accent-foreground",
+              collapsed && "justify-center px-0",
+            )}
+          >
+            <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-brand-gradient opacity-0 transition group-data-[status=active]/nav:opacity-100" />
+            <Icon className={cn("size-5 shrink-0 transition", accent)} />
+            {!collapsed && <span className="flex-1 truncate">{label}</span>}
+            {!collapsed && to === "/watchlist" && savedCount > 0 && (
+              <span className="text-xs font-semibold tabular-nums text-cerulean">{savedCount}</span>
+            )}
+          </Link>
+        );
+      })}
     </nav>
   );
 }
 
 function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const { t } = useT();
   return (
     <aside
       className={cn(
@@ -82,20 +89,21 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       <button
         type="button"
         onClick={onToggle}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
         className={cn(
           "m-3 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-sidebar-foreground/60 transition hover:bg-sidebar-accent hover:text-sidebar-foreground",
           collapsed && "justify-center px-0",
         )}
       >
         {collapsed ? <PanelLeftOpen className="size-5" /> : <PanelLeftClose className="size-5" />}
-        {!collapsed && "Collapse"}
+        {!collapsed && t("shell.collapse")}
       </button>
     </aside>
   );
 }
 
 function SearchBox() {
+  const { t } = useT();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const urlQ = useRouterState({
@@ -174,14 +182,14 @@ function SearchBox() {
             commit(value);
           }
         }}
-        placeholder="Search anime, cartoons, dramas, movies…"
-        aria-label="Search titles"
+        placeholder={t("shell.searchPlaceholder")}
+        aria-label={t("shell.searchAria")}
         className="h-full min-w-0 w-full bg-transparent px-2.5 text-sm outline-none placeholder:text-muted-foreground sm:px-3 [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label={t("shell.clearSearch")}
           className="mr-1.5 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full p-1 text-muted-foreground hover:text-foreground sm:mr-2"
           onClick={() => {
             if (timer.current) clearTimeout(timer.current);
@@ -197,6 +205,7 @@ function SearchBox() {
 }
 
 function TopBar({ onMenu }: { onMenu: () => void }) {
+  const { t } = useT();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -217,7 +226,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       <button
         type="button"
         onClick={onMenu}
-        aria-label="Open menu"
+        aria-label={t("shell.openMenu")}
         className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full hover:bg-foreground/10 lg:hidden"
       >
         <Menu className="size-5" />
@@ -227,16 +236,17 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       </Link>
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:gap-3">
         <SearchBox />
+        <LanguageToggle compact className="hidden sm:inline-flex" />
         <a
           href={DISCORD_URL}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="Join Discord"
+          aria-label={t("shell.joinDiscord")}
           className="inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-full border border-[#5865F2]/40 bg-[#5865F2]/15 px-3 text-xs font-semibold text-foreground backdrop-blur-xl transition hover:border-[#5865F2] hover:bg-[#5865F2] hover:text-white sm:h-10 sm:min-h-0 sm:px-4"
         >
           <DiscordIcon className="text-[#7289DA] group-hover:text-white" />
-          <span className="hidden sm:inline">Join Discord</span>
-          <span className="sm:hidden">Discord</span>
+          <span className="hidden sm:inline">{t("shell.joinDiscord")}</span>
+          <span className="sm:hidden">{t("shell.discordShort")}</span>
         </a>
       </div>
     </header>
@@ -244,32 +254,33 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
 }
 
 function Footer() {
+  const { t } = useT();
   return (
     <footer className="mt-16 border-t border-foreground/5 px-4 py-10 text-xs text-muted-foreground sm:px-8 lg:px-12">
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <ShadowWordmark />
-        <p className="max-w-lg">
-          Live streaming &amp; free manga library for anime, cartoons, K-dramas, Hollywood,
-          Bollywood, Tollywood and Nollywood. New releases appear automatically.
-        </p>
-        <nav aria-label="Footer" className="flex shrink-0 flex-wrap items-center gap-4 sm:gap-5">
+        <p className="max-w-lg">{t("shell.footerTagline")}</p>
+        <nav
+          aria-label={t("nav.footerAria")}
+          className="flex shrink-0 flex-wrap items-center gap-4 sm:gap-5"
+        >
           <Link
             to="/"
             className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
           >
-            Home
+            {t("nav.home")}
           </Link>
           <Link
             to="/watchlist"
             className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
           >
-            My Watchlist
+            {t("nav.watchlist")}
           </Link>
           <Link
             to="/policy"
             className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
           >
-            Policy & DMCA
+            {t("shell.policy")}
           </Link>
           <a
             href={DISCORD_URL}
@@ -278,7 +289,7 @@ function Footer() {
             className="inline-flex min-h-[44px] items-center gap-1.5 whitespace-nowrap font-semibold text-foreground transition hover:text-cerulean sm:min-h-0"
           >
             <DiscordIcon className="text-[#5865F2]" />
-            <span>Join Discord</span>
+            <span>{t("shell.joinDiscord")}</span>
           </a>
         </nav>
       </div>
@@ -289,6 +300,7 @@ function Footer() {
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { t } = useT();
   return (
     <div
       className="flex min-h-screen"
@@ -306,7 +318,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ShadowWordmark />
           </SheetTitle>
           <NavLinks onNavigate={() => setMobileOpen(false)} />
-          <div className="mt-6 flex flex-col gap-1 border-t border-sidebar-border px-2 pt-4">
+          <div className="mt-6 flex flex-col gap-2 border-t border-sidebar-border px-2 pt-4">
+            <div className="py-1">
+              <LanguageToggle compact />
+            </div>
             <a
               href={DISCORD_URL}
               target="_blank"
@@ -315,14 +330,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-2 text-xs font-semibold text-sidebar-foreground transition hover:bg-sidebar-accent"
             >
               <DiscordIcon className="text-[#5865F2]" />
-              <span>Join Discord</span>
+              <span>{t("shell.joinDiscord")}</span>
             </a>
             <Link
               to="/policy"
               onClick={() => setMobileOpen(false)}
               className="flex min-h-[44px] items-center rounded-lg px-2 text-xs font-medium text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
-              Policy & DMCA
+              {t("shell.policy")}
             </Link>
           </div>
         </SheetContent>

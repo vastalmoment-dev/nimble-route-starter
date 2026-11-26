@@ -246,4 +246,45 @@ describe("Free Manga library UI", () => {
     fireEvent.error(pageImg);
     expect(pageImg.getAttribute("src")).toBe("/api/manga/page?token=proxy-fallback-1");
   });
+
+  it("supports keyword search submission, displays result summary, and clears search cleanly", async () => {
+    const getCatalogMock = vi.mocked(mangaFunctions.getMangaCatalog);
+    getCatalogMock.mockClear();
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MangaPage />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("Kagurabachi");
+
+    const searchInput = screen.getByRole("textbox", { name: "Search manga" });
+    fireEvent.change(searchInput, { target: { value: "sakamoto" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(getCatalogMock).toHaveBeenLastCalledWith({
+        data: {
+          feed: "latest",
+          genre: "All",
+          q: "sakamoto",
+          offset: 0,
+          lang: "en",
+        },
+      });
+    });
+
+    expect(await screen.findByText("“sakamoto”")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Clear search" })[0]!);
+    await waitFor(() => {
+      expect((searchInput as HTMLInputElement).value).toBe("");
+      expect(screen.queryByText("“sakamoto”")).toBeNull();
+      expect(screen.getByRole("tab", { name: "New Releases" }).getAttribute("aria-selected")).toBe(
+        "true",
+      );
+    });
+  });
 });

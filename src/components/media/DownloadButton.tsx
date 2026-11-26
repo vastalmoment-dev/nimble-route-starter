@@ -1,6 +1,7 @@
 import { Check, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloads, useDownloads } from "@/lib/download/store";
+import { useT } from "@/lib/i18n";
 import { canStreamSource, type AudioOption } from "@/lib/stream/resolver";
 import type { MediaItem } from "@/lib/catalog/types";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ export function DownloadButton({
   compact?: boolean;
   className?: string;
 }) {
+  const { t } = useT();
   const jobs = useDownloads();
   const trackAudio: AudioOption = audio ?? "sub";
   const includeSubs = Boolean(includeSubtitles);
@@ -49,12 +51,12 @@ export function DownloadButton({
   const label = busy
     ? `${Math.round((job?.progress ?? 0) * 100)}%`
     : done
-      ? "Saved"
+      ? t("common.saved")
       : isAnime
-        ? `Download ${trackAudio.toUpperCase()}${includeSubs ? " + Subs" : " (No Subs)"}`
+        ? `${t("common.download")} ${trackAudio.toUpperCase()}${includeSubs ? ` ${t("watch.plusSubs")}` : ` (${t("watch.noSubs")})`}`
         : isMovie
-          ? "Download Movie"
-          : "Download";
+          ? t("common.downloadMovie")
+          : t("common.download");
   if (!canStreamSource(item.source)) return null;
 
   return (

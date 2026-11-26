@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Bookmark, BookmarkCheck, Play, Star } from "lucide-react";
 import type { MediaItem } from "@/lib/catalog/types";
+import { useT } from "@/lib/i18n";
 import { useIsInWatchlist, watchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
@@ -17,6 +18,7 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
 };
 
 export function MediaCard({ item, className }: { item: MediaItem; className?: string }) {
+  const { lang } = useT();
   const { open } = useMediaModal();
   const saved = useIsInWatchlist(item.key);
   const titleFallback = (
@@ -31,7 +33,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         type="button"
         onClick={() => open(item)}
         className="relative block aspect-[2/3] w-full overflow-hidden rounded-lg bg-surface text-left shadow-card ring-1 ring-foreground/5 transition duration-300 ease-out group-hover/card:-translate-y-1 group-hover/card:shadow-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`${item.title} — more info`}
+        aria-label={lang === "fr" ? `${item.title} — plus d'infos` : `${item.title} — more info`}
       >
         <MediaImage
           src={item.poster ?? item.posterHd}
@@ -55,7 +57,9 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
               </span>
             ) : null}
             {item.latestEpisode && item.source === "anilist" ? (
-              <span className="text-cerulean">Ep {item.latestEpisode}</span>
+              <span className="text-cerulean">
+                {lang === "fr" ? "Ép." : "Ep"} {item.latestEpisode}
+              </span>
             ) : (
               item.genres?.[0] && <span className="truncate">{item.genres[0]}</span>
             )}
@@ -66,7 +70,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         />
         {item.source === "anilist" && item.latestEpisode && (
           <span className="absolute bottom-2 left-2 rounded bg-scrim/85 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-foreground backdrop-blur-sm transition-opacity group-hover/card:opacity-0">
-            EP {item.latestEpisode}
+            {lang === "fr" ? "ÉP" : "EP"} {item.latestEpisode}
           </span>
         )}
       </button>
@@ -78,10 +82,24 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
           watchlist.toggle(item);
         }}
         aria-label={
-          saved ? `Remove ${item.title} from watchlist` : `Save ${item.title} to watchlist`
+          saved
+            ? lang === "fr"
+              ? `Retirer ${item.title} de ma liste`
+              : `Remove ${item.title} from watchlist`
+            : lang === "fr"
+              ? `Ajouter ${item.title} à ma liste`
+              : `Save ${item.title} to watchlist`
         }
         aria-pressed={saved}
-        title={saved ? "Saved in My Watchlist" : "Save to My Watchlist"}
+        title={
+          saved
+            ? lang === "fr"
+              ? "Enregistré dans Ma Liste"
+              : "Saved in My Watchlist"
+            : lang === "fr"
+              ? "Enregistrer dans Ma Liste"
+              : "Save to My Watchlist"
+        }
         className={cn(
           "absolute right-12 top-2 flex size-9 items-center justify-center rounded-full border border-foreground/15 bg-scrim/80 text-foreground backdrop-blur-md transition duration-300 focus-visible:opacity-100",
           saved
@@ -95,7 +113,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         to="/watch/$source/$id"
         params={{ source: item.source, id: item.id }}
         search={{}}
-        aria-label={`Play ${item.title}`}
+        aria-label={lang === "fr" ? `Lire ${item.title}` : `Play ${item.title}`}
         className="absolute right-2 top-2 flex size-9 scale-75 items-center justify-center rounded-full bg-foreground text-background opacity-0 shadow-card transition duration-300 group-hover/card:scale-100 group-hover/card:opacity-100 focus-visible:opacity-100"
       >
         <Play className="size-4 translate-x-px fill-current" />
