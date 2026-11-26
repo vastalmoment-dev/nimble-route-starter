@@ -10,6 +10,13 @@ export interface SubtitleTrack {
   label: string;
 }
 
+export interface StreamSource {
+  url: string;
+  type: StreamType;
+  label: string;
+  lang?: string | null | undefined;
+}
+
 export interface ResolvedStream {
   url: string;
   type: StreamType;
@@ -18,6 +25,7 @@ export interface ResolvedStream {
   /** True when the stream is a placeholder sample, not the licensed title. */
   isDemo: boolean;
   subtitles?: SubtitleTrack[];
+  sources?: StreamSource[];
 }
 
 export interface StreamRequest {
@@ -27,6 +35,7 @@ export interface StreamRequest {
   season?: number | undefined;
   mediaType?: "tv" | "movie" | undefined;
   title: string;
+  year?: number | null | undefined;
   audio?: AudioOption | undefined;
   lang?: SiteLanguage | undefined;
   includeSubtitles?: boolean | undefined;
@@ -119,6 +128,7 @@ export const aniLastResolver: StreamResolver = {
       provider: "SHADOW Stream",
       isDemo: false,
       subtitles: result.subtitles,
+      ...(result.sources?.length ? { sources: result.sources } : {}),
     };
   },
 };
@@ -172,7 +182,7 @@ export const mediaStreamResolver: StreamResolver = {
       }
     }
 
-    if (!imdbId && !tmdbId) return null;
+    if (!imdbId && !tmdbId && !req.title) return null;
 
     const { getMediaStream } = await import("./media.functions");
     const result = await getMediaStream({
@@ -180,6 +190,8 @@ export const mediaStreamResolver: StreamResolver = {
         mediaType,
         imdbId,
         tmdbId,
+        title: req.title || null,
+        year: req.year ?? null,
         season: req.season ?? 1,
         episode: req.episode,
         lang: req.lang ?? siteLanguage.get(),
@@ -192,6 +204,7 @@ export const mediaStreamResolver: StreamResolver = {
       provider: "SHADOW Stream",
       isDemo: false,
       subtitles: result.subtitles,
+      ...(result.sources?.length ? { sources: result.sources } : {}),
     };
   },
 };

@@ -1,4 +1,4 @@
-import bannerImageUrl from "@/assets/1xbet-blue-bonus-banner.jpg";
+import bannerImageUrl from "@/assets/1xbet-blue-bonus-banner.webp";
 
 /**
  * Promotional banners. Edit this list to swap partners, images or copy.

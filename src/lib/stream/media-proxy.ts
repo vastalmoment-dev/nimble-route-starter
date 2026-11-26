@@ -23,8 +23,14 @@ const STREAM_ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const SUB_REF_RE = /^[A-Za-z0-9._~=-]{10,1024}$/;
 const IMDB_ID_RE = /^tt\d{5,10}$/;
 
-// Ephemeral per-process HMAC secret so only server-issued stream/segment URLs can be proxied.
-const SIGN_SECRET = crypto.randomBytes(32);
+let fallbackSecret: Buffer | null = null;
+
+function getSignSecret(): string | Buffer {
+  const envSecret = process.env["MEDIA_PROXY_SECRET"] || process.env["SESSION_SECRET"];
+  if (envSecret) return envSecret;
+  if (!fallbackSecret) fallbackSecret = crypto.randomBytes(32);
+  return fallbackSecret;
+}
 
 interface TokenPayload {
   u: string;
@@ -39,7 +45,7 @@ export function signMediaProxyUrl(upstreamUrl: string, referer?: string): string
     exp: Date.now() + 1000 * 60 * 60 * 6,
   };
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const sig = crypto.createHmac("sha256", SIGN_SECRET).update(body).digest("base64url");
+  const sig = crypto.createHmac("sha256", getSignSecret()).update(body).digest("base64url");
   return `/api/media/segment?token=${encodeURIComponent(`${body}.${sig}`)}`;
 }
 
@@ -51,7 +57,7 @@ export function verifyMediaProxyToken(token: string | null): TokenPayload | null
   const sig = token.slice(dot + 1);
   if (!body || !sig) return null;
 
-  const expected = crypto.createHmac("sha256", SIGN_SECRET).update(body).digest("base64url");
+  const expected = crypto.createHmac("sha256", getSignSecret()).update(body).digest("base64url");
   const sigBuf = Buffer.from(sig);
   const expBuf = Buffer.from(expected);
   if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
@@ -141,7 +147,7 @@ async function fetchImageResponse(url: string): Promise<Response | null> {
         status: 200,
         headers: {
           "content-type": ct,
-          "cache-control": "public, max-age=86400",
+          "cache-control": "public, max-age=86400, s-maxage=86400",
         },
       });
     }

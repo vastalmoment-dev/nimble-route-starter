@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SectionPage } from "@/components/media/SectionPage";
+import { lazy, Suspense } from "react";
+import { RouteFallback } from "@/components/layout/RouteFallback";
+
+const LazySectionPage = lazy(() =>
+  import("@/components/media/SectionPage").then((m) => ({ default: m.SectionPage })),
+);
+
+function TollywoodRoutePage() {
+  return (
+    <Suspense fallback={<RouteFallback label="Loading Tollywood…" />}>
+      <LazySectionPage section="tollywood" />
+    </Suspense>
+  );
+}
 
 export const Route = createFileRoute("/tollywood")({
   head: () => ({
@@ -18,5 +31,5 @@ export const Route = createFileRoute("/tollywood")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <SectionPage section="tollywood" />,
+  component: TollywoodRoutePage,
 });

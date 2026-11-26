@@ -9,10 +9,11 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cachedAsync } from "@/lib/cache/client-cache";
 import {
   getMangaCatalog,
   getMangaChapterPages,
@@ -23,6 +24,7 @@ import {
   type MangaChapter,
   type MangaFeedKind,
   type MangaItem,
+  type MangaPageSource,
 } from "@/lib/manga/mangadex";
 import { cn } from "@/lib/utils";
 
@@ -35,10 +37,62 @@ const FEED_TABS: { id: MangaFeedKind; label: string }[] = [
 
 const GENRES = ["All", ...Object.keys(MANGA_GENRE_TAGS)];
 
-function MangaCover({ item }: { item: MangaItem }) {
-  const [broken, setBroken] = useState(false);
+function resolveCoverCandidates(item: MangaItem): string[] {
+  const candidates: string[] = [];
+  const push = (u: string | null | undefined) => {
+    if (u && !candidates.includes(u)) candidates.push(u);
+  };
 
-  if (!item.coverUrl || broken) {
+  const rawCover = item.coverUrl;
+  if (rawCover) {
+    if (rawCover.startsWith("/api/manga/cover")) {
+      try {
+        const parsed = new URL(rawCover, "https://shadow.local");
+        const mangaId = parsed.searchParams.get("mangaId");
+        const file = parsed.searchParams.get("file");
+        if (mangaId && file) {
+          push(
+            `https://uploads.mangadex.org/covers/${encodeURIComponent(mangaId)}/${encodeURIComponent(file)}.512.jpg`,
+          );
+          push(
+            `https://uploads.mangadex.org/covers/${encodeURIComponent(mangaId)}/${encodeURIComponent(file)}`,
+          );
+        }
+      } catch {
+        /* ignore malformed proxy path */
+      }
+      push(rawCover);
+    } else {
+      push(rawCover);
+      const match = rawCover.match(
+        /^https:\/\/uploads\.mangadex\.org\/covers\/([^/]+)\/([^/?#]+?)(?:\.(?:256|512)\.jpg)?$/,
+      );
+      if (match) {
+        const [, mangaId, file] = match;
+        if (mangaId && file) {
+          push(`https://uploads.mangadex.org/covers/${mangaId}/${file}`);
+          push(
+            item.coverFallbackUrl ??
+              `/api/manga/cover?mangaId=${encodeURIComponent(mangaId)}&file=${encodeURIComponent(file)}`,
+          );
+        }
+      }
+    }
+  }
+  push(item.coverFallbackUrl);
+  return candidates;
+}
+
+function MangaCover({ item }: { item: MangaItem }) {
+  const candidates = useMemo(() => resolveCoverCandidates(item), [item]);
+  const [candidateIdx, setCandidateIdx] = useState(0);
+
+  useEffect(() => {
+    setCandidateIdx(0);
+  }, [item.id, item.coverUrl, item.coverFallbackUrl]);
+
+  const activeSrc = candidates[candidateIdx];
+  if (!activeSrc) {
     return (
       <div className="flex size-full flex-col items-center justify-center bg-surface p-3 text-center">
         <BookOpen className="mb-2 size-7 text-muted-foreground/60" />
@@ -51,12 +105,79 @@ function MangaCover({ item }: { item: MangaItem }) {
 
   return (
     <img
-      src={item.coverUrl}
+      src={activeSrc}
       alt={`${item.title} cover`}
       loading="lazy"
+      decoding="async"
       referrerPolicy="no-referrer"
-      onError={() => setBroken(true)}
+      onError={() => setCandidateIdx((i) => i + 1)}
       className="size-full object-cover transition duration-500 group-hover/card:scale-105"
+    />
+  );
+}
+
+function normalizePageSource(entry: string | MangaPageSource): {
+  url: string;
+  fallbackUrl: string | null;
+} {
+  if (typeof entry === "string") {
+    return { url: entry, fallbackUrl: null };
+  }
+  return { url: entry.url, fallbackUrl: entry.fallbackUrl || null };
+}
+
+function MangaReaderImage({
+  entry,
+  pageNumber,
+}: {
+  entry: string | MangaPageSource;
+  pageNumber: number;
+}) {
+  const { url, fallbackUrl } = useMemo(() => normalizePageSource(entry), [entry]);
+  const [useFallback, setUseFallback] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setUseFallback(false);
+    setFailed(false);
+  }, [url, fallbackUrl]);
+
+  const activeSrc = useFallback && fallbackUrl ? fallbackUrl : url;
+
+  if (failed) {
+    return (
+      <div className="flex h-48 w-full flex-col items-center justify-center gap-2 rounded bg-surface px-4 text-center text-xs text-muted-foreground">
+        <p>Page {pageNumber} failed to load.</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            setFailed(false);
+            setUseFallback(false);
+          }}
+        >
+          <RefreshCw className="size-3.5" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={activeSrc}
+      alt={`Page ${pageNumber}`}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (!useFallback && fallbackUrl && fallbackUrl !== activeSrc) {
+          setUseFallback(true);
+        } else {
+          setFailed(true);
+        }
+      }}
+      className="w-full rounded bg-surface object-contain"
     />
   );
 }
@@ -98,27 +219,35 @@ export function MangaPage() {
   const catalog = useQuery({
     queryKey: ["manga-catalog", feed, genre, debouncedQ, offset],
     queryFn: () =>
-      getMangaCatalog({
-        data: {
-          feed,
-          genre,
-          q: debouncedQ || undefined,
-          offset,
-        },
-      }),
+      cachedAsync(`manga:catalog:v2:${feed}:${genre}:${debouncedQ}:${offset}`, 1000 * 60 * 5, () =>
+        getMangaCatalog({
+          data: {
+            feed,
+            genre,
+            q: debouncedQ || undefined,
+            offset,
+          },
+        }),
+      ),
     staleTime: 1000 * 60 * 3,
   });
 
   const chaptersQuery = useQuery({
     queryKey: ["manga-chapters", selectedManga?.id],
-    queryFn: () => getMangaChapters({ data: { mangaId: selectedManga!.id } }),
+    queryFn: () =>
+      cachedAsync(`manga:chapters:${selectedManga!.id}`, 1000 * 60 * 10, () =>
+        getMangaChapters({ data: { mangaId: selectedManga!.id } }),
+      ),
     enabled: Boolean(selectedManga),
     staleTime: 1000 * 60 * 10,
   });
 
   const pagesQuery = useQuery({
     queryKey: ["manga-pages", readingChapter?.id],
-    queryFn: () => getMangaChapterPages({ data: { chapterId: readingChapter!.id } }),
+    queryFn: () =>
+      cachedAsync(`manga:pages:v2:${readingChapter!.id}`, 1000 * 60 * 10, () =>
+        getMangaChapterPages({ data: { chapterId: readingChapter!.id } }),
+      ),
     enabled: Boolean(readingChapter),
     staleTime: 1000 * 60 * 20,
   });
@@ -175,7 +304,7 @@ export function MangaPage() {
                 setOffset(0);
               }}
               className={cn(
-                "rounded-md border px-3.5 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                "min-h-[44px] whitespace-nowrap rounded-md border px-3.5 py-2 text-xs font-semibold transition sm:min-h-0 sm:py-1.5",
                 feed === t.id && !debouncedQ
                   ? "border-cerulean bg-brand-gradient text-primary-foreground"
                   : "border-foreground/10 bg-surface text-muted-foreground hover:text-foreground",
@@ -193,7 +322,7 @@ export function MangaPage() {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search manga title…"
             aria-label="Search manga"
-            className="pl-9"
+            className="min-h-[44px] pl-9 sm:min-h-0"
           />
         </label>
       </div>
@@ -209,7 +338,7 @@ export function MangaPage() {
               setOffset(0);
             }}
             className={cn(
-              "rounded-md border px-2.5 py-1 text-xs font-medium transition whitespace-nowrap",
+              "min-h-[44px] whitespace-nowrap rounded-md border px-3 py-1.5 text-xs font-medium transition sm:min-h-0 sm:px-2.5 sm:py-1",
               genre === g
                 ? "border-cerulean/60 bg-cerulean/15 text-foreground"
                 : "border-foreground/10 bg-surface/60 text-muted-foreground hover:text-foreground",
@@ -388,12 +517,12 @@ export function MangaPage() {
                     {chapters.map((ch) => (
                       <li
                         key={ch.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-foreground/5 bg-surface/60 px-3 py-2 transition hover:border-cerulean/40 hover:bg-surface"
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-foreground/5 bg-surface/60 px-3 py-2 transition hover:border-cerulean/40 hover:bg-surface sm:flex-nowrap sm:gap-3"
                       >
                         <button
                           type="button"
                           onClick={() => setReadingChapter(ch)}
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left sm:min-h-0"
                         >
                           <span className="w-14 shrink-0 font-display text-sm font-semibold tabular-nums">
                             Ch. {ch.chapter}
@@ -407,11 +536,12 @@ export function MangaPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
+                            className="min-h-[44px] sm:min-h-0"
                             onClick={() => setReadingChapter(ch)}
                           >
                             Read
                           </Button>
-                          <Button asChild size="sm">
+                          <Button asChild size="sm" className="min-h-[44px] sm:min-h-0">
                             <a
                               href={downloadChapterHref(ch.id, selectedManga.title, ch.chapter)}
                               download
@@ -438,7 +568,7 @@ export function MangaPage() {
           aria-label={`${selectedManga.title} Chapter ${readingChapter.chapter}`}
           className="fixed inset-0 z-50 flex flex-col bg-scrim"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-foreground/10 bg-background/95 px-4 py-3 backdrop-blur-xl">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-foreground/10 bg-background/95 px-3 py-2.5 backdrop-blur-xl sm:gap-3 sm:px-4 sm:py-3">
             <div className="min-w-0 flex-1">
               <p className="truncate font-display text-sm font-semibold sm:text-base">
                 {selectedManga.title}
@@ -448,11 +578,12 @@ export function MangaPage() {
                 {readingChapter.title ? ` — ${readingChapter.title}` : ""}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <Button
                 type="button"
                 size="sm"
                 variant="glass"
+                className="min-h-[44px] sm:min-h-0"
                 disabled={!prevChapter}
                 onClick={() => prevChapter && setReadingChapter(prevChapter)}
                 aria-label="Previous chapter"
@@ -463,13 +594,14 @@ export function MangaPage() {
                 type="button"
                 size="sm"
                 variant="glass"
+                className="min-h-[44px] sm:min-h-0"
                 disabled={!nextChapter}
                 onClick={() => nextChapter && setReadingChapter(nextChapter)}
                 aria-label="Next chapter"
               >
                 Next <ChevronRight className="size-4" />
               </Button>
-              <Button asChild size="sm">
+              <Button asChild size="sm" className="min-h-[44px] sm:min-h-0">
                 <a
                   href={downloadChapterHref(
                     readingChapter.id,
@@ -485,6 +617,7 @@ export function MangaPage() {
                 type="button"
                 size="icon"
                 variant="ghost"
+                className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0"
                 aria-label="Close reader"
                 onClick={() => setReadingChapter(null)}
               >
@@ -519,14 +652,11 @@ export function MangaPage() {
               </div>
             ) : (
               <div className="mx-auto flex max-w-3xl flex-col gap-2">
-                {pagesQuery.data.map((src, idx) => (
-                  <img
-                    key={src}
-                    src={src}
-                    alt={`Page ${idx + 1}`}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    className="w-full rounded bg-surface object-contain"
+                {pagesQuery.data.map((entry, idx) => (
+                  <MangaReaderImage
+                    key={typeof entry === "string" ? entry : entry.url}
+                    entry={entry}
+                    pageNumber={idx + 1}
                   />
                 ))}
               </div>

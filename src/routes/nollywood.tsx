@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { NollywoodPage } from "@/components/media/NollywoodPage";
+import { lazy, Suspense } from "react";
+import { RouteFallback } from "@/components/layout/RouteFallback";
+
+const LazyNollywoodPage = lazy(() =>
+  import("@/components/media/NollywoodPage").then((m) => ({ default: m.NollywoodPage })),
+);
+
+function NollywoodRoutePage() {
+  return (
+    <Suspense fallback={<RouteFallback label="Loading Nollywood…" />}>
+      <LazyNollywoodPage />
+    </Suspense>
+  );
+}
 
 export const Route = createFileRoute("/nollywood")({
   head: () => ({
@@ -20,5 +33,5 @@ export const Route = createFileRoute("/nollywood")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: NollywoodPage,
+  component: NollywoodRoutePage,
 });

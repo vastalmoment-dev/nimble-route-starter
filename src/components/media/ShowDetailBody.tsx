@@ -145,8 +145,8 @@ export function ShowDetailBody({
 
       <div
         className={cn(
-          "relative aspect-video w-full overflow-hidden bg-surface",
-          mode === "page" ? "max-h-[52vh] rounded-2xl border border-foreground/10" : "max-h-[46vh]",
+          "relative min-h-[340px] w-full overflow-hidden bg-surface sm:aspect-video",
+          mode === "page" ? "max-h-[56vh] rounded-2xl border border-foreground/10" : "max-h-[50vh]",
         )}
       >
         <MediaImage
@@ -155,17 +155,19 @@ export function ShowDetailBody({
           source={item.source}
           itemId={item.id}
           imdbId={d.imdbId ?? item.imdbId}
+          loading="eager"
+          fetchPriority="high"
           className="size-full object-cover object-[center_25%]"
         />
         <div className="absolute inset-0 bg-hero-bottom" />
-        <div className="absolute inset-x-0 bottom-0 space-y-4 p-6 sm:p-8">
+        <div className="absolute inset-x-0 bottom-0 space-y-3 p-4 sm:space-y-4 sm:p-8">
           <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
             {meta.label}
           </span>
-          <TitleHeading className="font-display text-3xl font-bold leading-tight sm:text-4xl">
+          <TitleHeading className="font-display text-2xl font-bold leading-tight sm:text-4xl">
             {d.title}
           </TitleHeading>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <Button asChild variant="hero" size="xl">
               <Link
                 to="/watch/$source/$id"
@@ -292,7 +294,7 @@ export function ShowDetailBody({
                         aria-selected={activeSeason === s}
                         onClick={() => setSelectedSeason(s)}
                         className={cn(
-                          "rounded-md border px-3 py-1 text-xs font-semibold tabular-nums transition",
+                          "min-h-[44px] rounded-md border px-3 py-1.5 text-xs font-semibold tabular-nums transition sm:min-h-0 sm:py-1",
                           activeSeason === s
                             ? "border-cerulean bg-brand-gradient text-primary-foreground"
                             : "border-foreground/10 bg-surface text-muted-foreground hover:text-foreground",
@@ -351,7 +353,7 @@ export function ShowDetailBody({
                             isAnime ? { ep: ep.number, audio } : { season: epSeason, ep: ep.number }
                           }
                           onClick={onClose}
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left sm:min-h-0"
                         >
                           <span className="flex w-8 shrink-0 items-center gap-1.5 font-display text-sm font-semibold tabular-nums">
                             {isLastWatched && (
@@ -497,6 +499,7 @@ export function ShowDetailBody({
                           src={c.image}
                           alt=""
                           loading="lazy"
+                          decoding="async"
                           referrerPolicy="no-referrer"
                           className="size-full object-cover"
                         />

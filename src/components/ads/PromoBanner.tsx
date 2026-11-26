@@ -1,5 +1,5 @@
 import { Check, Copy, ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PROMO_BANNERS, type PromoBanner as Promo } from "@/lib/promo/banners";
 import { cn } from "@/lib/utils";
 
@@ -11,13 +11,23 @@ export function PromoBanner({
   className?: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
   if (!banner) return null;
   const copy = async () => {
     if (!banner.code) return;
     try {
       await navigator.clipboard.writeText(banner.code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1800);
     } catch {
       /* clipboard blocked */
     }
@@ -44,6 +54,7 @@ export function PromoBanner({
                   src={banner.image}
                   alt={`${banner.partner} promotional banner`}
                   loading="lazy"
+                  decoding="async"
                   className="mx-auto aspect-square w-full max-w-xs shrink-0 rounded-xl object-cover object-center ring-1 ring-inset ring-foreground/10 sm:mx-0 sm:h-48 sm:w-48 sm:max-w-none"
                 />
               </a>

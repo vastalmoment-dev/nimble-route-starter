@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SectionPage } from "@/components/media/SectionPage";
+import { lazy, Suspense } from "react";
+import { RouteFallback } from "@/components/layout/RouteFallback";
+
+const LazySectionPage = lazy(() =>
+  import("@/components/media/SectionPage").then((m) => ({ default: m.SectionPage })),
+);
+
+function CartoonsRoutePage() {
+  return (
+    <Suspense fallback={<RouteFallback label="Loading Cartoons…" />}>
+      <LazySectionPage section="cartoons" />
+    </Suspense>
+  );
+}
 
 export const Route = createFileRoute("/cartoons")({
   head: () => ({
@@ -18,5 +31,5 @@ export const Route = createFileRoute("/cartoons")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <SectionPage section="cartoons" />,
+  component: CartoonsRoutePage,
 });

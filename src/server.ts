@@ -47,6 +47,27 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+const EDGE_CACHED_IMAGE_PATHS = new Set([
+  "/api/manga/cover",
+  "/api/manga/page",
+  "/api/media/image",
+]);
+
+function withEdgeImageCache(request: Request, response: Response): Response {
+  if (!response.ok) return response;
+  if (request.method !== "GET" && request.method !== "HEAD") return response;
+  const pathname = new URL(request.url).pathname;
+  if (!EDGE_CACHED_IMAGE_PATHS.has(pathname)) return response;
+
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "public, max-age=86400, s-maxage=86400");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Hosting compresses every response at the edge. Never compress a body (gzip, brotli,
 // CompressionStream) or set content-encoding here or in a server route: the body gets encoded
 // twice and renders garbled.
@@ -56,9 +77,9 @@ export default {
       const proxiedAnime = await handleAniLastProxyRequest(request);
       if (proxiedAnime) return proxiedAnime;
       const proxiedMedia = await handleMediaProxyRequest(request);
-      if (proxiedMedia) return proxiedMedia;
+      if (proxiedMedia) return withEdgeImageCache(request, proxiedMedia);
       const proxiedManga = await handleMangaProxyRequest(request);
-      if (proxiedManga) return proxiedManga;
+      if (proxiedManga) return withEdgeImageCache(request, proxiedManga);
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);

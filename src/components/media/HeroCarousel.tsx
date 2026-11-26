@@ -23,7 +23,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
 
   return (
     <section
-      className="relative h-[78vh] min-h-[520px] w-full overflow-hidden"
+      className="relative h-[78vh] min-h-[540px] w-full overflow-hidden"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-roledescription="carousel"
@@ -54,13 +54,13 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
             />
             <div className="absolute inset-0 bg-hero-left" />
             <div className="absolute inset-0 bg-hero-bottom" />
-            <div className="relative flex h-full max-w-3xl flex-col justify-end gap-4 px-4 pb-20 sm:px-8 sm:pb-24 lg:px-12">
+            <div className="relative flex h-full max-w-3xl flex-col justify-end gap-3 px-4 pb-20 pt-20 sm:gap-4 sm:px-8 sm:pb-24 lg:px-12">
               <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
                 {meta.label}
               </span>
               <h1
                 className={cn(
-                  "font-display text-4xl font-bold leading-[1.02] sm:text-6xl",
+                  "font-display text-3xl font-bold leading-[1.05] sm:text-6xl sm:leading-[1.02]",
                   active && "animate-fade-up",
                 )}
               >
@@ -104,18 +104,24 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
           </div>
         );
       })}
-      <div className="absolute bottom-8 right-4 flex gap-2 sm:right-8 lg:right-12">
+      <div className="absolute bottom-6 right-4 flex gap-1.5 sm:bottom-8 sm:right-8 sm:gap-2 lg:right-12">
         {items.map((item, i) => (
           <button
             key={item.key}
             type="button"
             aria-label={`Show ${item.title}`}
             onClick={() => setIndex(i)}
-            className={cn(
-              "h-1 rounded-full transition-all",
-              i === index ? "w-8 bg-brand-gradient" : "w-3 bg-foreground/30 hover:bg-foreground/60",
-            )}
-          />
+            className="flex min-h-[44px] items-center px-1 sm:min-h-6 sm:px-0"
+          >
+            <span
+              className={cn(
+                "block h-1.5 rounded-full transition-all",
+                i === index
+                  ? "w-8 bg-brand-gradient"
+                  : "w-3 bg-foreground/30 hover:bg-foreground/60",
+              )}
+            />
+          </button>
         ))}
       </div>
     </section>

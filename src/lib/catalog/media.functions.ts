@@ -145,6 +145,9 @@ const CURATED_TOLLYWOOD: CuratedEntry[] = [
   { type: "movie", imdbId: "tt29439114" }, // Hi Nanna
   { type: "movie", imdbId: "tt20850406" }, // Sita Ramam
   { type: "movie", imdbId: "tt23865918" }, // Peddi
+  { type: "series", imdbId: "tt19868374" }, // Dhootha
+  { type: "series", imdbId: "tt15471900" }, // Rana Naidu
+  { type: "series", imdbId: "tt27412343" }, // Saving the Tigers
 ];
 
 const CURATED_NOLLYWOOD: CuratedEntry[] = [
@@ -185,10 +188,10 @@ const CURATED_KDRAMAS: CuratedEntry[] = [
   { type: "series", imdbId: "tt5994364" }, // Goblin
   { type: "series", imdbId: "tt13433812" }, // Vincenzo
   { type: "series", imdbId: "tt24640580" }, // Moving
-  { type: "series", imdbId: "tt20234598" }, // Weak Hero Class 1
+  { type: "series", imdbId: "tt20234568" }, // Weak Hero Class 1
   { type: "series", imdbId: "tt12940504" }, // My Name
   { type: "series", imdbId: "tt14819828" }, // Business Proposal
-  { type: "series", imdbId: "tt20843416" }, // Extraordinary Attorney Woo
+  { type: "series", imdbId: "tt20869502" }, // Extraordinary Attorney Woo
   { type: "movie", imdbId: "tt5700672" }, // Train to Busan
 ];
 
@@ -314,7 +317,7 @@ function isEnglishOrGlobalHollywood(m: CinemetaMeta): boolean {
 }
 
 async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> {
-  const [pinned, extra, frenchCartoons, animMovies, animSeries, yearMovies, yearSeries] =
+  const [pinned, extra, frenchCartoons, animMovies, animSeries, yearMovies, yearSeries, fallback] =
     await Promise.all([
       hydrateEntries(PINNED_CARTOONS, "cartoons", 20),
       hydrateEntries(EXTRA_CARTOONS, "cartoons", 18),
@@ -329,6 +332,9 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
       ),
       fetchCinemetaCatalog("movie", "year").catch(() => [] as CinemetaMeta[]),
       fetchCinemetaCatalog("series", "year").catch(() => [] as CinemetaMeta[]),
+      loadFallbackCatalog()
+        .then((c) => c.cartoons ?? [])
+        .catch(() => [] as MediaItem[]),
     ]);
 
   const newAnimMovies = mapMetas(yearMovies, "cartoons", { filter: isAnimationMeta });
@@ -340,6 +346,18 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     filter: (m) => !isJapaneseAnimeMeta(m),
   });
 
+  const livePool = dedupe([
+    ...frenchCartoons,
+    ...pinned,
+    ...extra,
+    ...newAnimMovies,
+    ...newAnimSeries,
+    ...topAnimMovies,
+    ...topAnimSeries,
+  ]);
+  const presentImdb = new Set(livePool.map((i) => i.imdbId).filter(Boolean));
+  const extraFallback = fallback.filter((f) => !f.imdbId || !presentImdb.has(f.imdbId));
+
   const newReleases = interleave(
     newAnimMovies,
     newAnimSeries,
@@ -350,12 +368,14 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     ...extra.filter((i) => i.mediaType === "movie"),
     ...newAnimMovies,
     ...topAnimMovies,
+    ...extraFallback.filter((i) => i.mediaType === "movie"),
   ]);
   const seriesAll = dedupe([
     ...pinned.filter((i) => i.mediaType === "tv"),
     ...extra.filter((i) => i.mediaType === "tv"),
     ...newAnimSeries,
     ...topAnimSeries,
+    ...extraFallback.filter((i) => i.mediaType === "tv"),
   ]);
 
   const items = dedupe([
@@ -365,6 +385,7 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     ...extra,
     ...topAnimMovies,
     ...topAnimSeries,
+    ...extraFallback,
   ]);
   const genreShelves = buildShelves(items, "Cartoons").filter((s) => s.id !== "trending");
 
@@ -381,7 +402,7 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     {
       id: "featured-favorites",
       title: "Bad Guys, Boss Baby & TMNT",
-      items: pinned.slice(0, 24),
+      items: dedupe([...pinned, ...extraFallback]).slice(0, 24),
     },
     ...(moviesAll.length
       ? [
@@ -398,7 +419,7 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
     {
       id: "trending",
       title: "Popular Cartoons",
-      items: interleave(extra, topAnimMovies, topAnimSeries).slice(0, 24),
+      items: interleave(extra, topAnimMovies, topAnimSeries, extraFallback).slice(0, 24),
     },
     ...(seriesAll.length
       ? [{ id: "cartoon-series", title: "Full Cartoon Series", items: seriesAll.slice(0, 24) }]
@@ -409,7 +430,9 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
   return {
     section: "cartoons",
     featured: pickFeatured(
-      lang === "fr" && frenchCartoons.length ? [...frenchCartoons, ...pinned] : pinned,
+      lang === "fr" && frenchCartoons.length
+        ? [...frenchCartoons, ...pinned, ...items]
+        : [...pinned, ...items],
       6,
     ),
     shelves,
@@ -428,6 +451,7 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
     topMoviesRaw,
     topSeriesRaw,
     ratedMoviesRaw,
+    fallback,
   ] = await Promise.all([
     hydrateEntries(CURATED_HOLLYWOOD_ENGLISH, "hollywood", 16),
     lang === "fr"
@@ -439,6 +463,9 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
     fetchCinemetaCatalog("movie", "top").catch(() => [] as CinemetaMeta[]),
     fetchCinemetaCatalog("series", "top").catch(() => [] as CinemetaMeta[]),
     fetchCinemetaCatalog("movie", "imdbRating").catch(() => [] as CinemetaMeta[]),
+    loadFallbackCatalog()
+      .then((c) => c.hollywood ?? [])
+      .catch(() => [] as MediaItem[]),
   ]);
 
   const frenchCuratedIds = new Set(CURATED_FRENCH_MOVIES.map((c) => c.imdbId));
@@ -457,16 +484,35 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
   const topSeries = mapMetas(topSeriesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
   const ratedMovies = mapMetas(ratedMoviesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
 
+  const frenchMerged = dedupe([...frenchHits, ...frenchLive]);
+  const livePool = dedupe([
+    ...frenchMerged,
+    ...curatedEnglish,
+    ...newMovies,
+    ...newSeries,
+    ...topMovies,
+    ...topSeries,
+    ...ratedMovies,
+  ]);
+  const presentImdb = new Set(livePool.map((i) => i.imdbId).filter(Boolean));
+  const extraFallback = fallback.filter((f) => !f.imdbId || !presentImdb.has(f.imdbId));
+
   const englishMoviesAll = dedupe([
     ...curatedEnglish.filter((i) => i.mediaType === "movie"),
     ...newMovies,
     ...topMovies,
     ...ratedMovies,
+    ...extraFallback.filter((i) => i.mediaType === "movie"),
   ]);
   const newReleases = interleave(newMovies, newSeries);
-  const trending = interleave(englishMoviesAll, topSeries);
-  const frenchMerged = dedupe([...frenchHits, ...frenchLive]);
-  const items = dedupe([...frenchMerged, ...curatedEnglish, ...newReleases, ...trending]);
+  const trending = interleave(englishMoviesAll, topSeries, extraFallback);
+  const items = dedupe([
+    ...frenchMerged,
+    ...curatedEnglish,
+    ...newReleases,
+    ...trending,
+    ...extraFallback,
+  ]);
   const genreShelves = buildShelves(items, "Hollywood").filter((s) => s.id !== "trending");
 
   const shelves = [
@@ -498,7 +544,7 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
         ]
       : []),
     { id: "trending", title: "Trending in Hollywood", items: trending.slice(0, 24) },
-    ...(topSeries.length
+    ...(topSeries.length || extraFallback.some((i) => i.mediaType === "tv")
       ? [
           {
             id: "hollywood-series",
@@ -507,6 +553,7 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
               ...curatedEnglish.filter((i) => i.mediaType === "tv"),
               ...newSeries,
               ...topSeries,
+              ...extraFallback.filter((i) => i.mediaType === "tv"),
             ]).slice(0, 24),
           },
         ]
@@ -518,8 +565,8 @@ async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog>
     section: "hollywood",
     featured: pickFeatured(
       lang === "fr" && frenchMerged.length
-        ? [...frenchMerged, ...curatedEnglish, ...topMovies]
-        : [...curatedEnglish, ...topMovies, ...newMovies],
+        ? [...frenchMerged, ...curatedEnglish, ...topMovies, ...items]
+        : [...curatedEnglish, ...topMovies, ...newMovies, ...items],
       6,
     ),
     shelves,
@@ -544,18 +591,16 @@ async function buildRegionalCatalog(
   const [liveEntries, curatedItems, fallback] = await Promise.all([
     fetchWikidataImdbReleases(section),
     hydrateEntries(curated, section, 24),
-    section === "k-dramas"
-      ? loadFallbackCatalog()
-          .then((c) => c["k-dramas"] ?? [])
-          .catch(() => [] as MediaItem[])
-      : Promise.resolve([] as MediaItem[]),
+    loadFallbackCatalog()
+      .then((c) => c[section] ?? [])
+      .catch(() => [] as MediaItem[]),
   ]);
 
   const curatedIds = new Set(curated.map((c) => c.imdbId));
   const freshEntries = liveEntries.filter((e) => !curatedIds.has(e.imdbId));
   const freshItems = freshEntries.length ? await hydrateEntries(freshEntries, section, 16) : [];
 
-  // Deduplicate TVmaze fallback entries by imdbId so curated Cinemeta items (with richer posters/episode lists) win.
+  // Deduplicate fallback entries by imdbId so curated Cinemeta items (with richer posters/episode lists) win.
   const presentImdb = new Set(
     [...freshItems, ...curatedItems].map((i) => i.imdbId).filter(Boolean),
   );

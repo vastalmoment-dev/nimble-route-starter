@@ -5,18 +5,24 @@ const MANGADEX_UPLOADS = "https://uploads.mangadex.org";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COVER_FILE_RE = /^[a-zA-Z0-9._-]{3,120}$/;
 
-const SECRET =
-  process.env["MANGA_PROXY_SECRET"] ||
-  process.env["MEDIA_PROXY_SECRET"] ||
-  process.env["SESSION_SECRET"] ||
-  randomBytes(32).toString("hex");
+let fallbackSecret: string | null = null;
+
+function getSecret(): string {
+  const envSecret =
+    process.env["MANGA_PROXY_SECRET"] ||
+    process.env["MEDIA_PROXY_SECRET"] ||
+    process.env["SESSION_SECRET"];
+  if (envSecret) return envSecret;
+  if (!fallbackSecret) fallbackSecret = randomBytes(32).toString("hex");
+  return fallbackSecret;
+}
 
 const USER_AGENT = "ShadowStreamingApp/1.0 (https://shadow.app)";
 
 function signPageToken(url: string): string {
   const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 6;
   const body = Buffer.from(JSON.stringify({ u: url, exp }), "utf8").toString("base64url");
-  const sig = createHmac("sha256", SECRET).update(body).digest("base64url");
+  const sig = createHmac("sha256", getSecret()).update(body).digest("base64url");
   return `${body}.${sig}`;
 }
 
@@ -38,7 +44,7 @@ export function verifyPageToken(token: string | null): string | null {
   const body = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   if (!body || !sig) return null;
-  const expected = createHmac("sha256", SECRET).update(body).digest("base64url");
+  const expected = createHmac("sha256", getSecret()).update(body).digest("base64url");
   const sigBuf = Buffer.from(sig, "utf8");
   const expBuf = Buffer.from(expected, "utf8");
   if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null;
@@ -205,7 +211,7 @@ export async function handleMangaProxyRequest(request: Request): Promise<Respons
           status: 200,
           headers: {
             "Content-Type": up.headers.get("content-type") || "image/jpeg",
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "public, max-age=86400, s-maxage=86400",
           },
         });
       } catch {
@@ -228,7 +234,7 @@ export async function handleMangaProxyRequest(request: Request): Promise<Respons
         status: 200,
         headers: {
           "Content-Type": up.headers.get("content-type") || "image/jpeg",
-          "Cache-Control": "public, max-age=3600",
+          "Cache-Control": "public, max-age=86400, s-maxage=86400",
         },
       });
     } catch {

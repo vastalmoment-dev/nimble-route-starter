@@ -44,5 +44,9 @@ export function buildShelves(items: MediaItem[], label: string): Shelf[] {
 }
 
 export function pickFeatured(items: MediaItem[], count = 5): MediaItem[] {
-  return items.filter((i) => i.backdrop).slice(0, count);
+  const withBackdrop = items.filter((i) => i.backdrop);
+  if (withBackdrop.length >= count) return withBackdrop.slice(0, count);
+  const seen = new Set(withBackdrop.map((i) => i.key));
+  const extras = items.filter((i) => !seen.has(i.key) && (i.posterHd || i.poster));
+  return [...withBackdrop, ...extras].slice(0, count);
 }

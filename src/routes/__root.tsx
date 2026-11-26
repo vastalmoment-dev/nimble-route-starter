@@ -9,15 +9,23 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 
-import { IntroAnimation } from "../components/branding/IntroAnimation";
 import { AdsterraScript } from "../components/ads/AdsterraScript";
-import { FloatingPromo, PromoPopup } from "../components/ads/PromoPopup";
+import { IntroAnimation } from "../components/branding/IntroAnimation";
 import { AppShell } from "../components/layout/AppShell";
-import { DownloadsTray } from "../components/media/DownloadsTray";
 import { MediaModalProvider } from "../components/media/MediaModalContext";
 import { WatchNavigationProvider } from "../components/player/WatchNavigation";
+
+const LazyPromoPopup = lazy(() =>
+  import("../components/ads/PromoPopup").then((m) => ({ default: m.PromoPopup })),
+);
+const LazyFloatingPromo = lazy(() =>
+  import("../components/ads/PromoPopup").then((m) => ({ default: m.FloatingPromo })),
+);
+const LazyDownloadsTray = lazy(() =>
+  import("../components/media/DownloadsTray").then((m) => ({ default: m.DownloadsTray })),
+);
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -111,10 +119,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Unbounded:wght@500;600;700;800&display=swap",
       },
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
+      ...(appCss ? [{ rel: "stylesheet", href: appCss }] : []),
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
     ],
   }),
@@ -161,9 +166,11 @@ function RootComponent() {
         <IntroAnimation />
         {/* Polite delayed ads while browsing; never loaded inside the active /watch/* player. */}
         <AdsterraScript enabled={!isPlayer} />
-        {!isPlayer && <PromoPopup delay={12000} storageKey="shadow-promo-entry" />}
-        {isAnime && !isPlayer && <FloatingPromo />}
-        <DownloadsTray />
+        <Suspense fallback={null}>
+          {!isPlayer && <LazyPromoPopup delay={12000} storageKey="shadow-promo-entry" />}
+          {isAnime && !isPlayer && <LazyFloatingPromo />}
+          <LazyDownloadsTray />
+        </Suspense>
       </WatchNavigationProvider>
     </QueryClientProvider>
   );

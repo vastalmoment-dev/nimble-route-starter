@@ -51,13 +51,17 @@ const GENRES: Record<number, string> = {
 const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> = {
   "k-dramas": [{ type: "tv", params: "with_original_language=ko&without_genres=16,10764,10767" }],
   hollywood: [
-    { type: "movie", params: "with_original_language=en&region=US" },
+    { type: "movie", params: "with_original_language=en&without_genres=16" },
     {
       type: "tv",
       params: "with_original_language=en&with_origin_country=US&without_genres=16,10764,10767",
     },
   ],
-  bollywood: [{ type: "movie", params: "with_original_language=hi" }],
+  bollywood: [
+    { type: "movie", params: "with_original_language=hi" },
+    { type: "tv", params: "with_original_language=hi&without_genres=16,10764,10767" },
+    { type: "movie", params: "with_original_language=ta" },
+  ],
   tollywood: [
     { type: "movie", params: "with_original_language=te" },
     { type: "tv", params: "with_original_language=te&without_genres=16,10764,10767" },
@@ -66,7 +70,10 @@ const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> 
     { type: "movie", params: "with_origin_country=NG" },
     { type: "tv", params: "with_origin_country=NG&without_genres=16,10764,10767" },
   ],
-  cartoons: [{ type: "tv", params: "with_genres=16&with_original_language=en" }],
+  cartoons: [
+    { type: "tv", params: "with_genres=16&with_original_language=en" },
+    { type: "movie", params: "with_genres=16&with_original_language=en" },
+  ],
 };
 
 const IMG = "https://image.tmdb.org/t/p";
@@ -94,6 +101,7 @@ function tmdbFetch(path: string, key: string) {
     headers: isBearer
       ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
       : { Accept: "application/json" },
+    signal: AbortSignal.timeout(6000),
   });
 }
 

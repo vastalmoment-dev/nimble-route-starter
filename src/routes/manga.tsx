@@ -1,5 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { MangaPage } from "@/components/media/MangaPage";
+import { lazy, Suspense } from "react";
+import { RouteFallback } from "@/components/layout/RouteFallback";
+
+const LazyMangaPage = lazy(() =>
+  import("@/components/media/MangaPage").then((m) => ({ default: m.MangaPage })),
+);
+
+function MangaRoutePage() {
+  return (
+    <Suspense fallback={<RouteFallback label="Loading Manga…" />}>
+      <LazyMangaPage />
+    </Suspense>
+  );
+}
 
 export const Route = createFileRoute("/manga")({
   head: () => ({
@@ -20,5 +33,5 @@ export const Route = createFileRoute("/manga")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: MangaPage,
+  component: MangaRoutePage,
 });

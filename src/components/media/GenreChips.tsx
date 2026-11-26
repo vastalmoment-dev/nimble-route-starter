@@ -12,7 +12,7 @@ export function GenreChips({
 }) {
   const chip = (active: boolean) =>
     cn(
-      "shrink-0 rounded-full border px-4 py-1.5 text-sm font-medium transition",
+      "inline-flex min-h-[44px] shrink-0 items-center rounded-full border px-4 py-2 text-sm font-medium transition sm:min-h-0 sm:py-1.5",
       active
         ? "border-transparent bg-brand-gradient text-foreground shadow-glow"
         : "border-foreground/10 bg-surface/70 text-muted-foreground backdrop-blur hover:border-foreground/25 hover:text-foreground",
@@ -21,7 +21,10 @@ export function GenreChips({
     <div
       role="toolbar"
       aria-label="Filter by genre"
-      className={cn("no-scrollbar flex gap-2 overflow-x-auto", className)}
+      className={cn(
+        "no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0",
+        className,
+      )}
     >
       <button
         type="button"

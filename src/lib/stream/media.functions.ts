@@ -1,10 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { signMediaProxyUrl } from "./media-proxy";
-import type { StreamType, SubtitleTrack } from "./resolver";
+import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
 const FALLBACK_EMBED_ORIGIN = "https://vidlink.pro";
+const BACKUP_EMBED_ORIGIN = "https://www.2embed.cc";
 
 const STREAM_HEADERS = {
   "User-Agent":
@@ -13,6 +14,11 @@ const STREAM_HEADERS = {
   Accept: "*/*",
 };
 
+export interface EmbedFallback {
+  label: string;
+  url: string;
+}
+
 export interface MediaStreamResult {
   ok: boolean;
   streamUrl: string | null;
@@ -20,6 +26,8 @@ export interface MediaStreamResult {
   provider: string;
   subtitles: SubtitleTrack[];
   embedUrl: string | null;
+  sources?: StreamSource[];
+  embedFallbacks?: EmbedFallback[];
   error?: string;
 }
 
@@ -35,6 +43,8 @@ const MediaStreamInputSchema = z.object({
     .regex(/^\d{1,10}$/)
     .nullable()
     .optional(),
+  title: z.string().max(300).nullable().optional(),
+  year: z.number().int().min(1900).max(2100).nullable().optional(),
   season: z.number().int().min(1).max(100).default(1),
   episode: z.number().int().min(1).max(2000).default(1),
   lang: z.enum(["en", "fr"]).default("en"),
@@ -47,24 +57,112 @@ interface EmbeddedQ {
   };
 }
 
-function buildFallbackEmbedUrl(params: {
+function buildEmbedFallbacks(params: {
   mediaType: "movie" | "tv";
   imdbId?: string | null | undefined;
   tmdbId?: string | null | undefined;
   season: number;
   episode: number;
-}): string | null {
+}): EmbedFallback[] {
+  const out: EmbedFallback[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, url: string) => {
+    if (!seen.has(url)) {
+      seen.add(url);
+      out.push({ label, url });
+    }
+  };
+
   if (params.tmdbId) {
-    return params.mediaType === "movie"
-      ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
-      : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`;
+    push(
+      "Backup Player 1",
+      params.mediaType === "movie"
+        ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
+        : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+    );
   }
   if (params.imdbId) {
-    return params.mediaType === "movie"
-      ? `${STREAM_ORIGIN}/embed/movie/${params.imdbId}`
-      : `${STREAM_ORIGIN}/embed/tv/${params.imdbId}/${params.season}/${params.episode}`;
+    push(
+      out.length === 0 ? "Backup Player 1" : "Backup Player 2",
+      params.mediaType === "movie"
+        ? `${STREAM_ORIGIN}/embed/movie/${params.imdbId}`
+        : `${STREAM_ORIGIN}/embed/tv/${params.imdbId}/${params.season}/${params.episode}`,
+    );
+    push(
+      `Backup Player ${out.length + 1}`,
+      params.mediaType === "movie"
+        ? `${BACKUP_EMBED_ORIGIN}/embed/${params.imdbId}`
+        : `${BACKUP_EMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
+    );
+  } else if (params.tmdbId) {
+    push(
+      "Backup Player 2",
+      params.mediaType === "movie"
+        ? `${STREAM_ORIGIN}/embed/movie/${params.tmdbId}`
+        : `${STREAM_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+    );
   }
-  return null;
+  return out;
+}
+
+async function resolveImdbByTitle(
+  title: string,
+  mediaType: "movie" | "tv",
+  year?: number | null,
+): Promise<string | null> {
+  const cleanTitle = title.trim();
+  if (cleanTitle.length < 2) return null;
+
+  try {
+    const cmType = mediaType === "movie" ? "movie" : "series";
+    const cmRes = await fetch(
+      `https://v3-cinemeta.strem.io/catalog/${cmType}/top/search=${encodeURIComponent(cleanTitle)}.json`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(4000) },
+    );
+    if (cmRes.ok) {
+      const json = (await cmRes.json()) as {
+        metas?: { id?: string; name?: string; releaseInfo?: string; year?: string | number }[];
+      };
+      const metas = (json.metas ?? []).filter((m) => m.id && /^tt\d{5,10}$/.test(m.id));
+      if (metas.length > 0) {
+        if (year) {
+          const yearMatch = metas.find((m) =>
+            String(m.releaseInfo ?? m.year ?? "").includes(String(year)),
+          );
+          if (yearMatch?.id) return yearMatch.id;
+        }
+        return metas[0]!.id!;
+      }
+    }
+  } catch {
+    /* fall through to IMDb suggestions */
+  }
+
+  try {
+    const clean = cleanTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, " ");
+    const firstChar = /^[a-z0-9]/.test(clean) ? clean[0]! : "x";
+    const res = await fetch(
+      `https://v3.sg.media-imdb.com/suggestion/${firstChar}/${encodeURIComponent(cleanTitle)}.json`,
+      { signal: AbortSignal.timeout(4000) },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      d?: { id?: string; qid?: string; y?: number }[];
+    };
+    const allowed =
+      mediaType === "movie" ? new Set(["movie"]) : new Set(["tvSeries", "tvMiniSeries"]);
+    const candidates = (json.d ?? []).filter(
+      (entry) =>
+        entry.id && /^tt\d{5,10}$/.test(entry.id) && (!entry.qid || allowed.has(entry.qid)),
+    );
+    if (year) {
+      const exact = candidates.find((c) => c.y === year);
+      if (exact?.id) return exact.id;
+    }
+    return candidates[0]?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function scoreServer(
@@ -99,6 +197,22 @@ function scoreServer(
   else if (isMkvOrMp4) score += 4;
 
   return score;
+}
+
+function formatServerLabel(
+  index: number,
+  rawLang: string | null | undefined,
+  rawName: string | undefined,
+): string {
+  const cleaned = (rawLang || "").replace(/[-_]/g, " ").trim();
+  const extractedLang =
+    cleaned ||
+    (rawName && /-(hindi|english|french|telugu|tamil|korean|spanish)/i.exec(rawName)?.[1]) ||
+    "";
+  const langTag = extractedLang
+    ? extractedLang.charAt(0).toUpperCase() + extractedLang.slice(1).toLowerCase()
+    : "";
+  return langTag ? `Server ${index + 1} · ${langTag}` : `Server ${index + 1}`;
 }
 
 function isPreferredSub(
@@ -182,13 +296,150 @@ async function verifyPlayableStream(
   }
 }
 
+async function resolveFromLookupId(
+  lookupId: string,
+  data: z.infer<typeof MediaStreamInputSchema>,
+): Promise<{
+  sources: StreamSource[];
+  subtitles: SubtitleTrack[];
+} | null> {
+  const pageUrl =
+    data.mediaType === "movie"
+      ? `${STREAM_ORIGIN}/embed/movie/${lookupId}`
+      : `${STREAM_ORIGIN}/embed/tv/${lookupId}/${data.season}/${data.episode}`;
+
+  const htmlRes = await fetch(pageUrl, {
+    headers: STREAM_HEADERS,
+    signal: AbortSignal.timeout(7000),
+  });
+  if (!htmlRes.ok) return null;
+
+  const html = await htmlRes.text();
+  const qMatch = /var Q = (\{.*?\});\s*var \$=/s.exec(html);
+  if (!qMatch) return null;
+
+  const q = JSON.parse(qMatch[1]!) as EmbeddedQ;
+  let servers = (q.ssr?.servers ?? []).filter(
+    (s): s is { ref: string; name?: string; lang?: string | null } => Boolean(s.ref),
+  );
+
+  if (!servers.length && q.t) {
+    const srcUrl =
+      data.mediaType === "movie"
+        ? `${STREAM_ORIGIN}/pl/api.php?a=sources&type=movie&id=${encodeURIComponent(lookupId)}&t=${encodeURIComponent(q.t)}`
+        : `${STREAM_ORIGIN}/pl/api.php?a=sources&type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
+    const srcRes = await fetch(srcUrl, {
+      headers: { ...STREAM_HEADERS, Referer: pageUrl },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (srcRes.ok) {
+      const srcJson = (await srcRes.json()) as {
+        servers?: { ref?: string; name?: string; lang?: string | null }[];
+      };
+      servers = (srcJson.servers ?? []).filter(
+        (s): s is { ref: string; name?: string; lang?: string | null } => Boolean(s.ref),
+      );
+    }
+  }
+
+  servers.sort(
+    (a, b) => scoreServer(b.name, b.lang, data.lang) - scoreServer(a.name, a.lang, data.lang),
+  );
+
+  const candidates = servers.slice(0, 6);
+  const settled = await Promise.allSettled(
+    candidates.map(async (srv) => {
+      const playRes = await fetch(
+        `${STREAM_ORIGIN}/pl/api.php?a=play&ref=${encodeURIComponent(srv.ref)}`,
+        {
+          headers: { ...STREAM_HEADERS, Referer: pageUrl },
+          signal: AbortSignal.timeout(5500),
+        },
+      );
+      if (!playRes.ok) return null;
+      const play = (await playRes.json()) as { url?: string; type?: string };
+      if (!play.url) return null;
+      const verified = await verifyPlayableStream(play.url, play.type);
+      if (!verified) return null;
+      return {
+        url: verified.proxiedUrl,
+        type: verified.streamType,
+        lang: srv.lang ?? null,
+        name: srv.name,
+      };
+    }),
+  );
+
+  const seenUrls = new Set<string>();
+  const sources: StreamSource[] = [];
+  for (const res of settled) {
+    if (res.status !== "fulfilled" || !res.value) continue;
+    if (seenUrls.has(res.value.url)) continue;
+    seenUrls.add(res.value.url);
+    sources.push({
+      url: res.value.url,
+      type: res.value.type,
+      label: formatServerLabel(sources.length, res.value.lang, res.value.name),
+      lang: res.value.lang,
+    });
+  }
+
+  if (!sources.length) return null;
+
+  let subtitles: SubtitleTrack[] = [];
+  if (q.t) {
+    try {
+      const subQuery =
+        data.mediaType === "movie"
+          ? `type=movie&id=${encodeURIComponent(lookupId)}&t=${encodeURIComponent(q.t)}`
+          : `type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
+      const subRes = await fetch(`${STREAM_ORIGIN}/pl/api.php?a=subs&${subQuery}`, {
+        headers: { ...STREAM_HEADERS, Referer: pageUrl },
+        signal: AbortSignal.timeout(4500),
+      });
+      if (subRes.ok) {
+        const subJson = (await subRes.json()) as {
+          subs?: { label?: string; lang?: string; cc?: string; ref?: string }[];
+        };
+        subtitles = (subJson.subs ?? [])
+          .filter((s): s is { label?: string; lang?: string; cc?: string; ref: string } =>
+            Boolean(s.ref && /^[A-Za-z0-9._~=-]{10,1024}$/.test(s.ref)),
+          )
+          .sort((a, b) => isPreferredSub(b, data.lang) - isPreferredSub(a, data.lang))
+          .slice(0, 12)
+          .map((s) => ({
+            url: `/api/media/sub?ref=${encodeURIComponent(s.ref)}`,
+            lang: s.cc || s.lang || "en",
+            label: s.label || s.lang || "Subtitles",
+          }));
+      }
+    } catch {
+      /* subtitles optional */
+    }
+  }
+
+  return { sources, subtitles };
+}
+
 export const getMediaStream = createServerFn({ method: "GET" })
   .inputValidator((input) => MediaStreamInputSchema.parse(input))
   .handler(async ({ data }): Promise<MediaStreamResult> => {
-    const lookupId = data.imdbId || data.tmdbId;
-    const embedUrl = buildFallbackEmbedUrl(data);
+    let resolvedImdb = data.imdbId ?? null;
+    if (!resolvedImdb && !data.tmdbId && data.title) {
+      resolvedImdb = await resolveImdbByTitle(data.title, data.mediaType, data.year);
+    }
 
-    if (!lookupId) {
+    const embedFallbacks = buildEmbedFallbacks({
+      mediaType: data.mediaType,
+      imdbId: resolvedImdb,
+      tmdbId: data.tmdbId,
+      season: data.season,
+      episode: data.episode,
+    });
+    const embedUrl = embedFallbacks[0]?.url ?? null;
+
+    const lookupIds = [resolvedImdb, data.tmdbId].filter((x): x is string => Boolean(x));
+    if (!lookupIds.length) {
       return {
         ok: false,
         streamUrl: null,
@@ -196,148 +447,41 @@ export const getMediaStream = createServerFn({ method: "GET" })
         provider: "SHADOW Stream",
         subtitles: [],
         embedUrl,
+        embedFallbacks,
         error: "Playback identifier is unavailable for this title.",
       };
     }
 
-    const pageUrl =
-      data.mediaType === "movie"
-        ? `${STREAM_ORIGIN}/embed/movie/${lookupId}`
-        : `${STREAM_ORIGIN}/embed/tv/${lookupId}/${data.season}/${data.episode}`;
-
     try {
-      const htmlRes = await fetch(pageUrl, {
-        headers: STREAM_HEADERS,
-        signal: AbortSignal.timeout(7000),
-      });
-      if (!htmlRes.ok) {
-        return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
-          provider: "SHADOW Stream",
-          subtitles: [],
-          embedUrl,
-          error: "Alternate player ready.",
-        };
-      }
-
-      const html = await htmlRes.text();
-      const qMatch = /var Q = (\{.*?\});\s*var \$=/s.exec(html);
-      if (!qMatch) {
-        return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
-          provider: "SHADOW Stream",
-          subtitles: [],
-          embedUrl,
-          error: "Alternate player ready.",
-        };
-      }
-
-      const q = JSON.parse(qMatch[1]!) as EmbeddedQ;
-      let servers = (q.ssr?.servers ?? []).filter(
-        (s): s is { ref: string; name?: string; lang?: string | null } => Boolean(s.ref),
-      );
-
-      if (!servers.length && q.t) {
-        const srcUrl =
-          data.mediaType === "movie"
-            ? `${STREAM_ORIGIN}/pl/api.php?a=sources&type=movie&id=${encodeURIComponent(lookupId)}&t=${encodeURIComponent(q.t)}`
-            : `${STREAM_ORIGIN}/pl/api.php?a=sources&type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
-        const srcRes = await fetch(srcUrl, {
-          headers: { ...STREAM_HEADERS, Referer: pageUrl },
-          signal: AbortSignal.timeout(6000),
-        });
-        if (srcRes.ok) {
-          const srcJson = (await srcRes.json()) as {
-            servers?: { ref?: string; name?: string; lang?: string | null }[];
-          };
-          servers = (srcJson.servers ?? []).filter(
-            (s): s is { ref: string; name?: string; lang?: string | null } => Boolean(s.ref),
-          );
-        }
-      }
-
-      servers.sort(
-        (a, b) => scoreServer(b.name, b.lang, data.lang) - scoreServer(a.name, a.lang, data.lang),
-      );
-
-      let resolved: { proxiedUrl: string; streamType: StreamType } | null = null;
-      for (const srv of servers.slice(0, 8)) {
+      for (const lookupId of lookupIds) {
         try {
-          const playRes = await fetch(
-            `${STREAM_ORIGIN}/pl/api.php?a=play&ref=${encodeURIComponent(srv.ref)}`,
-            {
-              headers: { ...STREAM_HEADERS, Referer: pageUrl },
-              signal: AbortSignal.timeout(5500),
-            },
-          );
-          if (!playRes.ok) continue;
-          const play = (await playRes.json()) as { url?: string; type?: string };
-          if (!play.url) continue;
-          const verified = await verifyPlayableStream(play.url, play.type);
-          if (verified) {
-            resolved = verified;
-            break;
-          }
-        } catch {
-          /* try next server */
-        }
-      }
-
-      if (!resolved) {
-        return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
-          provider: "SHADOW Stream",
-          subtitles: [],
-          embedUrl,
-          error: "Using alternate player for this title.",
-        };
-      }
-
-      let subtitles: SubtitleTrack[] = [];
-      if (q.t) {
-        try {
-          const subQuery =
-            data.mediaType === "movie"
-              ? `type=movie&id=${encodeURIComponent(lookupId)}&t=${encodeURIComponent(q.t)}`
-              : `type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
-          const subRes = await fetch(`${STREAM_ORIGIN}/pl/api.php?a=subs&${subQuery}`, {
-            headers: { ...STREAM_HEADERS, Referer: pageUrl },
-            signal: AbortSignal.timeout(4500),
-          });
-          if (subRes.ok) {
-            const subJson = (await subRes.json()) as {
-              subs?: { label?: string; lang?: string; cc?: string; ref?: string }[];
+          const hit = await resolveFromLookupId(lookupId, data);
+          if (hit && hit.sources.length > 0) {
+            return {
+              ok: true,
+              streamUrl: hit.sources[0]!.url,
+              type: hit.sources[0]!.type,
+              provider: "SHADOW Stream",
+              subtitles: hit.subtitles,
+              embedUrl,
+              sources: hit.sources,
+              embedFallbacks,
             };
-            subtitles = (subJson.subs ?? [])
-              .filter((s): s is { label?: string; lang?: string; cc?: string; ref: string } =>
-                Boolean(s.ref && /^[A-Za-z0-9._~=-]{10,1024}$/.test(s.ref)),
-              )
-              .sort((a, b) => isPreferredSub(b, data.lang) - isPreferredSub(a, data.lang))
-              .slice(0, 12)
-              .map((s) => ({
-                url: `/api/media/sub?ref=${encodeURIComponent(s.ref)}`,
-                lang: s.cc || s.lang || "en",
-                label: s.label || s.lang || "Subtitles",
-              }));
           }
         } catch {
-          /* subtitles optional */
+          /* try secondary ID */
         }
       }
 
       return {
-        ok: true,
-        streamUrl: resolved.proxiedUrl,
-        type: resolved.streamType,
+        ok: false,
+        streamUrl: null,
+        type: "hls",
         provider: "SHADOW Stream",
-        subtitles,
+        subtitles: [],
         embedUrl,
+        embedFallbacks,
+        error: "Using alternate player for this title.",
       };
     } catch (error) {
       console.error("Media stream resolution failed", error);
@@ -348,6 +492,7 @@ export const getMediaStream = createServerFn({ method: "GET" })
         provider: "SHADOW Stream",
         subtitles: [],
         embedUrl,
+        embedFallbacks,
         error: "Stream temporarily unavailable.",
       };
     }

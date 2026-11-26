@@ -1,5 +1,5 @@
 import { Check, Copy, Minus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PROMO_BANNERS } from "@/lib/promo/banners";
 import { cn } from "@/lib/utils";
 
@@ -7,11 +7,21 @@ const promo = PROMO_BANNERS[0]!;
 
 function useCopy() {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(promo.code ?? "");
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard unavailable */
     }
@@ -47,7 +57,13 @@ export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageK
           className="flex items-center gap-2 rounded-full bg-card py-1.5 pl-1.5 pr-3 text-xs font-semibold"
         >
           {promo.image && (
-            <img src={promo.image} alt="" className="size-7 rounded-full object-cover" />
+            <img
+              src={promo.image}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="size-7 rounded-full object-cover"
+            />
           )}
           {promo.partner} · <span className="font-mono text-cerulean">{promo.code}</span>
         </button>
@@ -95,6 +111,8 @@ export function PromoPopup({ delay = 0, storageKey }: { delay?: number; storageK
               <img
                 src={promo.image}
                 alt={`${promo.partner} promotional banner`}
+                loading="lazy"
+                decoding="async"
                 className="aspect-square w-full object-cover"
               />
             </a>
@@ -180,6 +198,7 @@ export function FloatingPromo() {
               src={promo.image}
               alt={`${promo.partner} promotional banner`}
               loading="lazy"
+              decoding="async"
               className="aspect-square w-full rounded-lg object-cover"
             />
           </a>

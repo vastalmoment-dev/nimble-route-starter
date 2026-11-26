@@ -56,14 +56,14 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
               : "Browse the complete anime catalog with Sub & Dub playback"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1 rounded-full border border-foreground/10 bg-surface p-1">
+        <div className="flex flex-wrap gap-1 rounded-2xl border border-foreground/10 bg-surface p-1 sm:rounded-full">
           {SORTS.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => setSort(s.id)}
               className={cn(
-                "rounded-full px-3 py-1 text-xs font-medium transition",
+                "min-h-[44px] rounded-full px-3 py-1.5 text-xs font-medium transition sm:min-h-0 sm:py-1",
                 sort === s.id
                   ? "bg-brand-gradient font-semibold text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground",

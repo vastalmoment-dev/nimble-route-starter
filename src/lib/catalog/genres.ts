@@ -12,12 +12,21 @@ export const GENRE_CHIPS: { id: GenreChipId; label: string }[] = [
 ];
 
 const GENRE_ALIASES: Record<GenreChipId, string[]> = {
-  action: ["action", "adventure", "martial arts", "war", "action & adventure", "espionage"],
-  scifi: ["sci-fi", "science-fiction", "science fiction", "sci-fi & fantasy", "mecha"],
-  horror: ["horror", "zombie", "supernatural thriller"],
-  drama: ["drama", "romance", "family", "legal", "medical"],
+  action: [
+    "action",
+    "adventure",
+    "martial arts",
+    "war",
+    "action & adventure",
+    "espionage",
+    "crime",
+    "thriller",
+  ],
+  scifi: ["sci-fi", "science-fiction", "science fiction", "sci-fi & fantasy", "mecha", "fantasy"],
+  horror: ["horror", "zombie", "supernatural thriller", "supernatural", "mystery"],
+  drama: ["drama", "romance", "family", "legal", "medical", "history", "biography"],
   animation: ["animation", "anime"],
-  comedy: ["comedy"],
+  comedy: ["comedy", "musical"],
 };
 
 export function isGenreChipId(value: unknown): value is GenreChipId {

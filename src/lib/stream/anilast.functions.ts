@@ -1,7 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { signMediaProxyUrl } from "./media-proxy";
-import { inferStreamType, type StreamType, type SubtitleTrack } from "./resolver";
+import {
+  inferStreamType,
+  type StreamSource,
+  type StreamType,
+  type SubtitleTrack,
+} from "./resolver";
 
 const ANILAST_ORIGIN = "https://anilast.xyz";
 
@@ -20,6 +25,8 @@ export interface AniLastStreamResult {
   provider: string;
   quality: string | null;
   subtitles: SubtitleTrack[];
+  sources?: StreamSource[];
+  embedUrl?: string | null;
   error?: string;
 }
 
@@ -88,7 +95,7 @@ async function queryAnimeEndpoint(
   });
   if (!res.ok) return null;
   const json = (await res.json()) as AniLastApiResponse;
-  if (!json.url || json.type === "embed") return null;
+  if (!json.url) return null;
   return json;
 }
 
@@ -102,17 +109,22 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
     }
 
     try {
-      let json: AniLastApiResponse | null = null;
-      for (const lookupId of candidates) {
-        try {
-          json = await queryAnimeEndpoint(lookupId, data);
-          if (json) break;
-        } catch {
-          /* try next identifier */
+      const settled = await Promise.allSettled(
+        candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data)),
+      );
+
+      const directHits: AniLastApiResponse[] = [];
+      let fallbackEmbedUrl: string | null = null;
+      for (const r of settled) {
+        if (r.status !== "fulfilled" || !r.value?.url) continue;
+        if (r.value.type === "embed") {
+          fallbackEmbedUrl ??= r.value.url;
+        } else {
+          directHits.push(r.value);
         }
       }
 
-      if (!json?.url) {
+      if (directHits.length === 0) {
         return {
           ok: false,
           streamUrl: null,
@@ -120,6 +132,7 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
           provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
+          ...(fallbackEmbedUrl ? { embedUrl: fallbackEmbedUrl } : {}),
           error:
             data.audio === "dub"
               ? "Dub audio is not available for this episode yet — try Sub or another episode."
@@ -127,23 +140,49 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         };
       }
 
-      const streamUrl = rewriteAnimeProxyPath(json.url, "hls");
-      const subtitles: SubtitleTrack[] = (json.subtitles ?? [])
-        .filter((s): s is { url: string; lang?: string; label?: string } => Boolean(s.url))
-        .map((s) => ({
-          url: rewriteAnimeProxyPath(s.url, "subtitle"),
+      const seenUrls = new Set<string>();
+      const sources: StreamSource[] = [];
+      for (const hit of directHits) {
+        if (!hit.url) continue;
+        const rewritten = rewriteAnimeProxyPath(hit.url, "hls");
+        if (seenUrls.has(rewritten)) continue;
+        seenUrls.add(rewritten);
+        sources.push({
+          url: rewritten,
+          type: inferStreamType(rewritten, hit.type),
+          label: `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
+          lang: data.audio,
+        });
+      }
+
+      const primary = directHits[0]!;
+      const primarySource = sources[0]!;
+
+      const mergedSubs = directHits.flatMap((h) => h.subtitles ?? []);
+      const seenSubUrls = new Set<string>();
+      const subtitles: SubtitleTrack[] = [];
+      for (const s of mergedSubs) {
+        if (!s.url) continue;
+        const url = rewriteAnimeProxyPath(s.url, "subtitle");
+        if (seenSubUrls.has(url)) continue;
+        seenSubUrls.add(url);
+        subtitles.push({
+          url,
           lang: s.lang ?? "en",
           label: s.label ?? "Subtitles",
-        }))
-        .sort((a, b) => trackPriority(b, data.lang) - trackPriority(a, data.lang));
+        });
+      }
+      subtitles.sort((a, b) => trackPriority(b, data.lang) - trackPriority(a, data.lang));
 
       return {
         ok: true,
-        streamUrl,
-        type: inferStreamType(streamUrl, json.type),
+        streamUrl: primarySource.url,
+        type: primarySource.type,
         provider: "SHADOW Stream",
-        quality: json.quality ?? null,
+        quality: primary.quality ?? null,
         subtitles,
+        sources,
+        ...(fallbackEmbedUrl ? { embedUrl: fallbackEmbedUrl } : {}),
       };
     } catch (error) {
       console.error("Anime stream lookup failed", error);

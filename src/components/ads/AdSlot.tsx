@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AD_SLOTS, type AdSlotId } from "@/lib/ads/config";
 import { PROMO_BANNERS } from "@/lib/promo/banners";
 import { cn } from "@/lib/utils";
@@ -10,13 +10,23 @@ export function AdSlot({ slot, className }: { slot: AdSlotId; className?: string
   const cfg = AD_SLOTS[slot];
   const promo = PROMO_BANNERS[0]!;
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wide = cfg.width > cfg.height * 2;
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
   const copy = async () => {
     if (!promo.code) return;
     try {
       await navigator.clipboard.writeText(promo.code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch {
       /* clipboard unavailable */
     }
@@ -45,6 +55,7 @@ export function AdSlot({ slot, className }: { slot: AdSlotId; className?: string
               src={promo.image}
               alt={`${promo.partner} promotional banner`}
               loading="lazy"
+              decoding="async"
               className={cn("aspect-square rounded-lg object-cover", wide ? "h-16 w-16" : "w-full")}
             />
           </a>

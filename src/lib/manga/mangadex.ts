@@ -9,12 +9,18 @@ export interface MangaItem {
   id: string;
   title: string;
   coverUrl: string | null;
+  coverFallbackUrl?: string | null;
   genres: string[];
   status: string | null;
   year: number | null;
   description: string;
   lastChapter: string | null;
   updatedAt: string | null;
+}
+
+export interface MangaPageSource {
+  url: string;
+  fallbackUrl: string;
 }
 
 export interface MangaChapter {
@@ -83,6 +89,9 @@ function mapManga(raw: RawManga): MangaItem {
   const coverRel = raw.relationships?.find((r) => r.type === "cover_art");
   const fileName = coverRel?.attributes?.fileName;
   const coverUrl = fileName
+    ? `https://uploads.mangadex.org/covers/${encodeURIComponent(raw.id)}/${encodeURIComponent(fileName)}.512.jpg`
+    : null;
+  const coverFallbackUrl = fileName
     ? `/api/manga/cover?mangaId=${encodeURIComponent(raw.id)}&file=${encodeURIComponent(fileName)}`
     : null;
   const genres = (raw.attributes.tags ?? [])
@@ -102,6 +111,7 @@ function mapManga(raw: RawManga): MangaItem {
     id: raw.id,
     title: pickLocalized(raw.attributes.title, raw.attributes.altTitles),
     coverUrl,
+    coverFallbackUrl,
     genres,
     status: raw.attributes.status ?? null,
     year: raw.attributes.year ?? null,
@@ -216,7 +226,7 @@ export async function fetchMangaChaptersList(mangaId: string): Promise<MangaChap
   return [...byChapter.values()].sort((a, b) => a.numberValue - b.numberValue);
 }
 
-export async function fetchMangaChapterPageUrls(chapterId: string): Promise<string[]> {
+export async function fetchMangaChapterPageUrls(chapterId: string): Promise<MangaPageSource[]> {
   const res = await fetch(`${MANGADEX_API}/at-home/server/${encodeURIComponent(chapterId)}`, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     signal: AbortSignal.timeout(9000),
@@ -232,5 +242,11 @@ export async function fetchMangaChapterPageUrls(chapterId: string): Promise<stri
   const folder = json.chapter?.dataSaver?.length ? "data-saver" : "data";
   if (!baseUrl || !hash || !files?.length) return [];
   const origin = new URL(baseUrl).origin;
-  return files.map((file) => buildSignedMangaPageUrl(`${origin}/${folder}/${hash}/${file}`));
+  return files.map((file) => {
+    const upstreamUrl = `${origin}/${folder}/${hash}/${file}`;
+    return {
+      url: upstreamUrl,
+      fallbackUrl: buildSignedMangaPageUrl(upstreamUrl),
+    };
+  });
 }

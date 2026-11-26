@@ -1,3 +1,4 @@
+import { cachedAsync } from "@/lib/cache/client-cache";
 import { itemKey, type Episode, type MediaDetail, type MediaItem, type SectionId } from "./types";
 
 const CINEMETA_ORIGIN = "https://v3-cinemeta.strem.io";
@@ -65,14 +66,50 @@ function parseRating(raw: string | number | null | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? Math.min(10, n) : null;
 }
 
+const TOLLYWOOD_IMDB_IDS = new Set([
+  "tt8178634",
+  "tt16539454",
+  "tt9389998",
+  "tt12735488",
+  "tt13927994",
+  "tt11821912",
+  "tt2631186",
+  "tt4849438",
+  "tt15433956",
+  "tt2258337",
+  "tt1447500",
+  "tt6792200",
+  "tt10378506",
+  "tt29439114",
+  "tt20850406",
+  "tt23865918",
+  "tt19868374",
+  "tt15471900",
+  "tt27412343",
+]);
+
 export function inferSectionFromMeta(m: CinemetaMeta): SectionId {
   const genres = (m.genres ?? m.genre ?? []).map((g) => g.toLowerCase());
   const country = (m.country ?? "").toLowerCase();
   const lang = (m.language ?? "").toLowerCase();
   const text = `${m.name} ${m.description ?? ""}`.toLowerCase();
+  const imdbId = IMDB_ID_RE.test(m.imdb_id ?? "")
+    ? m.imdb_id!
+    : IMDB_ID_RE.test(m.id)
+      ? m.id
+      : null;
+
+  if (imdbId && TOLLYWOOD_IMDB_IDS.has(imdbId)) {
+    return "tollywood";
+  }
 
   if (genres.includes("animation")) {
-    if (country.includes("japan") && !/ninja turtles|boss baby|bad guys/i.test(m.name)) {
+    const isJapaneseOnly =
+      country === "japan" || (country.includes("japan") && !country.includes("united states"));
+    if (
+      isJapaneseOnly &&
+      !/ninja turtles|boss baby|bad guys|spider-man|transformers/i.test(m.name)
+    ) {
       return "anime";
     }
     return "cartoons";
@@ -83,10 +120,18 @@ export function inferSectionFromMeta(m: CinemetaMeta): SectionId {
   if (country.includes("nigeria") || lang.includes("yoruba") || lang.includes("igbo")) {
     return "nollywood";
   }
-  if (lang.includes("telugu") || /\btelugu\b|\bhyderabad\b/i.test(text)) {
+  if (lang.includes("telugu") || /\btelugu\b|\bhyderabad\b|\btollywood\b/i.test(text)) {
     return "tollywood";
   }
-  if (country.includes("india") || lang.includes("hindi") || lang.includes("tamil")) {
+  if (
+    country.includes("india") ||
+    lang.includes("hindi") ||
+    lang.includes("tamil") ||
+    lang.includes("malayalam") ||
+    lang.includes("kannada") ||
+    lang.includes("marathi") ||
+    lang.includes("bengali")
+  ) {
     return "bollywood";
   }
   return "hollywood";
@@ -152,8 +197,10 @@ export async function fetchCinemetaCatalog(
   if (extra?.skip && extra.skip > 0) parts.push(`skip=${extra.skip}`);
   const suffix = parts.length ? `/${parts.join("&")}` : "";
   const url = `${CINEMETA_ORIGIN}/catalog/${type}/${catalogId}${suffix}.json`;
-  const json = await fetchJson<{ metas?: CinemetaMeta[] }>(url);
-  return json.metas ?? [];
+  return cachedAsync(`cinemeta:cat:${url}`, 1000 * 60 * 5, async () => {
+    const json = await fetchJson<{ metas?: CinemetaMeta[] }>(url);
+    return json.metas ?? [];
+  });
 }
 
 export async function fetchCinemetaMeta(
@@ -161,15 +208,17 @@ export async function fetchCinemetaMeta(
   imdbId: string,
 ): Promise<CinemetaMeta | null> {
   if (!IMDB_ID_RE.test(imdbId)) return null;
-  try {
-    const json = await fetchJson<{ meta?: CinemetaMeta | null }>(
-      `${CINEMETA_ORIGIN}/meta/${type}/${imdbId}.json`,
-      5500,
-    );
-    return json.meta ?? null;
-  } catch {
-    return null;
-  }
+  return cachedAsync(`cinemeta:meta:${type}:${imdbId}`, 1000 * 60 * 10, async () => {
+    try {
+      const json = await fetchJson<{ meta?: CinemetaMeta | null }>(
+        `${CINEMETA_ORIGIN}/meta/${type}/${imdbId}.json`,
+        5500,
+      );
+      return json.meta ?? null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 export function parseCinemetaId(

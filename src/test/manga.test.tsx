@@ -9,7 +9,9 @@ import {
   isAllowedMangaImageHost,
   verifyPageToken,
 } from "@/lib/manga/manga-proxy";
+import * as mangaFunctions from "@/lib/manga/manga.functions";
 import type { MangaChapter, MangaItem } from "@/lib/manga/mangadex";
+import serverEntry from "@/server";
 
 const SAMPLE_MANGA: MangaItem[] = [
   {
@@ -68,7 +70,11 @@ vi.mock("@/lib/manga/manga.functions", () => ({
   ]),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  sessionStorage.clear();
+});
 
 describe("CBZ archive builder & SSRF proxy security", () => {
   it("builds a valid ZIP/CBZ archive with local headers and EOCD signature", () => {
@@ -108,6 +114,46 @@ describe("CBZ archive builder & SSRF proxy security", () => {
     );
     expect(badPage?.status).toBe(403);
   });
+
+  it("sets edge Cache-Control headers on /api/manga/cover, /api/manga/page, and /api/media/image", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), {
+          status: 200,
+          headers: { "Content-Type": "image/jpeg" },
+        }),
+    );
+
+    const coverRes = await serverEntry.fetch(
+      new Request(
+        "http://localhost/api/manga/cover?mangaId=11111111-1111-4111-8111-111111111111&file=cover.jpg",
+      ),
+      {},
+      {},
+    );
+    expect(coverRes.status).toBe(200);
+    expect(coverRes.headers.get("Cache-Control")).toBe("public, max-age=86400, s-maxage=86400");
+
+    const signedPagePath = buildSignedMangaPageUrl("https://uploads.mangadex.org/data/hash/1.jpg");
+    const pageRes = await serverEntry.fetch(
+      new Request(`http://localhost${signedPagePath}`),
+      {},
+      {},
+    );
+    expect(pageRes.status).toBe(200);
+    expect(pageRes.headers.get("Cache-Control")).toBe("public, max-age=86400, s-maxage=86400");
+
+    const mediaRes = await serverEntry.fetch(
+      new Request(
+        "http://localhost/api/media/image?url=" +
+          encodeURIComponent("https://images.metahub.space/poster/medium/tt0133093/img"),
+      ),
+      {},
+      {},
+    );
+    expect(mediaRes.status).toBe(200);
+    expect(mediaRes.headers.get("Cache-Control")).toBe("public, max-age=86400, s-maxage=86400");
+  });
 });
 
 describe("Free Manga library UI", () => {
@@ -144,5 +190,60 @@ describe("Free Manga library UI", () => {
       expect(screen.getByAltText("Page 1")).toBeTruthy();
       expect(screen.getByAltText("Page 2")).toBeTruthy();
     });
+  });
+
+  it("loads MangaDex covers and chapter pages directly first, falling back to /api/manga/* on error", async () => {
+    vi.mocked(mangaFunctions.getMangaCatalog).mockResolvedValueOnce({
+      items: [
+        {
+          ...SAMPLE_MANGA[0]!,
+          coverUrl:
+            "https://uploads.mangadex.org/covers/11111111-1111-4111-8111-111111111111/cover.jpg.512.jpg",
+          coverFallbackUrl:
+            "/api/manga/cover?mangaId=11111111-1111-4111-8111-111111111111&file=cover.jpg",
+        },
+      ],
+      total: 1,
+    });
+    vi.mocked(mangaFunctions.getMangaChapterPages).mockResolvedValueOnce([
+      {
+        url: "https://cmdxd98sb0x3yprd.mangadex.network/data/hash/1.jpg",
+        fallbackUrl: "/api/manga/page?token=proxy-fallback-1",
+      },
+    ]);
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MangaPage />
+      </QueryClientProvider>,
+    );
+
+    const coverImg = (await screen.findByAltText("Kagurabachi cover")) as HTMLImageElement;
+    expect(coverImg.getAttribute("src")).toBe(
+      "https://uploads.mangadex.org/covers/11111111-1111-4111-8111-111111111111/cover.jpg.512.jpg",
+    );
+
+    // First direct error falls back to full-res upstream URL, second falls back to /api/manga/cover
+    fireEvent.error(coverImg);
+    expect(coverImg.getAttribute("src")).toBe(
+      "https://uploads.mangadex.org/covers/11111111-1111-4111-8111-111111111111/cover.jpg",
+    );
+    fireEvent.error(coverImg);
+    expect(coverImg.getAttribute("src")).toBe(
+      "/api/manga/cover?mangaId=11111111-1111-4111-8111-111111111111&file=cover.jpg",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Kagurabachi chapters" }));
+    await screen.findByTestId("manga-chapter-list");
+    fireEvent.click(screen.getAllByRole("button", { name: "Read" })[0]!);
+
+    const pageImg = (await screen.findByAltText("Page 1")) as HTMLImageElement;
+    expect(pageImg.getAttribute("src")).toBe(
+      "https://cmdxd98sb0x3yprd.mangadex.network/data/hash/1.jpg",
+    );
+
+    fireEvent.error(pageImg);
+    expect(pageImg.getAttribute("src")).toBe("/api/manga/page?token=proxy-fallback-1");
   });
 });

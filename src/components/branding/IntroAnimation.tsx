@@ -31,11 +31,16 @@ export function IntroAnimation() {
 
   useEffect(() => {
     try {
-      if (sessionStorage.getItem(STORAGE_KEY)) setVisible(false);
-      else sessionStorage.setItem(STORAGE_KEY, "1");
+      if (sessionStorage.getItem(STORAGE_KEY)) {
+        setVisible(false);
+        return;
+      }
+      sessionStorage.setItem(STORAGE_KEY, "1");
     } catch {
       // Storage blocked: just play the intro.
     }
+    const fallback = setTimeout(() => setVisible(false), 4500);
+    return () => clearTimeout(fallback);
   }, []);
 
   if (!visible) return null;

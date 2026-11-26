@@ -1,6 +1,18 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  lazy,
+  Suspense,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { MediaItem } from "@/lib/catalog/types";
-import { MediaDetailDialog } from "./MediaDetailDialog";
+
+const LazyMediaDetailDialog = lazy(() =>
+  import("./MediaDetailDialog").then((m) => ({ default: m.MediaDetailDialog })),
+);
 
 interface Ctx {
   open: (item: MediaItem) => void;
@@ -17,7 +29,11 @@ export function MediaModalProvider({ children }: { children: ReactNode }) {
   return (
     <MediaModalContext.Provider value={value}>
       {children}
-      <MediaDetailDialog item={item} onClose={close} />
+      {item && (
+        <Suspense fallback={null}>
+          <LazyMediaDetailDialog item={item} onClose={close} />
+        </Suspense>
+      )}
     </MediaModalContext.Provider>
   );
 }

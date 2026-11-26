@@ -17,7 +17,7 @@ export function LanguageToggle({
       aria-label="Language filter"
       className={cn(
         "inline-flex items-center rounded-full border border-foreground/15 bg-scrim/75 p-0.5 backdrop-blur-md",
-        compact ? "h-9" : "h-9",
+        compact ? "min-h-[44px] sm:h-9 sm:min-h-0" : "min-h-[44px] sm:h-10 sm:min-h-0",
         className,
       )}
     >
@@ -36,7 +36,7 @@ export function LanguageToggle({
           aria-pressed={lang === opt.id}
           onClick={() => siteLanguage.set(opt.id)}
           className={cn(
-            "rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider transition",
+            "min-h-[38px] rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider transition sm:min-h-0",
             lang === opt.id
               ? "bg-brand-gradient text-primary-foreground shadow-sm"
               : "text-foreground/75 hover:text-foreground",

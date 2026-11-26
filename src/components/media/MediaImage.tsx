@@ -64,14 +64,17 @@ export function MediaImage({
     return <>{fallback ?? null}</>;
   }
 
+  const effectiveLoading = loading ?? (fetchPriority === "high" ? undefined : "lazy");
+  const effectiveDecoding = decoding ?? "async";
+
   return (
     <img
       src={activeSrc}
       alt={alt}
       referrerPolicy="no-referrer"
       className={className}
-      {...(loading ? { loading } : {})}
-      {...(decoding ? { decoding } : {})}
+      {...(effectiveLoading ? { loading: effectiveLoading } : {})}
+      decoding={effectiveDecoding}
       {...(fetchPriority ? { fetchPriority } : {})}
       onError={() => setIdx((current) => current + 1)}
     />
