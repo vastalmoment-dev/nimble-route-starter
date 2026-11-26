@@ -80,6 +80,9 @@ export function inferSectionFromMeta(m: CinemetaMeta): SectionId {
   if (country.includes("korea") || lang.includes("korean")) {
     return "k-dramas";
   }
+  if (country.includes("nigeria") || lang.includes("yoruba") || lang.includes("igbo")) {
+    return "nollywood";
+  }
   if (lang.includes("telugu") || /\btelugu\b|\bhyderabad\b/i.test(text)) {
     return "tollywood";
   }

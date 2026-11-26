@@ -6,6 +6,7 @@ export function MediaImage({
   fallbackSrc,
   source,
   itemId,
+  imdbId,
   alt = "",
   className,
   loading,
@@ -17,6 +18,7 @@ export function MediaImage({
   fallbackSrc?: string | null | undefined;
   source?: Source | undefined;
   itemId?: string | undefined;
+  imdbId?: string | null | undefined;
   alt?: string;
   className?: string;
   loading?: "lazy" | "eager" | undefined;
@@ -39,15 +41,23 @@ export function MediaImage({
         const secondaryParams = new URLSearchParams({ id: itemId, url: fallbackSrc });
         push(`/api/anilast/image?${secondaryParams.toString()}`);
       }
+    } else if (imdbId || source === "cinemeta" || source === "tvmaze") {
+      const extractedImdb = imdbId ?? (itemId?.match(/(tt\d{5,10})/)?.[1] || null);
+      if (extractedImdb || src) {
+        const params = new URLSearchParams();
+        if (extractedImdb) params.set("imdbId", extractedImdb);
+        if (src) params.set("url", src);
+        push(`/api/media/image?${params.toString()}`);
+      }
     }
     return list;
-  }, [src, fallbackSrc, source, itemId]);
+  }, [src, fallbackSrc, source, itemId, imdbId]);
 
   const [idx, setIdx] = useState(0);
 
   useEffect(() => {
     setIdx(0);
-  }, [src, fallbackSrc, itemId]);
+  }, [src, fallbackSrc, itemId, imdbId]);
 
   const activeSrc = candidates[idx];
   if (!activeSrc) {

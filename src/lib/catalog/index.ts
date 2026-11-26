@@ -1,8 +1,9 @@
 import { queryOptions } from "@tanstack/react-query";
+import type { SiteLanguage } from "@/lib/i18n/language";
 import { fetchAnimeDetail, fetchAnimeShelves, searchAnime } from "./anilist";
 import { fetchCinemetaDetail, searchCinemeta } from "./cinemeta";
 import { loadFallbackCatalog } from "./fallback";
-import { getLiveSectionCatalog } from "./media.functions";
+import { getLiveSectionCatalog, searchMediaCatalog } from "./media.functions";
 import { buildShelves, dedupe, interleave, pickFeatured } from "./shelves";
 import { getTmdbDetail, getTmdbSection } from "./tmdb.functions";
 import { fetchShowDetail, searchShows } from "./tvmaze";
@@ -43,9 +44,9 @@ async function loadAnime(): Promise<SectionCatalog> {
   };
 }
 
-async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
+async function loadNonAnime(section: NonAnime, lang: SiteLanguage = "en"): Promise<SectionCatalog> {
   try {
-    const live = await getLiveSectionCatalog({ data: { section } });
+    const live = await getLiveSectionCatalog({ data: { section, lang } });
     if (live.items.length) return live;
   } catch {
     // Fall through to TMDB / bundled fallback if server catalog call fails.
@@ -71,8 +72,11 @@ async function loadNonAnime(section: NonAnime): Promise<SectionCatalog> {
   };
 }
 
-export function loadSection(section: SectionId): Promise<SectionCatalog> {
-  return section === "anime" ? loadAnime() : loadNonAnime(section);
+export function loadSection(
+  section: SectionId,
+  lang: SiteLanguage = "en",
+): Promise<SectionCatalog> {
+  return section === "anime" ? loadAnime() : loadNonAnime(section, lang);
 }
 
 const settle = <T>(p: Promise<T>) =>
@@ -81,20 +85,42 @@ const settle = <T>(p: Promise<T>) =>
     () => null,
   );
 
-export async function loadHome(): Promise<SectionCatalog> {
-  const ids: SectionId[] = ["anime", "k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"];
-  const results = (await Promise.all(ids.map((id) => settle(loadSection(id))))).filter(
+export async function loadHome(lang: SiteLanguage = "en"): Promise<SectionCatalog> {
+  const ids: SectionId[] = [
+    "anime",
+    "k-dramas",
+    "hollywood",
+    "bollywood",
+    "tollywood",
+    "nollywood",
+    "cartoons",
+  ];
+  const results = (await Promise.all(ids.map((id) => settle(loadSection(id, lang))))).filter(
     (r): r is SectionCatalog => r !== null,
   );
   if (!results.length) throw new Error("No catalog source is reachable right now.");
   const shelf = (id: string) => results.map((r) => r.shelves.find((s) => s.id === id)?.items ?? []);
   const shelves = [
+    ...(lang === "fr"
+      ? [
+          {
+            id: "french-selection",
+            title: "Cinéma & Animation en Français",
+            items: interleave(...shelf("french-selection")).slice(0, 30),
+          },
+        ]
+      : []),
     {
       id: "new-releases",
       title: "New Movies & Episodes Just Out",
       items: interleave(...shelf("new-releases"), ...shelf("latest")).slice(0, 30),
     },
     { id: "trending", title: "Trending Now", items: interleave(...shelf("trending")).slice(0, 30) },
+    {
+      id: "hollywood-movies",
+      title: lang === "fr" ? "Films Populaires" : "Popular English Movies",
+      items: interleave(...shelf("hollywood-movies"), ...shelf("cartoon-movies")).slice(0, 30),
+    },
     {
       id: "action",
       title: "Action Blockbusters",
@@ -129,21 +155,24 @@ export async function loadDetail(source: Source, id: string): Promise<MediaDetai
 }
 
 export async function searchAll(q: string): Promise<MediaItem[]> {
-  const [anime, cinemeta, shows] = await Promise.all([
-    settle(searchAnime(q)),
-    settle(searchCinemeta(q)),
-    settle(searchShows(q)),
+  const term = q.trim();
+  if (term.length < 2) return [];
+  const [anime, serverMedia, cinemetaClient, shows] = await Promise.all([
+    settle(searchAnime(term)),
+    settle(searchMediaCatalog({ data: { q: term } })),
+    settle(searchCinemeta(term)),
+    settle(searchShows(term)),
   ]);
-  return interleave(anime ?? [], cinemeta ?? [], shows ?? []);
+  return interleave(anime ?? [], serverMedia ?? [], cinemetaClient ?? [], shows ?? []);
 }
 
 const STALE = 1000 * 60 * 10;
 const ANIME_STALE = 1000 * 60 * 3;
 
-export const sectionQuery = (section: SectionId | "home") =>
+export const sectionQuery = (section: SectionId | "home", lang: SiteLanguage = "en") =>
   queryOptions({
-    queryKey: ["section", section],
-    queryFn: () => (section === "home" ? loadHome() : loadSection(section)),
+    queryKey: ["section", section, section === "anime" ? "all" : lang],
+    queryFn: () => (section === "home" ? loadHome(lang) : loadSection(section, lang)),
     staleTime: section === "anime" ? ANIME_STALE : STALE,
   });
 
@@ -156,7 +185,7 @@ export const detailQuery = (source: Source, id: string) =>
 
 export const searchQuery = (q: string) =>
   queryOptions({
-    queryKey: ["search", q],
+    queryKey: ["search", q.trim()],
     queryFn: () => searchAll(q),
     staleTime: STALE,
     enabled: q.trim().length >= 2,

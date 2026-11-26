@@ -1,4 +1,5 @@
 import type { Source } from "@/lib/catalog/types";
+import { siteLanguage, type SiteLanguage } from "@/lib/i18n/language";
 
 export type StreamType = "hls" | "mp4";
 export type AudioOption = "sub" | "dub";
@@ -27,6 +28,7 @@ export interface StreamRequest {
   mediaType?: "tv" | "movie" | undefined;
   title: string;
   audio?: AudioOption | undefined;
+  lang?: SiteLanguage | undefined;
   includeSubtitles?: boolean | undefined;
   malId?: number | null | undefined;
   imdbId?: string | null | undefined;
@@ -81,16 +83,33 @@ export const aniLastResolver: StreamResolver = {
   name: "anime-stream",
   async resolve(req) {
     if (req.source !== "anilist") return null;
+    let malId = req.malId ?? null;
+    let englishTitle = req.englishTitle ?? null;
+    let romajiTitle = req.romajiTitle ?? null;
+
+    if (!malId && /^\d+$/.test(req.id)) {
+      try {
+        const { fetchAnimeDetail } = await import("@/lib/catalog/anilist");
+        const detail = await fetchAnimeDetail(req.id);
+        malId = detail.malId ?? null;
+        englishTitle = englishTitle ?? detail.englishTitle ?? null;
+        romajiTitle = romajiTitle ?? detail.romajiTitle ?? null;
+      } catch {
+        /* continue with AniList id */
+      }
+    }
+
     const { getAniLastAnimeStream } = await import("./anilast.functions");
     const result = await getAniLastAnimeStream({
       data: {
         anilistId: req.id,
-        malId: req.malId ?? null,
+        malId,
         episode: req.episode,
         audio: req.audio ?? "sub",
+        lang: req.lang ?? siteLanguage.get(),
         title: req.title,
-        englishTitle: req.englishTitle ?? null,
-        romajiTitle: req.romajiTitle ?? null,
+        englishTitle,
+        romajiTitle,
       },
     });
     if (!result.ok || !result.streamUrl) return null;
@@ -143,8 +162,6 @@ export const mediaStreamResolver: StreamResolver = {
     let imdbId = extracted.imdbId;
     const { tmdbId, mediaType } = extracted;
 
-    // If a TVmaze or TMDB item is missing its IMDb/TMDB cross-ID (e.g. downloading straight from card/modal),
-    // fetch its full metadata once so we get the IMDb identifier cleanly.
     if (!imdbId && !tmdbId && req.source === "tvmaze") {
       try {
         const { fetchShowDetail } = await import("@/lib/catalog/tvmaze");
@@ -165,6 +182,7 @@ export const mediaStreamResolver: StreamResolver = {
         tmdbId,
         season: req.season ?? 1,
         episode: req.episode,
+        lang: req.lang ?? siteLanguage.get(),
       },
     });
     if (!result.ok || !result.streamUrl) return null;

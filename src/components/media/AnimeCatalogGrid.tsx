@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Loader2, Search } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, type GenreChipId } from "@/lib/catalog";
@@ -17,18 +17,15 @@ const SORTS: { id: AnimeBrowseSort; label: string }[] = [
 
 export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
   const [sort, setSort] = useState<AnimeBrowseSort>("POPULARITY_DESC");
-  const [filterText, setFilterText] = useState("");
-  const queryText = filterText.trim();
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } = useInfiniteQuery({
-    queryKey: ["anime-all", sort, queryText],
+    queryKey: ["anime-all", sort],
     initialPageParam: 1,
     queryFn: ({ pageParam }) =>
       fetchAllAnimePage({
         page: pageParam,
         perPage: 36,
         sort,
-        ...(queryText ? { search: queryText } : {}),
       }),
     getNextPageParam: (last) => (last.hasNextPage ? last.currentPage + 1 : undefined),
     staleTime: 1000 * 60 * 5,
@@ -59,35 +56,22 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
               : "Browse the complete anime catalog with Sub & Dub playback"}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="relative flex h-9 items-center rounded-full border border-foreground/10 bg-surface px-3">
-            <Search className="mr-2 size-3.5 text-muted-foreground" />
-            <input
-              type="search"
-              value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              placeholder="Filter all anime…"
-              aria-label="Filter all anime"
-              className="w-40 bg-transparent text-xs outline-none placeholder:text-muted-foreground sm:w-48"
-            />
-          </label>
-          <div className="flex flex-wrap gap-1 rounded-full border border-foreground/10 bg-surface p-1">
-            {SORTS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSort(s.id)}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition",
-                  sort === s.id
-                    ? "bg-brand-gradient font-semibold text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-wrap gap-1 rounded-full border border-foreground/10 bg-surface p-1">
+          {SORTS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSort(s.id)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition",
+                sort === s.id
+                  ? "bg-brand-gradient font-semibold text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -99,7 +83,7 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-xl border border-foreground/5 bg-surface/40 py-14 text-center text-sm text-muted-foreground">
-          No anime matched that filter — try clearing the search or genre chips.
+          No anime matched those genres yet — try clearing the genre chips above.
         </div>
       ) : (
         <>

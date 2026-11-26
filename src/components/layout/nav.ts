@@ -23,7 +23,7 @@ export const NAV_ITEMS: {
     | "/nollywood"
     | "/cartoons"
     | "/mood"
-    | "/novels";
+    | "/manga";
   label: string;
   icon: LucideIcon;
   accent: string;
@@ -78,8 +78,8 @@ export const NAV_ITEMS: {
     accent: "group-data-[status=active]/nav:text-genre-cartoons",
   },
   {
-    to: "/novels",
-    label: "Novels",
+    to: "/manga",
+    label: "Manga",
     icon: BookOpen,
     accent: "group-data-[status=active]/nav:text-cerulean",
   },

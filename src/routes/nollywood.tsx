@@ -4,17 +4,17 @@ import { NollywoodPage } from "@/components/media/NollywoodPage";
 export const Route = createFileRoute("/nollywood")({
   head: () => ({
     meta: [
-      { title: "Nollywood movies — SHADOW" },
+      { title: "Nollywood movies & series — SHADOW" },
       {
         name: "description",
         content:
-          "Watch Nigerian romance, comedy and drama from Bimbo Ademoye TV and Uduak Isong TV, with official YouTube movies on SHADOW.",
+          "Stream and download full Nollywood movies and Nigerian series on SHADOW. New releases appear automatically.",
       },
-      { property: "og:title", content: "Nollywood movies — SHADOW" },
+      { property: "og:title", content: "Nollywood movies & series — SHADOW" },
       {
         property: "og:description",
         content:
-          "Discover Nigerian stories with official full-movie YouTube uploads from Nollywood creators.",
+          "Discover Nigerian blockbusters, thrillers, romances and dramas ready to watch or download.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

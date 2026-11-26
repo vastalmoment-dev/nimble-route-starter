@@ -4,17 +4,19 @@ import { handleMediaProxyRequest, rewriteMediaPlaylist } from "@/lib/stream/medi
 import { canStreamSource } from "@/lib/stream/resolver";
 
 describe("Media streaming & live catalog helpers", () => {
-  it("rewrites upstream HLS stream paths to local /api/media/hls proxy", () => {
+  it("rewrites upstream HLS stream paths to local /api/media/hls and signed segment proxies", () => {
     const master = [
       "#EXTM3U",
       "#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080",
       "/_stream?id=abcDEF123456",
       "https://vidsrc.buzz/_stream?id=xyz987654321",
+      "https://cdn.example.com/chunk-001.ts",
     ].join("\n");
 
-    const rewritten = rewriteMediaPlaylist(master);
+    const rewritten = rewriteMediaPlaylist(master, "https://vidsrc.buzz/_stream?id=master");
     expect(rewritten).toContain("/api/media/hls?id=abcDEF123456");
     expect(rewritten).toContain("/api/media/hls?id=xyz987654321");
+    expect(rewritten).toContain("/api/media/segment?token=");
     expect(rewritten).not.toContain("vidsrc.buzz");
   });
 

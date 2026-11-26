@@ -12,6 +12,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import { IntroAnimation } from "../components/branding/IntroAnimation";
+import { AdsterraScript } from "../components/ads/AdsterraScript";
 import { FloatingPromo, PromoPopup } from "../components/ads/PromoPopup";
 import { AppShell } from "../components/layout/AppShell";
 import { DownloadsTray } from "../components/media/DownloadsTray";
@@ -158,9 +159,10 @@ function RootComponent() {
           )}
         </MediaModalProvider>
         <IntroAnimation />
-        {/* 1xBet: popup once per visit (after the intro), floating side ad while exploring anime. */}
-        {!isPlayer && <PromoPopup delay={4500} storageKey="shadow-promo-entry" />}
-        {isAnime && <FloatingPromo />}
+        {/* Polite delayed ads while browsing; never loaded inside the active /watch/* player. */}
+        <AdsterraScript enabled={!isPlayer} />
+        {!isPlayer && <PromoPopup delay={12000} storageKey="shadow-promo-entry" />}
+        {isAnime && !isPlayer && <FloatingPromo />}
         <DownloadsTray />
       </WatchNavigationProvider>
     </QueryClientProvider>

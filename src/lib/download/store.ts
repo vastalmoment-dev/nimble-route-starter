@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { siteLanguage } from "@/lib/i18n/language";
 import { resolveStream, type StreamRequest } from "@/lib/stream/resolver";
 import { downloadStream, safeFilename } from "./downloader";
 
@@ -30,12 +31,18 @@ export const downloads = {
   snapshot: () => jobs,
   async start(req: StreamRequest) {
     const audio = req.audio ?? "sub";
+    const lang = req.lang ?? siteLanguage.get();
     const includeSubs = Boolean(req.includeSubtitles);
     const seasonTag = req.season && req.mediaType !== "movie" ? `S${req.season}` : "";
     const isMovie = req.mediaType === "movie";
     const subTag = req.source === "anilist" ? (includeSubs ? " + Subs" : " · No Subs") : "";
-    const audioTag = req.source === "anilist" ? ` (${audio.toUpperCase()}${subTag})` : "";
-    const id = `${req.source}:${req.id}:${req.season ?? 1}:${req.episode}:${audio}:${includeSubs ? "subs" : "nosubs"}`;
+    const audioTag =
+      req.source === "anilist"
+        ? ` (${audio.toUpperCase()}${subTag})`
+        : lang === "fr"
+          ? " (FR)"
+          : "";
+    const id = `${req.source}:${req.id}:${req.season ?? 1}:${req.episode}:${audio}:${lang}:${includeSubs ? "subs" : "nosubs"}`;
     const existing = jobs.find((j) => j.id === id);
     if (existing && (existing.status === "downloading" || existing.status === "resolving")) return;
     const epPart = isMovie ? "Full Movie" : `${seasonTag ? `${seasonTag}·` : ""}Ep ${req.episode}`;
@@ -45,14 +52,15 @@ export const downloads = {
     const controller = new AbortController();
     controllers.set(id, controller);
     try {
-      const stream = await resolveStream(req);
+      const stream = await resolveStream({ ...req, lang });
       update(id, { status: "downloading" });
       const filePart = isMovie ? "Movie" : `${seasonTag ? `${seasonTag}_` : ""}E${req.episode}`;
       await downloadStream(stream, {
         filename: safeFilename(
-          `${req.title}_${filePart}${req.source === "anilist" ? `_${audio.toUpperCase()}${includeSubs ? "" : "_NoSub"}` : ""}`,
+          `${req.title}_${filePart}${req.source === "anilist" ? `_${audio.toUpperCase()}${includeSubs ? "" : "_NoSub"}` : lang === "fr" ? "_FR" : ""}`,
         ),
         includeSubtitles: includeSubs,
+        lang,
         signal: controller.signal,
         onProgress: (p) => update(id, { progress: p }),
       });

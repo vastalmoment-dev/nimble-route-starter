@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Loader2, SearchX } from "lucide-react";
 import { useMemo } from "react";
-import { z } from "zod";
 import { GenreChips } from "@/components/media/GenreChips";
+import { LanguageToggle } from "@/components/media/LanguageToggle";
 import { MediaCard, MediaCardSkeleton } from "@/components/media/MediaCard";
 import {
   filterByGenres,
@@ -13,14 +13,31 @@ import {
   type GenreChipId,
 } from "@/lib/catalog";
 import { dedupe } from "@/lib/catalog/shelves";
+import { useSiteLanguage } from "@/lib/i18n/language";
 
-const searchSchema = z.object({
-  q: z.string().optional().catch(undefined),
-  genres: z.string().optional().catch(undefined),
-});
+interface SearchParams {
+  q?: string | undefined;
+  genres?: string | undefined;
+}
+
+function parseSearchParams(raw: Record<string, unknown>): SearchParams {
+  const qRaw = raw?.["q"];
+  const genresRaw = raw?.["genres"];
+  const q =
+    typeof qRaw === "string"
+      ? qRaw
+      : typeof qRaw === "number" || typeof qRaw === "boolean"
+        ? String(qRaw)
+        : undefined;
+  const genres = typeof genresRaw === "string" ? genresRaw : undefined;
+  return {
+    ...(q !== undefined ? { q } : {}),
+    ...(genres !== undefined ? { genres } : {}),
+  };
+}
 
 export const Route = createFileRoute("/search")({
-  validateSearch: searchSchema,
+  validateSearch: parseSearchParams,
   head: () => ({
     meta: [
       { title: "Search — SHADOW" },
@@ -40,24 +57,36 @@ export const Route = createFileRoute("/search")({
 });
 
 function SearchPage() {
-  const { q = "", genres: rawGenres } = Route.useSearch();
+  const search = Route.useSearch();
+  const q = typeof search.q === "string" ? search.q : search.q != null ? String(search.q) : "";
+  const rawGenres = typeof search.genres === "string" ? search.genres : "";
   const navigate = useNavigate({ from: "/search" });
+  const lang = useSiteLanguage();
   const genres = useMemo(
-    () => (rawGenres ?? "").split(",").filter(isGenreChipId) as GenreChipId[],
+    () => rawGenres.split(",").filter(isGenreChipId) as GenreChipId[],
     [rawGenres],
   );
   const term = q.trim();
 
-  const home = useQuery(sectionQuery("home"));
+  const home = useQuery(sectionQuery("home", lang));
   const remote = useQuery(searchQuery(term));
 
   const results = useMemo(() => {
+    const homeItems = Array.isArray(home.data?.items) ? home.data.items : [];
+    const remoteItems = Array.isArray(remote.data) ? remote.data : [];
     const lower = term.toLowerCase();
     const local = lower
-      ? (home.data?.items ?? []).filter((i) => i.title.toLowerCase().includes(lower))
-      : (home.data?.items ?? []);
-    const merged = dedupe([...local, ...(lower ? (remote.data ?? []) : [])]);
-    return filterByGenres(merged, genres).filter((i) => i.poster);
+      ? homeItems.filter(
+          (i) =>
+            (i.title ?? "").toLowerCase().includes(lower) ||
+            i.englishTitle?.toLowerCase().includes(lower) ||
+            i.romajiTitle?.toLowerCase().includes(lower) ||
+            (i.genres ?? []).some((g) => g.toLowerCase().includes(lower)),
+        )
+      : homeItems;
+    const merged = dedupe([...(lower ? remoteItems : []), ...local]);
+    const filtered = filterByGenres(merged, genres);
+    return lower ? filtered : filtered.slice(0, 120);
   }, [term, home.data, remote.data, genres]);
 
   const loading =
@@ -66,20 +95,26 @@ function SearchPage() {
   return (
     <div className="min-h-screen px-4 pb-10 pt-24 sm:px-8 lg:px-12">
       <div className="mb-6 space-y-4">
-        <h1 className="font-display text-2xl font-bold sm:text-3xl">
-          {term ? (
-            <>
-              Results for <span className="text-brand-gradient">“{term}”</span>
-            </>
-          ) : (
-            "Browse everything"
-          )}
-        </h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="font-display text-2xl font-bold sm:text-3xl">
+            {term ? (
+              <>
+                Results for <span className="text-brand-gradient">“{term}”</span>
+              </>
+            ) : (
+              "Browse everything"
+            )}
+          </h1>
+          <LanguageToggle compact />
+        </div>
         <GenreChips
           value={genres}
           onChange={(next) =>
             void navigate({
-              search: (prev) => ({ ...prev, genres: next.length ? next.join(",") : undefined }),
+              search: (prev) => ({
+                ...(prev.q !== undefined ? { q: prev.q } : {}),
+                ...(next.length ? { genres: next.join(",") } : {}),
+              }),
               replace: true,
             })
           }

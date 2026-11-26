@@ -45,6 +45,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
               fallbackSrc={item.posterHd ?? item.poster}
               source={item.source}
               itemId={item.id}
+              imdbId={item.imdbId}
               className={cn(
                 "absolute inset-0 size-full object-cover object-[center_25%] transition-transform duration-[9000ms] ease-out",
                 active ? "scale-105" : "scale-100",
@@ -89,7 +90,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
                   <Link
                     to="/watch/$source/$id"
                     params={{ source: item.source, id: item.id }}
-                    search={{ ep: 1 }}
+                    search={{}}
                   >
                     <Play /> Watch Now
                   </Link>

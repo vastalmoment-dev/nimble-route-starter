@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { signMediaProxyUrl } from "./media-proxy";
 import type { StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
@@ -36,6 +37,7 @@ const MediaStreamInputSchema = z.object({
     .optional(),
   season: z.number().int().min(1).max(100).default(1),
   episode: z.number().int().min(1).max(2000).default(1),
+  lang: z.enum(["en", "fr"]).default("en"),
 });
 
 interface EmbeddedQ {
@@ -65,22 +67,119 @@ function buildFallbackEmbedUrl(params: {
   return null;
 }
 
-function scoreServer(name: string | undefined, lang: string | null | undefined): number {
+function scoreServer(
+  name: string | undefined,
+  lang: string | null | undefined,
+  prefLang: "en" | "fr",
+): number {
   const n = (name ?? "").toLowerCase();
   const l = (lang ?? "").toLowerCase();
   let score = 0;
-  if (l === "english" || n.includes("english")) score += 50;
-  if (n.includes("vrs2")) score += 30;
-  else if (n.includes("vrh1")) score += 25;
-  else if (n.includes("vrs1")) score += 20;
-  else if (n.includes("swm1")) score += 15;
-  else if (n.includes("vnr")) score += 10;
+
+  const isFrench = l.includes("french") || l === "fr" || n.includes("french");
+  const isEnglish = l.includes("english") || l === "en" || n.includes("english");
+  const isMkvOrMp4 = n.includes("mp4") || n.includes("vnz");
+
+  if (prefLang === "fr") {
+    if (isFrench) score += 200;
+    else if (isEnglish || l === "") score += 40;
+  } else {
+    if (isEnglish) score += 120;
+    else if (l === "") score += 50;
+  }
+
+  // Prefer HLS streams (VRH1, VRS2, VRS1, XPK) over MP4/MKV so hls.js and offline downloader succeed everywhere.
+  if (n.includes("vrh1")) score += 40;
+  else if (n.includes("vrs2")) score += 35;
+  else if (n.includes("vrs1")) score += 30;
+  else if (n.includes("xpk")) score += 25;
+  else if (n.includes("swm1")) score += 18;
+  else if (n.includes("vnr")) score += 12;
+  else if (n.includes("vny")) score += 8;
+  else if (isMkvOrMp4) score += 4;
+
   return score;
 }
 
-function isEnglishSub(track: { label?: string; lang?: string; cc?: string }): boolean {
+function isPreferredSub(
+  track: { label?: string; lang?: string; cc?: string },
+  prefLang: "en" | "fr",
+): number {
   const s = `${track.label ?? ""} ${track.lang ?? ""} ${track.cc ?? ""}`.toLowerCase();
-  return s.includes("english") || s === "en" || s.includes(" us");
+  const cc = (track.cc ?? "").toLowerCase();
+  if (prefLang === "fr") {
+    if (cc === "fr" || s.includes("french") || s.includes("français")) return 3;
+    if (cc === "en" || s.includes("english")) return 2;
+    return 0;
+  }
+  if (cc === "en" || s.includes("english") || s.includes(" us")) return 3;
+  if (cc === "fr" || s.includes("french")) return 1;
+  return 0;
+}
+
+async function verifyPlayableStream(
+  rawUrl: string,
+  hintType?: string,
+): Promise<{ proxiedUrl: string; streamType: StreamType } | null> {
+  const streamMatch = /_stream\?id=([a-zA-Z0-9_-]{8,128})/.exec(rawUrl);
+  if (streamMatch?.[1]) {
+    const checkUrl = `${STREAM_ORIGIN}/_stream?id=${encodeURIComponent(streamMatch[1])}`;
+    try {
+      const check = await fetch(checkUrl, {
+        headers: { ...STREAM_HEADERS, Referer: `${STREAM_ORIGIN}/` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!check.ok) return null;
+      const preview = await check.text();
+      if (!preview.includes("#EXTM3U")) return null;
+      return {
+        proxiedUrl: `/api/media/hls?id=${encodeURIComponent(streamMatch[1])}`,
+        streamType: "hls",
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  let absUrl: string;
+  try {
+    absUrl = new URL(rawUrl, STREAM_ORIGIN).toString();
+  } catch {
+    return null;
+  }
+  if (!/^https?:\/\//i.test(absUrl)) return null;
+
+  const isMp4Hint = hintType?.toLowerCase() === "mp4" || /\.(mp4|mkv|webm)(\?|$)/i.test(absUrl);
+  try {
+    const check = await fetch(absUrl, {
+      method: isMp4Hint ? "HEAD" : "GET",
+      headers: {
+        "User-Agent": STREAM_HEADERS["User-Agent"],
+        Accept: "*/*",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(5500),
+    });
+    if (!check.ok) return null;
+
+    if (!isMp4Hint) {
+      const text = await check.text();
+      if (!text.includes("#EXTM3U")) return null;
+      return {
+        proxiedUrl: signMediaProxyUrl(absUrl, `${STREAM_ORIGIN}/`),
+        streamType: "hls",
+      };
+    }
+
+    // Avoid .mkv when possible because Chromium cannot play some MKV audio codecs natively.
+    if (/\.mkv(\?|$)/i.test(absUrl)) return null;
+    return {
+      proxiedUrl: signMediaProxyUrl(absUrl, `${STREAM_ORIGIN}/`),
+      streamType: "mp4",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const getMediaStream = createServerFn({ method: "GET" })
@@ -161,10 +260,12 @@ export const getMediaStream = createServerFn({ method: "GET" })
         }
       }
 
-      servers.sort((a, b) => scoreServer(b.name, b.lang) - scoreServer(a.name, a.lang));
+      servers.sort(
+        (a, b) => scoreServer(b.name, b.lang, data.lang) - scoreServer(a.name, a.lang, data.lang),
+      );
 
-      let resolvedStreamId: string | null = null;
-      for (const srv of servers.slice(0, 5)) {
+      let resolved: { proxiedUrl: string; streamType: StreamType } | null = null;
+      for (const srv of servers.slice(0, 8)) {
         try {
           const playRes = await fetch(
             `${STREAM_ORIGIN}/pl/api.php?a=play&ref=${encodeURIComponent(srv.ref)}`,
@@ -175,17 +276,18 @@ export const getMediaStream = createServerFn({ method: "GET" })
           );
           if (!playRes.ok) continue;
           const play = (await playRes.json()) as { url?: string; type?: string };
-          const idMatch = /_stream\?id=([a-zA-Z0-9_-]{8,128})/.exec(play.url ?? "");
-          if (idMatch?.[1]) {
-            resolvedStreamId = idMatch[1];
+          if (!play.url) continue;
+          const verified = await verifyPlayableStream(play.url, play.type);
+          if (verified) {
+            resolved = verified;
             break;
           }
         } catch {
-          /* try next mirror */
+          /* try next server */
         }
       }
 
-      if (!resolvedStreamId) {
+      if (!resolved) {
         return {
           ok: false,
           streamUrl: null,
@@ -216,7 +318,7 @@ export const getMediaStream = createServerFn({ method: "GET" })
               .filter((s): s is { label?: string; lang?: string; cc?: string; ref: string } =>
                 Boolean(s.ref && /^[A-Za-z0-9._~=-]{10,1024}$/.test(s.ref)),
               )
-              .sort((a, b) => Number(isEnglishSub(b)) - Number(isEnglishSub(a)))
+              .sort((a, b) => isPreferredSub(b, data.lang) - isPreferredSub(a, data.lang))
               .slice(0, 12)
               .map((s) => ({
                 url: `/api/media/sub?ref=${encodeURIComponent(s.ref)}`,
@@ -231,8 +333,8 @@ export const getMediaStream = createServerFn({ method: "GET" })
 
       return {
         ok: true,
-        streamUrl: `/api/media/hls?id=${encodeURIComponent(resolvedStreamId)}`,
-        type: "hls",
+        streamUrl: resolved.proxiedUrl,
+        type: resolved.streamType,
         provider: "SHADOW Stream",
         subtitles,
         embedUrl,

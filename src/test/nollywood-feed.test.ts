@@ -1,26 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { isFullMovieTitle, parseFeed } from "@/lib/catalog/nollywood-feed";
+import { inferSectionFromMeta, mapCinemetaItem, type CinemetaMeta } from "@/lib/catalog/cinemeta";
+import { SECTION_META } from "@/lib/catalog/types";
 
-const entry = (id: string, title: string, href = `https://www.youtube.com/watch?v=${id}`) =>
-  `<entry><yt:videoId>${id}</yt:videoId><title>${title}</title><link rel="alternate" href="${href}"/><published>2026-10-01T00:00:00+00:00</published><media:statistics views="42"/></entry>`;
-
-describe("nollywood feed", () => {
-  it("skips teasers and trailers", () => {
-    expect(isFullMovieTitle("PAINS OF CHOOSING YOU 3&4 TEASER - 2026 Latest Nigerian Movie")).toBe(
-      false,
-    );
-    expect(isFullMovieTitle("WHERE LOVE LIVES COMING TO BIMBOADEMOYETV ON THE 23RD")).toBe(false);
+describe("Nollywood catalog classification (non-YouTube multi-provider)", () => {
+  it("registers nollywood in SECTION_META without YouTube embedding copy", () => {
+    expect(SECTION_META.nollywood.label).toBe("Nollywood");
+    expect(SECTION_META.nollywood.tagline.toLowerCase()).not.toContain("youtube");
   });
-  it("keeps full movies, labels parts and drops shorts", () => {
-    const xml =
-      "<feed>" +
-      entry("a1", "MY FATHER'S SECRET PT 2 - Kanayo 2026 Latest Nigerian Movie") +
-      entry("b2", "SIBE (THE MOVIE) STARRING. BIMBO ADEMOYE") +
-      entry("c3", "Quick movie skit", "https://www.youtube.com/shorts/c3") +
-      "</feed>";
-    const list = parseFeed(xml, "Test TV");
-    expect(list.map((m) => m.youtubeId)).toEqual(["a1", "b2"]);
-    expect(list[0]!.format).toBe("Part 2");
-    expect(list[1]!.title).toBe("Sibe");
+
+  it("classifies Nigerian, Yoruba and Igbo films into nollywood automatically", () => {
+    const nigerianFilm: CinemetaMeta = {
+      id: "tt24083908",
+      imdb_id: "tt24083908",
+      type: "movie",
+      name: "The Black Book",
+      country: "Nigeria",
+      language: "English, Yoruba",
+      genres: ["Crime", "Drama", "Thriller"],
+      year: 2023,
+    };
+
+    const yorubaEpic: CinemetaMeta = {
+      id: "tt28546464",
+      imdb_id: "tt28546464",
+      type: "movie",
+      name: "Jagun Jagun",
+      language: "Yoruba",
+      genres: ["Action", "Drama"],
+      year: 2023,
+    };
+
+    expect(inferSectionFromMeta(nigerianFilm)).toBe("nollywood");
+    expect(inferSectionFromMeta(yorubaEpic)).toBe("nollywood");
+
+    const mapped = mapCinemetaItem(nigerianFilm);
+    expect(mapped?.section).toBe("nollywood");
+    expect(mapped?.source).toBe("cinemeta");
+    expect(mapped?.imdbId).toBe("tt24083908");
   });
 });

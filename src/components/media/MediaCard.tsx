@@ -12,6 +12,7 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
   hollywood: "bg-genre-hollywood",
   bollywood: "bg-genre-bollywood",
   tollywood: "bg-genre-bollywood",
+  nollywood: "bg-genre-bollywood",
   cartoons: "bg-genre-cartoons",
 };
 
@@ -37,6 +38,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
           fallbackSrc={item.posterHd ?? item.backdrop}
           source={item.source}
           itemId={item.id}
+          imdbId={item.imdbId}
           loading="lazy"
           decoding="async"
           className="size-full object-cover transition duration-500 group-hover/card:scale-105"
@@ -55,7 +57,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
             {item.latestEpisode && item.source === "anilist" ? (
               <span className="text-cerulean">Ep {item.latestEpisode}</span>
             ) : (
-              item.genres[0] && <span className="truncate">{item.genres[0]}</span>
+              item.genres?.[0] && <span className="truncate">{item.genres[0]}</span>
             )}
           </span>
         </span>
@@ -92,7 +94,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
       <Link
         to="/watch/$source/$id"
         params={{ source: item.source, id: item.id }}
-        search={{ ep: 1 }}
+        search={{}}
         aria-label={`Play ${item.title}`}
         className="absolute right-2 top-2 flex size-9 scale-75 items-center justify-center rounded-full bg-foreground text-background opacity-0 shadow-card transition duration-300 group-hover/card:scale-100 group-hover/card:opacity-100 focus-visible:opacity-100"
       >

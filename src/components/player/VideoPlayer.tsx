@@ -4,6 +4,7 @@ import {
   Captions,
   FastForward,
   Gauge,
+  Keyboard,
   Loader2,
   Maximize,
   Minimize,
@@ -17,8 +18,10 @@ import {
   Volume1,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { activeCueText, parseVtt, type SubtitleCue } from "@/lib/player/subtitles";
 import type { ResolvedStream } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +30,8 @@ export interface VideoPlayerProps {
   title: string;
   subtitle?: string | null | undefined;
   poster?: string | null | undefined;
+  initialTime?: number | undefined;
+  onTimeProgress?: ((currentTime: number, duration: number) => void) | undefined;
   onBack: () => void;
   onNext?: (() => void) | null | undefined;
   nextLabel?: string | null | undefined;
@@ -61,11 +66,26 @@ function readAutoNextPref(): boolean {
   }
 }
 
+function fitAspectBox(
+  containerW: number,
+  containerH: number,
+  aspect: number,
+): { width: number; height: number } | null {
+  if (containerW <= 0 || containerH <= 0 || !Number.isFinite(aspect) || aspect <= 0) return null;
+  const containerAspect = containerW / containerH;
+  if (containerAspect > aspect) {
+    return { width: Math.round(containerH * aspect), height: Math.round(containerH) };
+  }
+  return { width: Math.round(containerW), height: Math.round(containerW / aspect) };
+}
+
 export default function VideoPlayer({
   stream,
   title,
   subtitle,
   poster,
+  initialTime = 0,
+  onTimeProgress,
   onBack,
   onNext,
   nextLabel,
@@ -77,10 +97,17 @@ export default function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appliedSeekUrlRef = useRef<string | null>(null);
+  const initialTimeRef = useRef(initialTime);
+  const onProgressRef = useRef(onTimeProgress);
+  const lastReportRef = useRef(0);
+
+  initialTimeRef.current = initialTime;
+  onProgressRef.current = onTimeProgress;
 
   const [playing, setPlaying] = useState(false);
   const [waiting, setWaiting] = useState(true);
-  const [current, setCurrent] = useState(0);
+  const [current, setCurrent] = useState(initialTime > 0 ? initialTime : 0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -97,6 +124,20 @@ export default function VideoPlayer({
   const [autoNext, setAutoNext] = useState<boolean>(readAutoNextPref);
   const [upNextIn, setUpNextIn] = useState<number | null>(null);
   const [endedManual, setEndedManual] = useState(false);
+  const [videoAspect, setVideoAspect] = useState(16 / 9);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [vttCues, setVttCues] = useState<SubtitleCue[]>([]);
+  const [nativeCueText, setNativeCueText] = useState("");
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [osdMessage, setOsdMessage] = useState<string | null>(null);
+  const osdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const announce = useCallback((msg: string) => {
+    setOsdMessage(msg);
+    if (osdTimer.current) clearTimeout(osdTimer.current);
+    osdTimer.current = setTimeout(() => setOsdMessage(null), 1100);
+  }, []);
+
   const subtitles = useMemo(() => stream.subtitles ?? [], [stream.subtitles]);
   const [subTrack, setSubTrack] = useState<number>(() => (subtitles.length > 0 ? 0 : -1));
 
@@ -105,7 +146,94 @@ export default function VideoPlayer({
     setIntroDismissed(false);
     setUpNextIn(null);
     setEndedManual(false);
+    appliedSeekUrlRef.current = null;
   }, [stream.url, subtitles.length]);
+
+  // Measure the viewport container so the video frame box + bottom-of-video subtitles stay exact.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    };
+    measure();
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  const applyInitialSeek = useCallback(
+    (video: HTMLVideoElement) => {
+      const target = initialTimeRef.current;
+      if (target <= 0.5 || appliedSeekUrlRef.current === stream.url) return;
+      appliedSeekUrlRef.current = stream.url;
+      const maxTarget =
+        Number.isFinite(video.duration) && video.duration > 2 ? video.duration - 1 : target;
+      video.currentTime = Math.min(target, maxTarget);
+      setCurrent(video.currentTime);
+    },
+    [stream.url],
+  );
+
+  // Load parsed WebVTT cues for active subtitle track so captions always render inside the video frame.
+  useEffect(() => {
+    const active = subTrack >= 0 ? subtitles[subTrack] : null;
+    if (!active?.url) {
+      setVttCues([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    fetch(active.url, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.text() : ""))
+      .then((text) => {
+        if (!ctrl.signal.aborted) setVttCues(text ? parseVtt(text) : []);
+      })
+      .catch(() => {
+        if (!ctrl.signal.aborted) setVttCues([]);
+      });
+    return () => ctrl.abort();
+  }, [subTrack, subtitles]);
+
+  // Keep native <track> elements hidden (so browser never renders inside viewport black bars) while listening to cuechange fallback.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v?.textTracks) return;
+    const listeners: (() => void)[] = [];
+    const syncTracks = () => {
+      for (let i = 0; i < v.textTracks.length; i++) {
+        const track = v.textTracks[i];
+        if (!track) continue;
+        track.mode = "hidden";
+        if (i === subTrack && track.addEventListener) {
+          const onCue = () => {
+            const list = track.activeCues;
+            if (!list || !list.length) {
+              setNativeCueText("");
+              return;
+            }
+            const lines: string[] = [];
+            for (let k = 0; k < list.length; k++) {
+              const cue = list[k] as VTTCue | undefined;
+              if (cue?.text) lines.push(cue.text.replace(/<[^>]+>/g, "").trim());
+            }
+            setNativeCueText(lines.join("\n"));
+          };
+          track.addEventListener("cuechange", onCue);
+          listeners.push(() => track.removeEventListener?.("cuechange", onCue));
+        }
+      }
+    };
+    syncTracks();
+    v.textTracks.addEventListener?.("addtrack", syncTracks);
+    return () => {
+      v.textTracks?.removeEventListener?.("addtrack", syncTracks);
+      listeners.forEach((off) => off());
+    };
+  }, [subTrack, subtitles]);
 
   const toggleAutoNext = useCallback(() => {
     setAutoNext((prev) => {
@@ -119,20 +247,6 @@ export default function VideoPlayer({
     });
   }, []);
 
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v?.textTracks) return;
-    const syncTracks = () => {
-      for (let i = 0; i < v.textTracks.length; i++) {
-        const track = v.textTracks[i];
-        if (track) track.mode = i === subTrack ? "showing" : "hidden";
-      }
-    };
-    syncTracks();
-    v.textTracks.addEventListener?.("addtrack", syncTracks);
-    return () => v.textTracks?.removeEventListener?.("addtrack", syncTracks);
-  }, [subTrack, subtitles]);
-
   // Attach the source: hls.js where MSE exists, native HLS on Safari/iOS, plain src for MP4.
   useEffect(() => {
     const video = videoRef.current;
@@ -143,10 +257,15 @@ export default function VideoPlayer({
     setLevel(-1);
 
     if (stream.type === "hls" && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, backBufferLength: 60 });
+      const hls = new Hls({
+        enableWorker: true,
+        backBufferLength: 60,
+        startPosition: initialTimeRef.current > 0.5 ? initialTimeRef.current : -1,
+      });
       hlsRef.current = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         setLevels(data.levels);
+        applyInitialSeek(video);
         void video.play?.()?.catch?.(() => setPlaying(false));
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setActiveLevel(data.level));
@@ -159,6 +278,9 @@ export default function VideoPlayer({
       hls.loadSource(stream.url);
       hls.attachMedia(video);
       return () => {
+        if (video.currentTime > 0) {
+          onProgressRef.current?.(video.currentTime, video.duration || 0);
+        }
         hls.destroy();
         hlsRef.current = null;
       };
@@ -175,6 +297,9 @@ export default function VideoPlayer({
       setPlaying(false);
     }
     return () => {
+      if (video.currentTime > 0) {
+        onProgressRef.current?.(video.currentTime, video.duration || 0);
+      }
       video.removeAttribute("src");
       try {
         video.load?.();
@@ -182,31 +307,65 @@ export default function VideoPlayer({
         /* ignore */
       }
     };
-  }, [stream.url, stream.type]);
+  }, [stream.url, stream.type, applyInitialSeek]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) void v.play();
-    else v.pause();
-  }, []);
+    if (v.paused) {
+      announce("Play");
+      void v.play?.()?.catch?.(() => {});
+    } else {
+      announce("Pause");
+      v.pause();
+    }
+  }, [announce]);
 
-  const seekBy = useCallback((delta: number) => {
-    const v = videoRef.current;
-    if (v) v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + delta));
-  }, []);
+  const seekBy = useCallback(
+    (delta: number) => {
+      const v = videoRef.current;
+      if (!v) return;
+      const max = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : Infinity;
+      const next = Math.max(0, Math.min(max, v.currentTime + delta));
+      v.currentTime = next;
+      setCurrent(next);
+      announce(delta > 0 ? `+${delta}s` : `${delta}s`);
+    },
+    [announce],
+  );
 
   const toggleFullscreen = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void el.requestFullscreen?.().catch(() => {});
-  }, []);
+    if (document.fullscreenElement) {
+      announce("Exit full screen");
+      void document.exitFullscreen?.();
+    } else {
+      announce("Full screen");
+      void el.requestFullscreen?.().catch(() => {});
+    }
+  }, [announce]);
 
   const toggleMute = useCallback(() => {
     const v = videoRef.current;
-    if (v) v.muted = !v.muted;
-  }, []);
+    if (!v) return;
+    const nextMuted = !v.muted;
+    v.muted = nextMuted;
+    setMuted(nextMuted);
+    announce(nextMuted ? "Muted" : `Volume ${Math.round((v.volume || 1) * 100)}%`);
+  }, [announce]);
+
+  const cycleSubtitles = useCallback(() => {
+    if (subtitles.length === 0) {
+      announce("No subtitles available");
+      return;
+    }
+    setSubTrack((prev) => {
+      const next = prev + 1 >= subtitles.length ? -1 : prev + 1;
+      announce(next >= 0 ? `Subtitles: ${subtitles[next]!.label}` : "Subtitles: Off");
+      return next;
+    });
+  }, [subtitles, announce]);
 
   const poke = useCallback(() => {
     setControlsVisible(true);
@@ -223,9 +382,12 @@ export default function VideoPlayer({
     const v = videoRef.current;
     if (!v || skipIntroSeconds <= 0) return;
     const maxTarget = Number.isFinite(v.duration) && v.duration > 5 ? v.duration - 2 : Infinity;
-    v.currentTime = Math.min(maxTarget, v.currentTime + skipIntroSeconds);
+    const next = Math.min(maxTarget, v.currentTime + skipIntroSeconds);
+    v.currentTime = next;
+    setCurrent(next);
     setIntroDismissed(true);
-  }, [skipIntroSeconds]);
+    announce("Skipped Intro");
+  }, [skipIntroSeconds, announce]);
 
   useEffect(() => {
     if (upNextIn === null) return;
@@ -246,11 +408,48 @@ export default function VideoPlayer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" && (e.target as HTMLInputElement).type !== "range") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable ||
+        (tag === "INPUT" && (target as HTMLInputElement).type !== "range")
+      ) {
+        return;
+      }
+      const isRangeInput = tag === "INPUT" && (target as HTMLInputElement).type === "range";
       const v = videoRef.current;
       if (!v) return;
-      switch (e.key) {
+
+      if (e.key === "Escape") {
+        if (shortcutsOpen) {
+          e.preventDefault();
+          setShortcutsOpen(false);
+          return;
+        }
+        if (menu) {
+          e.preventDefault();
+          setMenu(null);
+          return;
+        }
+        return;
+      }
+
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setShortcutsOpen((o) => !o);
+        poke();
+        return;
+      }
+
+      if (isRangeInput && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
+        return;
+      }
+
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      switch (key) {
         case " ":
         case "k":
           e.preventDefault();
@@ -266,35 +465,84 @@ export default function VideoPlayer({
           e.preventDefault();
           seekBy(-10);
           break;
-        case "ArrowUp":
+        case "ArrowUp": {
           e.preventDefault();
-          v.volume = Math.min(1, v.volume + 0.1);
+          const nextVol = Math.min(1, Math.round((v.volume + 0.1) * 10) / 10);
+          v.volume = nextVol;
+          if (nextVol > 0 && v.muted) v.muted = false;
+          setVolume(nextVol);
+          setMuted(v.muted);
+          announce(`Volume ${Math.round(nextVol * 100)}%`);
           break;
-        case "ArrowDown":
+        }
+        case "ArrowDown": {
           e.preventDefault();
-          v.volume = Math.max(0, v.volume - 0.1);
+          const nextVol = Math.max(0, Math.round((v.volume - 0.1) * 10) / 10);
+          v.volume = nextVol;
+          v.muted = nextVol === 0;
+          setVolume(nextVol);
+          setMuted(v.muted);
+          announce(nextVol === 0 ? "Muted" : `Volume ${Math.round(nextVol * 100)}%`);
           break;
+        }
         case "f":
+          e.preventDefault();
           toggleFullscreen();
           break;
         case "m":
+          e.preventDefault();
           toggleMute();
           break;
+        case "c":
+          e.preventDefault();
+          cycleSubtitles();
+          break;
         case "s":
+          e.preventDefault();
           skipIntro();
           break;
+        case "n":
+          if (e.shiftKey && onNext) {
+            e.preventDefault();
+            onNext();
+          } else {
+            return;
+          }
+          break;
         default:
+          if (/^[0-9]$/.test(key) && Number.isFinite(v.duration) && v.duration > 0) {
+            e.preventDefault();
+            const pctJump = Number(key) * 10;
+            const targetTime = (v.duration * pctJump) / 100;
+            v.currentTime = targetTime;
+            setCurrent(targetTime);
+            announce(`Jump ${pctJump}%`);
+            break;
+          }
           return;
       }
       poke();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, seekBy, toggleFullscreen, toggleMute, skipIntro, poke]);
+  }, [
+    togglePlay,
+    seekBy,
+    toggleFullscreen,
+    toggleMute,
+    cycleSubtitles,
+    skipIntro,
+    onNext,
+    poke,
+    announce,
+    shortcutsOpen,
+    menu,
+  ]);
 
   useEffect(
     () => () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (osdTimer.current) clearTimeout(osdTimer.current);
     },
     [],
   );
@@ -331,62 +579,111 @@ export default function VideoPlayer({
         ? levelLabel(levels[level]!)
         : "Auto";
 
+  const videoBox = fitAspectBox(containerSize.width, containerSize.height, videoAspect);
+  const controlsTouchBottom = !videoBox || containerSize.height - videoBox.height < 140;
+  const captionText = subTrack >= 0 ? activeCueText(vttCues, current) || nativeCueText : "";
+
   return (
     <div
       ref={containerRef}
       className={cn(
-        "relative size-full select-none overflow-hidden bg-scrim",
+        "relative flex size-full select-none items-center justify-center overflow-hidden bg-scrim",
         !showUi && "cursor-none",
       )}
       onMouseMove={poke}
       onTouchStart={poke}
     >
-      <video
-        ref={videoRef}
-        className="size-full object-contain"
-        playsInline
-        {...(poster ? { poster } : {})}
-        onClick={togglePlay}
-        onDoubleClick={toggleFullscreen}
-        onPlay={() => {
-          setPlaying(true);
-          poke();
-        }}
-        onPause={() => {
-          setPlaying(false);
-          setControlsVisible(true);
-        }}
-        onWaiting={() => setWaiting(true)}
-        onPlaying={() => setWaiting(false)}
-        onCanPlay={() => setWaiting(false)}
-        onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
-        onDurationChange={(e) => setDuration(e.currentTarget.duration)}
-        onProgress={(e) => {
-          const b = e.currentTarget.buffered;
-          if (b.length) setBuffered(b.end(b.length - 1));
-        }}
-        onVolumeChange={(e) => {
-          setVolume(e.currentTarget.volume);
-          setMuted(e.currentTarget.muted);
-        }}
-        onEnded={() => {
-          if (!onNext) return;
-          if (autoNext) setUpNextIn(3);
-          else setEndedManual(true);
-        }}
-        onError={() => setError("This stream couldn't be played.")}
+      <div
+        data-testid="video-frame"
+        className="relative overflow-hidden"
+        style={
+          videoBox
+            ? { width: videoBox.width, height: videoBox.height }
+            : { width: "100%", height: "100%" }
+        }
       >
-        {subtitles.map((t, i) => (
-          <track
-            key={t.url}
-            kind="subtitles"
-            src={t.url}
-            srcLang={t.lang}
-            label={t.label}
-            default={i === 0}
-          />
-        ))}
-      </video>
+        <video
+          ref={videoRef}
+          className="size-full object-contain"
+          playsInline
+          {...(poster ? { poster } : {})}
+          onClick={togglePlay}
+          onDoubleClick={toggleFullscreen}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            if (v.videoWidth > 0 && v.videoHeight > 0) {
+              setVideoAspect(v.videoWidth / v.videoHeight);
+            }
+            applyInitialSeek(v);
+          }}
+          onPlay={() => {
+            setPlaying(true);
+            poke();
+          }}
+          onPause={(e) => {
+            setPlaying(false);
+            setControlsVisible(true);
+            onProgressRef.current?.(e.currentTarget.currentTime, e.currentTarget.duration || 0);
+          }}
+          onWaiting={() => setWaiting(true)}
+          onPlaying={() => setWaiting(false)}
+          onCanPlay={(e) => {
+            setWaiting(false);
+            applyInitialSeek(e.currentTarget);
+          }}
+          onTimeUpdate={(e) => {
+            const t = e.currentTarget.currentTime;
+            const d = e.currentTarget.duration || 0;
+            setCurrent(t);
+            const now = Date.now();
+            if (now - lastReportRef.current >= 1500) {
+              lastReportRef.current = now;
+              onProgressRef.current?.(t, d);
+            }
+          }}
+          onDurationChange={(e) => setDuration(e.currentTarget.duration)}
+          onProgress={(e) => {
+            const b = e.currentTarget.buffered;
+            if (b.length) setBuffered(b.end(b.length - 1));
+          }}
+          onVolumeChange={(e) => {
+            setVolume(e.currentTarget.volume);
+            setMuted(e.currentTarget.muted);
+          }}
+          onEnded={(e) => {
+            onProgressRef.current?.(0, e.currentTarget.duration || 0);
+            if (!onNext) return;
+            if (autoNext) setUpNextIn(3);
+            else setEndedManual(true);
+          }}
+          onError={() => setError("This stream couldn't be played.")}
+        >
+          {subtitles.map((t, i) => (
+            <track
+              key={t.url}
+              kind="subtitles"
+              src={t.url}
+              srcLang={t.lang}
+              label={t.label}
+              default={i === 0}
+            />
+          ))}
+        </video>
+
+        {captionText && !error && (
+          <div
+            data-testid="video-subtitles"
+            className={cn(
+              "pointer-events-none absolute inset-x-4 z-10 flex justify-center text-center transition-[bottom] duration-200",
+              showUi && controlsTouchBottom ? "bottom-20 sm:bottom-24" : "bottom-3 sm:bottom-5",
+            )}
+          >
+            <span className="max-w-3xl whitespace-pre-line rounded-md bg-scrim/80 px-3 py-1 text-sm font-medium leading-snug text-foreground shadow-lg sm:text-base md:text-lg">
+              {captionText}
+            </span>
+          </div>
+        )}
+      </div>
 
       {waiting && !error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -422,6 +719,85 @@ export default function VideoPlayer({
             <span>Skip Intro</span>
           </button>
         )}
+
+      {osdMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="player-shortcut-feedback"
+          className="pointer-events-none absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-lg border border-foreground/15 bg-scrim/90 px-4 py-1.5 font-display text-xs font-semibold text-foreground shadow-card backdrop-blur-md"
+        >
+          {osdMessage}
+        </div>
+      )}
+
+      {shortcutsOpen && (
+        <div
+          role="dialog"
+          aria-label="Keyboard shortcuts"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 z-30 flex items-center justify-center bg-scrim/75 p-4 backdrop-blur-sm"
+        >
+          <div className="w-full max-w-md rounded-2xl border border-foreground/15 bg-popover/95 p-5 shadow-card backdrop-blur-xl">
+            <div className="mb-4 flex items-center justify-between border-b border-foreground/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Keyboard className="size-4 text-cerulean" />
+                <h2 className="font-display text-sm font-semibold">Keyboard Shortcuts</h2>
+              </div>
+              <button
+                type="button"
+                aria-label="Close shortcuts"
+                onClick={() => setShortcutsOpen(false)}
+                className="rounded-full p-1 text-muted-foreground transition hover:bg-foreground/10 hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Play / Pause</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">Space / K</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Mute / Unmute</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">M</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Seek -10s / +10s</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">J / L</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Seek Arrows</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">← / →</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Volume</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">↑ / ↓</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Full Screen</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">F</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Subtitles</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">C</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Skip Intro</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">S</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Jump 0%–90%</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">0 – 9</dd>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <dt className="text-muted-foreground">Next Episode</dt>
+                <dd className="font-mono text-[11px] font-semibold text-foreground">Shift + N</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      )}
 
       {onNext && (upNextIn !== null || endedManual) && (
         <div
@@ -470,7 +846,12 @@ export default function VideoPlayer({
       >
         <button
           type="button"
-          onClick={onBack}
+          onClick={() => {
+            if (videoRef.current) {
+              onProgressRef.current?.(videoRef.current.currentTime, videoRef.current.duration || 0);
+            }
+            onBack();
+          }}
           aria-label="Back"
           className="shrink-0 rounded-full p-2 transition hover:bg-foreground/15"
         >
@@ -505,7 +886,7 @@ export default function VideoPlayer({
       {/* Bottom controls */}
       <div
         className={cn(
-          "absolute inset-x-0 bottom-0 space-y-2 bg-player-bottom px-4 pb-4 pt-16 transition-opacity duration-300 sm:px-6",
+          "absolute inset-x-0 bottom-0 z-10 space-y-2 bg-player-bottom px-4 pb-4 pt-16 transition-opacity duration-300 sm:px-6",
           showUi ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       >
@@ -529,23 +910,45 @@ export default function VideoPlayer({
           />
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
-          <CtrlButton label={playing ? "Pause" : "Play"} onClick={togglePlay}>
+          <CtrlButton
+            label={playing ? "Pause" : "Play"}
+            shortcutHint={playing ? "Pause (Space / K)" : "Play (Space / K)"}
+            keyShortcuts="Space k"
+            onClick={togglePlay}
+          >
             {playing ? <Pause className="fill-current" /> : <Play className="fill-current" />}
           </CtrlButton>
-          <CtrlButton label="Back 10 seconds" onClick={() => seekBy(-10)}>
+          <CtrlButton
+            label="Back 10 seconds"
+            shortcutHint="Back 10 seconds (Left Arrow / J)"
+            keyShortcuts="ArrowLeft j"
+            onClick={() => seekBy(-10)}
+          >
             <RotateCcw />
           </CtrlButton>
-          <CtrlButton label="Forward 10 seconds" onClick={() => seekBy(10)}>
+          <CtrlButton
+            label="Forward 10 seconds"
+            shortcutHint="Forward 10 seconds (Right Arrow / L)"
+            keyShortcuts="ArrowRight l"
+            onClick={() => seekBy(10)}
+          >
             <RotateCw />
           </CtrlButton>
           {onNext && (
-            <CtrlButton label="Next episode" onClick={onNext}>
+            <CtrlButton
+              label="Next episode"
+              shortcutHint="Next episode (Shift+N)"
+              keyShortcuts="Shift+N"
+              onClick={onNext}
+            >
               <SkipForward />
             </CtrlButton>
           )}
           {skipIntroSeconds > 0 && !introDismissed && current < 240 && (
             <button
               type="button"
+              aria-keyshortcuts="s"
+              title="Skip Intro (S)"
               onClick={skipIntro}
               className="hidden items-center gap-1 rounded-full border border-foreground/15 bg-foreground/10 px-2.5 py-1 text-xs font-medium text-foreground/90 transition hover:border-cerulean/60 hover:bg-cerulean/20 sm:inline-flex"
             >
@@ -554,7 +957,12 @@ export default function VideoPlayer({
             </button>
           )}
           <div className="group/vol flex items-center">
-            <CtrlButton label={muted ? "Unmute" : "Mute"} onClick={toggleMute}>
+            <CtrlButton
+              label={muted ? "Unmute" : "Mute"}
+              shortcutHint={muted ? "Unmute (M)" : "Mute (M)"}
+              keyShortcuts="m"
+              onClick={toggleMute}
+            >
               <VolumeIcon />
             </CtrlButton>
             <input
@@ -595,6 +1003,14 @@ export default function VideoPlayer({
                 <span>Auto Next: {autoNext ? "On" : "Off"}</span>
               </button>
             )}
+            <CtrlButton
+              label="Keyboard shortcuts"
+              shortcutHint="Keyboard shortcuts (?)"
+              keyShortcuts="?"
+              onClick={() => setShortcutsOpen((o) => !o)}
+            >
+              <Keyboard />
+            </CtrlButton>
             <div className="relative">
               <CtrlButton label="Settings" onClick={() => setMenu((m) => (m ? null : "settings"))}>
                 <Settings className={cn("transition", menu && "rotate-45")} />
@@ -623,7 +1039,7 @@ export default function VideoPlayer({
                   {subtitles.length > 0 && (
                     <>
                       <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        <Captions className="size-3" /> Subtitles
+                        <Captions className="size-3" /> Subtitles (C)
                       </p>
                       <MenuItem active={subTrack === -1} onClick={() => setSubTrack(-1)}>
                         Off
@@ -666,6 +1082,16 @@ export default function VideoPlayer({
                       </MenuItem>
                     </>
                   )}
+                  <div className="my-1.5 h-px bg-foreground/10" />
+                  <MenuItem
+                    active={shortcutsOpen}
+                    onClick={() => {
+                      setMenu(null);
+                      setShortcutsOpen(true);
+                    }}
+                  >
+                    <span>Keyboard shortcuts (?)</span>
+                  </MenuItem>
                 </div>
               )}
             </div>
@@ -674,6 +1100,8 @@ export default function VideoPlayer({
             </CtrlButton>
             <CtrlButton
               label={fullscreen ? "Exit full screen" : "Full screen"}
+              shortcutHint={fullscreen ? "Exit full screen (F)" : "Full screen (F)"}
+              keyShortcuts="f"
               onClick={toggleFullscreen}
             >
               {fullscreen ? <Minimize /> : <Maximize />}
@@ -687,10 +1115,14 @@ export default function VideoPlayer({
 
 function CtrlButton({
   label,
+  shortcutHint,
+  keyShortcuts,
   onClick,
   children,
 }: {
   label: string;
+  shortcutHint?: string;
+  keyShortcuts?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -698,8 +1130,12 @@ function CtrlButton({
     <button
       type="button"
       aria-label={label}
-      title={label}
-      onClick={onClick}
+      aria-keyshortcuts={keyShortcuts}
+      title={shortcutHint ?? label}
+      onClick={(e) => {
+        if (e.detail > 0) e.currentTarget.blur();
+        onClick();
+      }}
       className="flex size-10 items-center justify-center rounded-full transition hover:bg-foreground/15 [&_svg]:size-5"
     >
       {children}

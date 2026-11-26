@@ -1,15 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { PromoBanner } from "@/components/ads/PromoBanner";
 import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
+import { useSiteLanguage } from "@/lib/i18n/language";
 import { useWatchlist } from "@/lib/watchlist/store";
-import type { ReactNode } from "react";
 import { GenreChips } from "./GenreChips";
 import { HeroCarousel, HeroSkeleton } from "./HeroCarousel";
+import { LanguageToggle } from "./LanguageToggle";
 import { Shelf, ShelfSkeleton } from "./Shelf";
 
 export function SectionPage({
@@ -19,7 +20,8 @@ export function SectionPage({
   section: SectionId | "home";
   renderAfterShelves?: ((genres: GenreChipId[]) => ReactNode) | undefined;
 }) {
-  const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section));
+  const lang = useSiteLanguage();
+  const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section, lang));
   const [genres, setGenres] = useState<GenreChipId[]>([]);
   const watchlistEntries = useWatchlist();
 
@@ -70,18 +72,24 @@ export function SectionPage({
   }
 
   const meta = section === "home" ? null : SECTION_META[section];
+  const showLanguageToggle = section !== "anime";
 
   return (
     <div>
       <HeroCarousel items={data.featured} />
       <div className="relative z-10 -mt-12 space-y-6 sm:-mt-16">
         <div className="space-y-3 px-4 sm:px-8 lg:px-12">
-          {meta && (
-            <div className="flex flex-wrap items-baseline gap-x-3">
-              <h2 className="font-display text-2xl font-bold sm:text-3xl">{meta.label}</h2>
-              <p className="text-sm text-muted-foreground">{meta.tagline}</p>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {meta ? (
+              <div className="flex flex-wrap items-baseline gap-x-3">
+                <h2 className="font-display text-2xl font-bold sm:text-3xl">{meta.label}</h2>
+                <p className="text-sm text-muted-foreground">{meta.tagline}</p>
+              </div>
+            ) : (
+              <div />
+            )}
+            {showLanguageToggle && <LanguageToggle compact />}
+          </div>
           <GenreChips value={genres} onChange={setGenres} />
         </div>
         {watchlistItems.length > 0 && <Shelf title="My Watchlist" items={watchlistItems} />}

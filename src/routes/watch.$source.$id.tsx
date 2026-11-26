@@ -10,31 +10,33 @@ import {
   Loader2,
   MonitorPlay,
   Play,
+  RefreshCw,
   Subtitles,
   X,
 } from "lucide-react";
 import { z } from "zod";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PromoPopup } from "@/components/ads/PromoPopup";
 import { DownloadButton } from "@/components/media/DownloadButton";
+import { LanguageToggle } from "@/components/media/LanguageToggle";
 import VideoPlayer from "@/components/player/VideoPlayer";
 import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
-import { buildAniLastEmbedUrl, getAniLastAnimeStream } from "@/lib/stream/anilast.functions";
+import { getAniLastAnimeStream } from "@/lib/stream/anilast.functions";
 import { getMediaStream } from "@/lib/stream/media.functions";
 import { inferStreamType, type AudioOption } from "@/lib/stream/resolver";
 import { TrailerFrame } from "@/components/player/TrailerFrame";
-import { useWatchReturn } from "@/components/player/WatchNavigation";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { getTrailer } from "@/lib/catalog/trailer.functions";
 import type { Source } from "@/lib/catalog/types";
+import { useSiteLanguage } from "@/lib/i18n/language";
+import { playbackProgress } from "@/lib/player/progress";
 import { cn } from "@/lib/utils";
 
 const SOURCES: Source[] = ["anilist", "tvmaze", "tmdb", "cinemeta"];
 
 export const Route = createFileRoute("/watch/$source/$id")({
   validateSearch: z.object({
-    ep: z.coerce.number().int().min(1).catch(1),
+    ep: z.coerce.number().int().min(1).catch(1).optional(),
     season: z.coerce.number().int().min(1).catch(1).optional(),
     audio: z.enum(["sub", "dub"]).catch("sub").optional(),
   }),
@@ -93,12 +95,18 @@ function AudioToggle({
 function WatchPage() {
   const { source, id } = Route.useParams();
   const search = Route.useSearch();
-  const ep = search.ep;
-  const season = search.season ?? 1;
-  const audio: AudioOption = search.audio ?? "sub";
+  const src = source as Source;
+  const isAnime = src === "anilist";
+  const lang = useSiteLanguage();
+
+  const lastWatched =
+    typeof window !== "undefined" ? playbackProgress.getLastWatched(src, id) : null;
+  const ep = search.ep ?? lastWatched?.episode ?? 1;
+  const season = search.season ?? lastWatched?.season ?? 1;
+  const audio: AudioOption = search.audio ?? lastWatched?.audio ?? "sub";
+
   const navigate = useNavigate();
   const router = useRouter();
-  const returnTo = useWatchReturn();
   const stopPlayback = useRef<(() => void) | null>(null);
   const registerStop = useCallback((stop: () => void) => {
     stopPlayback.current = stop;
@@ -107,13 +115,21 @@ function WatchPage() {
     };
   }, []);
   useEffect(() => router.subscribe("onBeforeNavigate", () => stopPlayback.current?.()), [router]);
-  const src = source as Source;
-  const isAnime = src === "anilist";
 
   const [playerMode, setPlayerMode] = useState<"native" | "embed">("native");
   const [episodesOpen, setEpisodesOpen] = useState(false);
   const [includeSubtitles, setIncludeSubtitles] = useState(false);
   const [drawerSeason, setDrawerSeason] = useState(season);
+
+  // Track exact live timestamp so Sub <-> Dub switches AND returning later resume seamlessly.
+  const liveProgressRef = useRef<{ time: number; duration: number }>({ time: 0, duration: 0 });
+  const carryOverRef = useRef<{ epKey: string; time: number } | null>(null);
+  const epKey = `${src}:${id}:s${season}:e${ep}`;
+
+  const [resumeTime, setResumeTime] = useState<number>(() => {
+    if (typeof window === "undefined") return 0;
+    return playbackProgress.get(src, id, season, ep)?.currentTime ?? 0;
+  });
 
   useEffect(() => {
     setDrawerSeason(season);
@@ -121,7 +137,57 @@ function WatchPage() {
 
   useEffect(() => {
     setPlayerMode("native");
-  }, [source, id, season, ep, audio]);
+    if (carryOverRef.current && carryOverRef.current.epKey === epKey) {
+      setResumeTime(carryOverRef.current.time);
+      carryOverRef.current = null;
+      return;
+    }
+    const saved = playbackProgress.get(src, id, season, ep);
+    const t = saved?.currentTime ?? 0;
+    liveProgressRef.current = { time: t, duration: saved?.duration ?? 0 };
+    setResumeTime(t);
+  }, [src, id, season, ep, epKey, audio]);
+
+  const handleTimeProgress = useCallback(
+    (currentTime: number, duration: number) => {
+      liveProgressRef.current = { time: currentTime, duration };
+      playbackProgress.save({
+        source: src,
+        id,
+        season,
+        episode: ep,
+        currentTime,
+        duration,
+        audio: isAnime ? audio : undefined,
+      });
+    },
+    [src, id, season, ep, audio, isAnime],
+  );
+
+  // Persist current playback position if user closes the tab / navigates away.
+  useEffect(() => {
+    const flush = () => {
+      const { time, duration } = liveProgressRef.current;
+      if (time > 0.5) {
+        playbackProgress.save({
+          source: src,
+          id,
+          season,
+          episode: ep,
+          currentTime: time,
+          duration,
+          audio: isAnime ? audio : undefined,
+        });
+      }
+    };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      flush();
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [src, id, season, ep, audio, isAnime]);
 
   const detail = useQuery(detailQuery(src, id));
   const title = detail.data?.title ?? "";
@@ -130,7 +196,7 @@ function WatchPage() {
     : null;
 
   const aniStream = useQuery({
-    queryKey: ["anime-stream", id, ep, audio],
+    queryKey: ["anime-stream", id, ep, audio, lang],
     queryFn: () =>
       getAniLastAnimeStream({
         data: {
@@ -138,6 +204,7 @@ function WatchPage() {
           malId: detail.data?.malId ?? null,
           episode: ep,
           audio,
+          lang,
           title: detail.data?.title ?? null,
           englishTitle: detail.data?.englishTitle ?? null,
           romajiTitle: detail.data?.romajiTitle ?? null,
@@ -145,7 +212,7 @@ function WatchPage() {
       }),
     enabled: isAnime && !detail.isLoading && !streamUrl,
     staleTime: 1000 * 60 * 5,
-    retry: 1,
+    retry: 2,
   });
 
   const inferredMediaType: "movie" | "tv" =
@@ -155,7 +222,7 @@ function WatchPage() {
   const rawTmdb = detail.data?.tmdbId ?? (src === "tmdb" ? id.replace(/^(movie|tv)-/, "") : null);
 
   const mediaStream = useQuery({
-    queryKey: ["media-stream", src, id, inferredMediaType, season, ep, rawImdb, rawTmdb],
+    queryKey: ["media-stream", src, id, inferredMediaType, season, ep, rawImdb, rawTmdb, lang],
     queryFn: () =>
       getMediaStream({
         data: {
@@ -164,11 +231,12 @@ function WatchPage() {
           tmdbId: rawTmdb,
           season: inferredMediaType === "movie" ? 1 : season,
           episode: inferredMediaType === "movie" ? 1 : ep,
+          lang,
         },
       }),
     enabled: !isAnime && !detail.isLoading && !streamUrl && Boolean(rawImdb || rawTmdb),
     staleTime: 1000 * 60 * 5,
-    retry: 1,
+    retry: 2,
   });
 
   const trailer = useQuery({
@@ -178,7 +246,6 @@ function WatchPage() {
         youtubeId: null as string | null,
       }));
       if (r.youtubeId || src !== "anilist") return r;
-      // Fallback straight from the browser when the host can't run server code.
       try {
         const res = await fetch("https://graphql.anilist.co", {
           method: "POST",
@@ -209,11 +276,27 @@ function WatchPage() {
 
   const goBack = () => {
     stopPlayback.current?.();
-    // YouTube/external iframes create their own history entries; never use browser history length here.
-    const sectionRoute = detail.data?.section ? `/${detail.data.section}` : null;
-    const fallback =
-      sectionRoute ?? (src === "anilist" ? "/anime" : src === "tmdb" ? "/hollywood" : "/");
-    void navigate({ href: returnTo.current ?? fallback, replace: true });
+    const { time, duration } = liveProgressRef.current;
+    if (time > 0.5) {
+      playbackProgress.save({
+        source: src,
+        id,
+        season,
+        episode: ep,
+        currentTime: time,
+        duration,
+        audio: isAnime ? audio : undefined,
+      });
+    }
+    void navigate({
+      to: "/title/$source/$id",
+      params: { source: src, id },
+      search: {
+        ...(season > 1 ? { season } : {}),
+        ...(isAnime ? { audio } : {}),
+      },
+      replace: true,
+    });
   };
 
   const switchEpisode = (nextEp: number, nextSeason = season) => {
@@ -238,6 +321,19 @@ function WatchPage() {
 
   const switchAudio = (nextAudio: AudioOption) => {
     if (nextAudio === audio) return;
+    const { time, duration } = liveProgressRef.current;
+    carryOverRef.current = { epKey, time };
+    if (time > 0.5) {
+      playbackProgress.save({
+        source: src,
+        id,
+        season,
+        episode: ep,
+        currentTime: time,
+        duration,
+        audio: nextAudio,
+      });
+    }
     void navigate({
       to: "/watch/$source/$id",
       params: { source, id },
@@ -258,6 +354,8 @@ function WatchPage() {
           }}
           title={title}
           poster={detail.data?.backdrop ?? detail.data?.poster ?? null}
+          initialTime={resumeTime}
+          onTimeProgress={handleTimeProgress}
           onBack={goBack}
         />
       </div>
@@ -294,17 +392,6 @@ function WatchPage() {
       id,
       title: title || `Anime ${id}`,
     };
-    const canUseNative = Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
-    const showNative = playerMode === "native" && canUseNative;
-    const embedUrl =
-      aniStream.data?.embedUrl ??
-      buildAniLastEmbedUrl({
-        anilistId: id,
-        episode: ep,
-        audio,
-        title: title || null,
-        malId: detail.data?.malId ?? null,
-      });
 
     const animeControls = (
       <>
@@ -376,21 +463,6 @@ function WatchPage() {
           includeSubtitles={includeSubtitles}
           className="h-9 rounded-full px-3 text-xs [&_svg]:size-3.5"
         />
-        {canUseNative && (
-          <Button
-            type="button"
-            variant="glass"
-            size="sm"
-            className="h-9 rounded-full px-3 text-xs"
-            onClick={() => setPlayerMode((m) => (m === "native" ? "embed" : "native"))}
-            title={showNative ? "Switch to alternate player" : "Switch back to SHADOW player"}
-          >
-            <MonitorPlay className="size-3.5" />
-            <span className="hidden md:inline">
-              {showNative ? "Alternate Player" : "SHADOW Player"}
-            </span>
-          </Button>
-        )}
       </>
     );
 
@@ -481,7 +553,7 @@ function WatchPage() {
       </aside>
     );
 
-    if (showNative && aniStream.data?.streamUrl) {
+    if (aniStream.data?.ok && aniStream.data.streamUrl) {
       return (
         <div className="fixed inset-0 z-50 bg-scrim">
           <VideoPlayer
@@ -497,6 +569,8 @@ function WatchPage() {
               currentEp?.title && currentEp.title !== `Episode ${ep}` ? ` — ${currentEp.title}` : ""
             }`}
             poster={detail.data?.backdrop ?? detail.data?.poster ?? null}
+            initialTime={resumeTime}
+            onTimeProgress={handleTimeProgress}
             onBack={goBack}
             onNext={nextAction}
             nextLabel={nextLabel}
@@ -524,8 +598,8 @@ function WatchPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">{animeControls}</div>
         </div>
-        <div className="flex flex-1 items-center justify-center p-2 sm:p-4">
-          {detail.isLoading || (playerMode === "native" && aniStream.isPending) ? (
+        <div className="flex flex-1 items-center justify-center p-4">
+          {detail.isLoading || aniStream.isPending ? (
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="size-12 animate-spin text-cerulean" />
               <p className="text-sm text-muted-foreground">
@@ -533,16 +607,26 @@ function WatchPage() {
               </p>
             </div>
           ) : (
-            <div className="h-full w-full max-w-7xl overflow-hidden rounded-xl border border-foreground/10 bg-background">
-              <iframe
-                key={embedUrl}
-                src={embedUrl}
-                title={`${title || "Anime"} — Episode ${ep} (${audio.toUpperCase()})`}
-                className="size-full border-0"
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+            <div className="flex max-w-md flex-col items-center gap-4 text-center">
+              <p className="font-display text-xl font-semibold">
+                {aniStream.data?.error || "Stream temporarily unavailable for this episode."}
+              </p>
+              <div className="flex flex-wrap justify-center gap-3">
+                <Button variant="brand" onClick={() => void aniStream.refetch()}>
+                  <RefreshCw className="size-4" /> Retry stream
+                </Button>
+                <Button
+                  variant="glass"
+                  onClick={() => switchAudio(audio === "sub" ? "dub" : "sub")}
+                >
+                  Switch to {audio === "sub" ? "DUB" : "SUB"}
+                </Button>
+                {hasNext && nextAction && (
+                  <Button variant="glass" onClick={nextAction}>
+                    Next episode
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -553,16 +637,20 @@ function WatchPage() {
 
   if (!isAnime && !streamUrl && (rawImdb || rawTmdb || detail.isLoading)) {
     const isMovie = inferredMediaType === "movie";
-    const allEpisodes = detail.data?.episodes ?? [];
-    const seasons = detail.data?.seasons?.length
-      ? detail.data.seasons
-      : [...new Set(allEpisodes.map((e) => e.season ?? 1))].sort((a, b) => a - b);
-    const seasonEpisodes =
-      seasons.length > 1 ? allEpisodes.filter((e) => (e.season ?? 1) === season) : allEpisodes;
-    const drawerEpisodes =
-      seasons.length > 1
-        ? allEpisodes.filter((e) => (e.season ?? 1) === drawerSeason)
-        : allEpisodes;
+    const allEpisodes = [...(detail.data?.episodes ?? [])].sort(
+      (a, b) => (a.season ?? 1) - (b.season ?? 1) || a.number - b.number,
+    );
+    const seasons = (
+      detail.data?.seasons?.length
+        ? [...detail.data.seasons]
+        : [...new Set(allEpisodes.map((e) => e.season ?? 1))]
+    ).sort((a, b) => a - b);
+    const seasonEpisodes = (
+      seasons.length > 1 ? allEpisodes.filter((e) => (e.season ?? 1) === season) : allEpisodes
+    ).sort((a, b) => a.number - b.number);
+    const drawerEpisodes = (
+      seasons.length > 1 ? allEpisodes.filter((e) => (e.season ?? 1) === drawerSeason) : allEpisodes
+    ).sort((a, b) => a.number - b.number);
     const currentIdx = seasonEpisodes.findIndex((e) => e.number === ep);
     const currentEp = currentIdx >= 0 ? seasonEpisodes[currentIdx] : undefined;
     const activeSeasonIdx = seasons.indexOf(season);
@@ -610,6 +698,7 @@ function WatchPage() {
 
     const mediaControls = (
       <>
+        <LanguageToggle compact />
         {!isMovie && (
           <>
             <div className="hidden items-center gap-1 sm:flex">
@@ -732,6 +821,11 @@ function WatchPage() {
             ).map((item) => {
               const itemSeason = item.season ?? drawerSeason;
               const active = itemSeason === season && item.number === ep;
+              const cleaned = item.title?.replace(/^S\d+·E\d+\s*[—–-]\s*/i, "").trim();
+              const subLabel =
+                cleaned && !new RegExp(`^Episode\\s*${item.number}$`, "i").test(cleaned)
+                  ? cleaned
+                  : null;
               return (
                 <li
                   key={item.id}
@@ -743,16 +837,15 @@ function WatchPage() {
                   <button
                     type="button"
                     onClick={() => switchEpisode(item.number, itemSeason)}
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left font-display text-sm font-semibold tabular-nums"
                   >
-                    {active ? (
-                      <Play className="size-3.5 shrink-0 fill-current text-cerulean" />
-                    ) : (
-                      <span className="w-5 shrink-0 font-display text-xs font-semibold tabular-nums text-muted-foreground">
-                        {item.number}
+                    {active && <Play className="size-3.5 shrink-0 fill-current text-cerulean" />}
+                    <span>{item.number}</span>
+                    {subLabel && (
+                      <span className="truncate font-sans text-xs font-normal text-muted-foreground">
+                        {subLabel}
                       </span>
                     )}
-                    <span className="truncate font-medium">{item.title}</span>
                   </button>
                   <DownloadButton
                     item={downloadItem}
@@ -783,7 +876,7 @@ function WatchPage() {
             title={title || "Loading…"}
             subtitle={
               isMovie
-                ? "Full Movie"
+                ? `Full Movie${lang === "fr" ? " · FR" : ""}`
                 : `${seasons.length > 1 ? `Season ${season} · ` : ""}Episode ${ep}${
                     currentEp?.title && currentEp.title !== `Episode ${ep}`
                       ? ` — ${currentEp.title}`
@@ -791,6 +884,8 @@ function WatchPage() {
                   }`
             }
             poster={detail.data?.backdrop ?? detail.data?.poster ?? null}
+            initialTime={resumeTime}
+            onTimeProgress={handleTimeProgress}
             onBack={goBack}
             onNext={nextTarget ? () => switchEpisode(nextTarget.ep, nextTarget.season) : null}
             nextLabel={
@@ -893,7 +988,6 @@ function WatchPage() {
           <Loader2 className="size-12 animate-spin text-cerulean" />
         ) : ytId ? (
           <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
-            <PromoPopup key={id} delay={1500} />
             <TrailerFrame key={ytId} youtubeId={ytId} title={title} registerStop={registerStop} />
           </div>
         ) : (

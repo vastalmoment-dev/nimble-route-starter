@@ -8,7 +8,14 @@ import { itemKey, type MediaDetail, type MediaItem } from "./types";
  * bundled structured JSON catalog.
  */
 
-const TMDB_SECTIONS = ["k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"] as const;
+const TMDB_SECTIONS = [
+  "k-dramas",
+  "hollywood",
+  "bollywood",
+  "tollywood",
+  "nollywood",
+  "cartoons",
+] as const;
 type TmdbSection = (typeof TMDB_SECTIONS)[number];
 
 const GENRES: Record<number, string> = {
@@ -54,6 +61,10 @@ const DISCOVER: Record<TmdbSection, { type: "tv" | "movie"; params: string }[]> 
   tollywood: [
     { type: "movie", params: "with_original_language=te" },
     { type: "tv", params: "with_original_language=te&without_genres=16,10764,10767" },
+  ],
+  nollywood: [
+    { type: "movie", params: "with_origin_country=NG" },
+    { type: "tv", params: "with_origin_country=NG&without_genres=16,10764,10767" },
   ],
   cartoons: [{ type: "tv", params: "with_genres=16&with_original_language=en" }],
 };
@@ -150,6 +161,8 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         runtime?: number;
         episode_run_time?: number[];
         status?: string;
+        origin_country?: string[];
+        production_countries?: { iso_3166_1: string }[];
         networks?: { name: string }[];
         number_of_episodes?: number;
         seasons?: { season_number: number; episode_count: number }[];
@@ -158,15 +171,21 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
         credits?: { cast: { name: string; character: string; profile_path: string | null }[] };
       };
       const lang = r.original_language;
+      const isNigeria =
+        Boolean(r.origin_country?.includes("NG")) ||
+        Boolean(r.production_countries?.some((c) => c.iso_3166_1 === "NG")) ||
+        ["yo", "ig", "ha"].includes(lang);
       const section: TmdbSection = r.genres?.some((g) => g.id === 16)
         ? "cartoons"
-        : lang === "ko"
-          ? "k-dramas"
-          : lang === "te"
-            ? "tollywood"
-            : ["hi", "ta", "ml", "kn"].includes(lang)
-              ? "bollywood"
-              : "hollywood";
+        : isNigeria
+          ? "nollywood"
+          : lang === "ko"
+            ? "k-dramas"
+            : lang === "te"
+              ? "tollywood"
+              : ["hi", "ta", "ml", "kn"].includes(lang)
+                ? "bollywood"
+                : "hollywood";
       const base = mapRow(r, type, section);
       let episodes: MediaDetail["episodes"] = [];
       let seasons: number[] = [];
@@ -174,7 +193,8 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
       if (type === "tv") {
         const validSeasons = (r.seasons ?? [])
           .filter((s) => s.season_number > 0)
-          .map((s) => s.season_number);
+          .map((s) => s.season_number)
+          .sort((a, b) => a - b);
         seasons = validSeasons.length ? validSeasons : [1];
         const seasonResults = await Promise.all(
           seasons.slice(0, 12).map(async (seasonNo) => {
@@ -190,18 +210,22 @@ export const getTmdbDetail = createServerFn({ method: "GET" })
                 runtime: number | null;
               }[];
             };
-            return season.episodes.map((e) => ({
-              id: String(e.id),
-              number: e.episode_number,
-              season: seasonNo,
-              title: `S${seasonNo}·E${e.episode_number} — ${e.name}`,
-              thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
-              description: e.overview,
-              runtime: e.runtime,
-            }));
+            return [...season.episodes]
+              .sort((a, b) => a.episode_number - b.episode_number)
+              .map((e) => ({
+                id: String(e.id),
+                number: e.episode_number,
+                season: seasonNo,
+                title: `S${seasonNo}·E${e.episode_number} — ${e.name}`,
+                thumbnail: e.still_path ? `${IMG}/w300${e.still_path}` : null,
+                description: e.overview,
+                runtime: e.runtime,
+              }));
           }),
         );
-        episodes = seasonResults.flat();
+        episodes = seasonResults
+          .flat()
+          .sort((a, b) => (a.season ?? 1) - (b.season ?? 1) || a.number - b.number);
       } else {
         episodes = [
           {

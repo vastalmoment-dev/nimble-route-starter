@@ -1,5 +1,6 @@
 export type Source = "anilist" | "tvmaze" | "tmdb" | "cinemeta";
-export type SectionId = "anime" | "k-dramas" | "hollywood" | "bollywood" | "tollywood" | "cartoons";
+export type SectionId =
+  "anime" | "k-dramas" | "hollywood" | "bollywood" | "tollywood" | "nollywood" | "cartoons";
 
 export interface MediaItem {
   /** Globally unique: `${source}:${id}` */
@@ -115,6 +116,11 @@ export const SECTION_META: Record<
   tollywood: {
     label: "Tollywood",
     tagline: "Telugu blockbusters, action sagas and family epics.",
+    colorClass: "text-genre-bollywood",
+  },
+  nollywood: {
+    label: "Nollywood",
+    tagline: "Nigerian blockbusters, thrilling dramas and full-length cinema.",
     colorClass: "text-genre-bollywood",
   },
   cartoons: {

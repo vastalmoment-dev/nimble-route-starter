@@ -84,47 +84,82 @@ function SearchBox() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const urlQ = useRouterState({
-    select: (s) =>
-      s.location.pathname === "/search"
-        ? String((s.location.search as { q?: string }).q ?? "")
-        : "",
+    select: (s) => {
+      if (s.location.pathname !== "/search") return "";
+      const raw = (s.location.search as { q?: unknown } | undefined)?.q;
+      return typeof raw === "string" ? raw : raw != null ? String(raw) : "";
+    },
   });
   const [value, setValue] = useState(urlQ);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPushed = useRef<string>(urlQ);
 
   useEffect(() => {
-    if (pathname === "/search") setValue(urlQ);
+    if (pathname === "/search" && urlQ !== lastPushed.current) {
+      lastPushed.current = urlQ;
+      setValue(urlQ);
+    }
   }, [urlQ, pathname]);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const commit = (q: string) => {
+    lastPushed.current = q;
+    const trimmed = q.trim();
+    void navigate({
+      to: "/search",
+      search: (prev) => {
+        const existingGenres =
+          pathname === "/search" && prev && typeof prev === "object"
+            ? (prev as { genres?: string }).genres
+            : undefined;
+        return {
+          ...(typeof existingGenres === "string" && existingGenres
+            ? { genres: existingGenres }
+            : {}),
+          ...(trimmed ? { q } : {}),
+        };
+      },
+      replace: pathname === "/search",
+    }).catch(() => {});
+  };
 
   const push = (q: string) => {
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      void navigate({
-        to: "/search",
-        search: (prev: Record<string, unknown>) => ({
-          ...(pathname === "/search" ? prev : {}),
-          q: q || undefined,
-        }),
-        replace: pathname === "/search",
-      });
-    }, 250);
+    timer.current = setTimeout(() => commit(q), 220);
   };
 
   return (
-    <label className="group/search relative flex h-10 w-full max-w-md items-center rounded-full border border-foreground/10 bg-scrim/60 backdrop-blur-xl transition focus-within:border-cerulean/60 focus-within:shadow-glow">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (timer.current) clearTimeout(timer.current);
+        commit(value);
+      }}
+      className="group/search relative flex h-10 w-full max-w-md items-center rounded-full border border-foreground/10 bg-scrim/60 backdrop-blur-xl transition focus-within:border-cerulean/60 focus-within:shadow-glow"
+    >
       <Search className="ml-3.5 size-4 shrink-0 text-muted-foreground" />
       <input
         type="search"
         value={value}
         onChange={(e) => {
-          setValue(e.target.value);
-          push(e.target.value);
+          const next = e.target.value;
+          setValue(next);
+          if (pathname === "/search" || next.trim().length > 0) {
+            push(next);
+          }
         }}
         onFocus={() => {
-          if (pathname !== "/search")
-            void navigate({ to: "/search", search: { q: value || undefined } });
+          if (pathname !== "/search" && value.trim().length > 0) {
+            commit(value);
+          }
         }}
-        placeholder="Search anime, dramas, movies…"
+        placeholder="Search anime, cartoons, dramas, movies…"
         aria-label="Search titles"
         className="h-full w-full bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden"
       />
@@ -134,14 +169,15 @@ function SearchBox() {
           aria-label="Clear search"
           className="mr-2 rounded-full p-1 text-muted-foreground hover:text-foreground"
           onClick={() => {
+            if (timer.current) clearTimeout(timer.current);
             setValue("");
-            push("");
+            if (pathname === "/search") commit("");
           }}
         >
           <X className="size-3.5" />
         </button>
       )}
-    </label>
+    </form>
   );
 }
 
@@ -187,9 +223,20 @@ function Footer() {
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <ShadowWordmark />
         <p className="max-w-lg">
-          Live streaming catalog for anime, cartoons, K-dramas, Hollywood, Bollywood and Tollywood.
-          New releases appear automatically.
+          Live streaming &amp; free manga library for anime, cartoons, K-dramas, Hollywood,
+          Bollywood, Tollywood and Nollywood. New releases appear automatically.
         </p>
+        <nav aria-label="Footer" className="flex flex-wrap items-center gap-5 shrink-0">
+          <Link to="/" className="transition hover:text-foreground whitespace-nowrap">
+            Home
+          </Link>
+          <Link to="/watchlist" className="transition hover:text-foreground whitespace-nowrap">
+            My Watchlist
+          </Link>
+          <Link to="/policy" className="transition hover:text-foreground whitespace-nowrap">
+            Policy & DMCA
+          </Link>
+        </nav>
       </div>
     </footer>
   );
@@ -215,6 +262,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ShadowWordmark />
           </SheetTitle>
           <NavLinks onNavigate={() => setMobileOpen(false)} />
+          <div className="mt-6 border-t border-sidebar-border pt-4 px-3">
+            <Link
+              to="/policy"
+              onClick={() => setMobileOpen(false)}
+              className="text-xs font-medium text-sidebar-foreground/70 transition hover:text-sidebar-foreground"
+            >
+              Policy & DMCA
+            </Link>
+          </div>
         </SheetContent>
       </Sheet>
     </div>

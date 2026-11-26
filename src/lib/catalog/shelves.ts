@@ -6,7 +6,11 @@ const byRating = (a: MediaItem, b: MediaItem) => (b.rating ?? 0) - (a.rating ?? 
 
 export function dedupe(items: MediaItem[]): MediaItem[] {
   const seen = new Set<string>();
-  return items.filter((i) => (seen.has(i.key) ? false : (seen.add(i.key), true)));
+  return items.filter((i) => {
+    if (!i || !i.key || seen.has(i.key)) return false;
+    seen.add(i.key);
+    return true;
+  });
 }
 
 /** Round-robin merge so one source never floods a mixed shelf. */

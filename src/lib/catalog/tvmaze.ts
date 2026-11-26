@@ -90,7 +90,9 @@ export async function fetchShowDetail(id: string): Promise<MediaDetail> {
   const bg = s._embedded?.images
     ?.filter((i) => i.type === "background")
     .sort((a, b) => (b.resolutions.original.width ?? 0) - (a.resolutions.original.width ?? 0))[0];
-  const rawEpisodes = (s._embedded?.episodes ?? []).filter((e) => e.number != null);
+  const rawEpisodes = (s._embedded?.episodes ?? [])
+    .filter((e) => e.number != null)
+    .sort((a, b) => a.season - b.season || (a.number ?? 0) - (b.number ?? 0));
   const seasonSet = new Set<number>(rawEpisodes.map((e) => e.season));
   for (const sn of s._embedded?.seasons ?? []) {
     if (sn.number > 0) seasonSet.add(sn.number);

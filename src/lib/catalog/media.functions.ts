@@ -10,8 +10,16 @@ import { loadFallbackCatalog } from "./fallback";
 import { buildShelves, dedupe, interleave, pickFeatured } from "./shelves";
 import type { MediaItem, SectionCatalog, SectionId } from "./types";
 
-const NON_ANIME_SECTIONS = ["k-dramas", "hollywood", "bollywood", "tollywood", "cartoons"] as const;
+const NON_ANIME_SECTIONS = [
+  "k-dramas",
+  "hollywood",
+  "bollywood",
+  "tollywood",
+  "nollywood",
+  "cartoons",
+] as const;
 type NonAnimeSection = (typeof NON_ANIME_SECTIONS)[number];
+type CatalogLang = "en" | "fr";
 
 interface CuratedEntry {
   type: "movie" | "series";
@@ -27,8 +35,8 @@ const PINNED_CARTOONS: CuratedEntry[] = [
   // The Boss Baby franchise (movies + full episode series)
   { type: "movie", imdbId: "tt3874544" }, // The Boss Baby (2017)
   { type: "movie", imdbId: "tt6932874" }, // The Boss Baby: Family Business (2021)
-  { type: "series", imdbId: "tt7741824" }, // The Boss Baby: Back in Business (all seasons)
-  { type: "series", imdbId: "tt19361940" }, // The Boss Baby: Back in the Crib (all seasons)
+  { type: "series", imdbId: "tt7741824" }, // The Boss Baby: Back in Business
+  { type: "series", imdbId: "tt19361940" }, // The Boss Baby: Back in the Crib
   // Teenage Mutant Ninja Turtles franchise (series + movies)
   { type: "series", imdbId: "tt1877889" }, // TMNT (2012)
   { type: "series", imdbId: "tt0131613" }, // TMNT (1987)
@@ -48,6 +56,8 @@ const EXTRA_CARTOONS: CuratedEntry[] = [
   { type: "movie", imdbId: "tt7510222" }, // Despicable Me 4
   { type: "movie", imdbId: "tt13622970" }, // Moana 2
   { type: "movie", imdbId: "tt21692408" }, // Kung Fu Panda 4
+  { type: "movie", imdbId: "tt4729430" }, // Klaus
+  { type: "movie", imdbId: "tt2096673" }, // Inside Out
   { type: "series", imdbId: "tt0417299" }, // Avatar: The Last Airbender
   { type: "series", imdbId: "tt11126994" }, // Arcane
   { type: "series", imdbId: "tt6741278" }, // Invincible
@@ -55,6 +65,47 @@ const EXTRA_CARTOONS: CuratedEntry[] = [
   { type: "series", imdbId: "tt7678620" }, // Bluey
   { type: "series", imdbId: "tt2861424" }, // Rick and Morty
   { type: "series", imdbId: "tt0206512" }, // SpongeBob SquarePants
+];
+
+const CURATED_HOLLYWOOD_ENGLISH: CuratedEntry[] = [
+  { type: "movie", imdbId: "tt15239678" }, // Dune: Part Two
+  { type: "movie", imdbId: "tt6263850" }, // Deadpool & Wolverine
+  { type: "movie", imdbId: "tt15398776" }, // Oppenheimer
+  { type: "movie", imdbId: "tt18412256" }, // Alien: Romulus
+  { type: "movie", imdbId: "tt1684562" }, // The Fall Guy
+  { type: "movie", imdbId: "tt9218128" }, // Gladiator II
+  { type: "movie", imdbId: "tt0816692" }, // Interstellar
+  { type: "movie", imdbId: "tt1375666" }, // Inception
+  { type: "movie", imdbId: "tt0468569" }, // The Dark Knight
+  { type: "movie", imdbId: "tt1745960" }, // Top Gun: Maverick
+  { type: "series", imdbId: "tt0903747" }, // Breaking Bad
+  { type: "series", imdbId: "tt3581920" }, // The Last of Us
+  { type: "series", imdbId: "tt4574334" }, // Stranger Things
+  { type: "series", imdbId: "tt11198330" }, // House of the Dragon
+];
+
+const CURATED_FRENCH_MOVIES: CuratedEntry[] = [
+  { type: "movie", imdbId: "tt1675434" }, // Intouchables
+  { type: "movie", imdbId: "tt17009710" }, // Anatomy of a Fall
+  { type: "movie", imdbId: "tt26446278" }, // The Count of Monte Cristo (2024)
+  { type: "movie", imdbId: "tt13964390" }, // Under Paris (Sous la Seine)
+  { type: "movie", imdbId: "tt10767052" }, // Lost Bullet (Balle perdue)
+  { type: "movie", imdbId: "tt0211915" }, // Amélie
+  { type: "movie", imdbId: "tt8613070" }, // Portrait of a Lady on Fire
+  { type: "movie", imdbId: "tt10199590" }, // Les Misérables
+  { type: "movie", imdbId: "tt12672536" }, // The Three Musketeers: D'Artagnan
+  { type: "series", imdbId: "tt2531336" }, // Lupin
+  { type: "series", imdbId: "tt4277922" }, // Call My Agent!
+];
+
+const CURATED_FRENCH_CARTOONS: CuratedEntry[] = [
+  { type: "series", imdbId: "tt2580046" }, // Miraculous: Tales of Ladybug & Cat Noir
+  { type: "series", imdbId: "tt11126994" }, // Arcane
+  { type: "series", imdbId: "tt1807824" }, // Wakfu
+  { type: "movie", imdbId: "tt13895354" }, // Ladybug & Cat Noir: The Movie
+  { type: "movie", imdbId: "tt22186342" }, // Mars Express
+  { type: "movie", imdbId: "tt1816518" }, // Ernest & Celestine
+  { type: "movie", imdbId: "tt6108262" }, // Asterix: The Secret of the Magic Potion
 ];
 
 const CURATED_BOLLYWOOD: CuratedEntry[] = [
@@ -96,6 +147,33 @@ const CURATED_TOLLYWOOD: CuratedEntry[] = [
   { type: "movie", imdbId: "tt23865918" }, // Peddi
 ];
 
+const CURATED_NOLLYWOOD: CuratedEntry[] = [
+  { type: "movie", imdbId: "tt34573436" }, // Everybody Loves Jenifa
+  { type: "movie", imdbId: "tt33255000" }, // Lisabi: The Uprising
+  { type: "movie", imdbId: "tt24083908" }, // The Black Book
+  { type: "movie", imdbId: "tt28546464" }, // Jagun Jagun
+  { type: "movie", imdbId: "tt21432050" }, // Anikulapo
+  { type: "movie", imdbId: "tt19704612" }, // Gangs of Lagos
+  { type: "movie", imdbId: "tt29769154" }, // A Tribe Called Judah
+  { type: "movie", imdbId: "tt19704920" }, // Brotherhood
+  { type: "movie", imdbId: "tt23635786" }, // Battle on Buka Street
+  { type: "movie", imdbId: "tt21874950" }, // Adire
+  { type: "movie", imdbId: "tt25830860" }, // A Sunday Affair
+  { type: "movie", imdbId: "tt29193979" }, // Over the Bridge
+  { type: "movie", imdbId: "tt29953830" }, // A Green Fever
+  { type: "movie", imdbId: "tt8329618" }, // King of Boys
+  { type: "movie", imdbId: "tt5978822" }, // The Wedding Party
+  { type: "movie", imdbId: "tt11481312" }, // Citation
+  { type: "movie", imdbId: "tt9725830" }, // Oloture
+  { type: "movie", imdbId: "tt23728818" }, // Ijakumo
+  { type: "movie", imdbId: "tt11005162" }, // Elevator Baby
+  { type: "movie", imdbId: "tt12539758" }, // Living in Bondage: Breaking Free
+  { type: "movie", imdbId: "tt10327136" }, // Mokalik
+  { type: "movie", imdbId: "tt9652322" }, // Chief Daddy
+  { type: "series", imdbId: "tt19398068" }, // Blood Sisters
+  { type: "series", imdbId: "tt22099034" }, // Shanty Town
+];
+
 const CURATED_KDRAMAS: CuratedEntry[] = [
   { type: "series", imdbId: "tt10919420" }, // Squid Game
   { type: "series", imdbId: "tt14169960" }, // All of Us Are Dead
@@ -115,8 +193,8 @@ const CURATED_KDRAMAS: CuratedEntry[] = [
 ];
 
 const CACHE_TTL_MS = 1000 * 60 * 15;
-const sectionCache = new Map<NonAnimeSection, { ts: number; catalog: SectionCatalog }>();
-const inflight = new Map<NonAnimeSection, Promise<SectionCatalog>>();
+const sectionCache = new Map<string, { ts: number; catalog: SectionCatalog }>();
+const inflight = new Map<string, Promise<SectionCatalog>>();
 
 async function hydrateEntries(
   entries: CuratedEntry[],
@@ -153,7 +231,7 @@ async function hydrateEntries(
 }
 
 async function fetchWikidataImdbReleases(
-  kind: "bollywood" | "tollywood" | "k-dramas",
+  kind: "bollywood" | "tollywood" | "nollywood" | "k-dramas" | "french",
 ): Promise<CuratedEntry[]> {
   const currentYear = new Date().getFullYear();
   const minYear = currentYear - 2;
@@ -162,7 +240,11 @@ async function fetchWikidataImdbReleases(
       ? `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q11424; wdt:P364 wd:Q1568; wdt:P345 ?imdb; wdt:P577 ?date. FILTER(YEAR(?date) >= ${minYear} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 18`
       : kind === "tollywood"
         ? `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q11424; wdt:P364 wd:Q8097; wdt:P345 ?imdb; wdt:P577 ?date. FILTER(YEAR(?date) >= ${minYear - 1} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 18`
-        : `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q5398426; wdt:P495 wd:Q884; wdt:P345 ?imdb; wdt:P580 ?date. FILTER(YEAR(?date) >= ${minYear} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 18`;
+        : kind === "nollywood"
+          ? `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q11424; wdt:P495 wd:Q1033; wdt:P345 ?imdb; wdt:P577 ?date. FILTER(YEAR(?date) >= ${minYear - 2} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 24`
+          : kind === "french"
+            ? `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q11424; wdt:P364 wd:Q150; wdt:P345 ?imdb; wdt:P577 ?date. FILTER(YEAR(?date) >= ${minYear} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 18`
+            : `SELECT DISTINCT ?imdb ?date WHERE { ?item wdt:P31 wd:Q5398426; wdt:P495 wd:Q884; wdt:P345 ?imdb; wdt:P580 ?date. FILTER(YEAR(?date) >= ${minYear} && YEAR(?date) <= ${currentYear + 1}) } ORDER BY DESC(?date) LIMIT 18`;
 
   try {
     const res = await fetch(
@@ -231,15 +313,23 @@ function isEnglishOrGlobalHollywood(m: CinemetaMeta): boolean {
   return true;
 }
 
-async function buildCartoonsCatalog(): Promise<SectionCatalog> {
-  const [pinned, extra, animMovies, animSeries, yearMovies, yearSeries] = await Promise.all([
-    hydrateEntries(PINNED_CARTOONS, "cartoons", 20),
-    hydrateEntries(EXTRA_CARTOONS, "cartoons", 16),
-    fetchCinemetaCatalog("movie", "top", { genre: "Animation" }).catch(() => [] as CinemetaMeta[]),
-    fetchCinemetaCatalog("series", "top", { genre: "Animation" }).catch(() => [] as CinemetaMeta[]),
-    fetchCinemetaCatalog("movie", "year").catch(() => [] as CinemetaMeta[]),
-    fetchCinemetaCatalog("series", "year").catch(() => [] as CinemetaMeta[]),
-  ]);
+async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> {
+  const [pinned, extra, frenchCartoons, animMovies, animSeries, yearMovies, yearSeries] =
+    await Promise.all([
+      hydrateEntries(PINNED_CARTOONS, "cartoons", 20),
+      hydrateEntries(EXTRA_CARTOONS, "cartoons", 18),
+      lang === "fr"
+        ? hydrateEntries(CURATED_FRENCH_CARTOONS, "cartoons", 10)
+        : Promise.resolve([] as MediaItem[]),
+      fetchCinemetaCatalog("movie", "top", { genre: "Animation" }).catch(
+        () => [] as CinemetaMeta[],
+      ),
+      fetchCinemetaCatalog("series", "top", { genre: "Animation" }).catch(
+        () => [] as CinemetaMeta[],
+      ),
+      fetchCinemetaCatalog("movie", "year").catch(() => [] as CinemetaMeta[]),
+      fetchCinemetaCatalog("series", "year").catch(() => [] as CinemetaMeta[]),
+    ]);
 
   const newAnimMovies = mapMetas(yearMovies, "cartoons", { filter: isAnimationMeta });
   const newAnimSeries = mapMetas(yearSeries, "cartoons", { filter: isAnimationMeta });
@@ -268,15 +358,40 @@ async function buildCartoonsCatalog(): Promise<SectionCatalog> {
     ...topAnimSeries,
   ]);
 
-  const items = dedupe([...pinned, ...newReleases, ...extra, ...topAnimMovies, ...topAnimSeries]);
+  const items = dedupe([
+    ...frenchCartoons,
+    ...pinned,
+    ...newReleases,
+    ...extra,
+    ...topAnimMovies,
+    ...topAnimSeries,
+  ]);
   const genreShelves = buildShelves(items, "Cartoons").filter((s) => s.id !== "trending");
 
   const shelves = [
+    ...(lang === "fr" && frenchCartoons.length
+      ? [
+          {
+            id: "french-selection",
+            title: "Animation en Français & VF",
+            items: dedupe([...frenchCartoons, ...pinned]).slice(0, 24),
+          },
+        ]
+      : []),
     {
       id: "featured-favorites",
       title: "Bad Guys, Boss Baby & TMNT",
       items: pinned.slice(0, 24),
     },
+    ...(moviesAll.length
+      ? [
+          {
+            id: "cartoon-movies",
+            title: lang === "fr" ? "Films d'Animation (EN / FR)" : "English Animated Movies",
+            items: moviesAll.slice(0, 24),
+          },
+        ]
+      : []),
     ...(newReleases.length
       ? [{ id: "new-releases", title: "New Cartoon Releases", items: newReleases.slice(0, 24) }]
       : []),
@@ -285,9 +400,6 @@ async function buildCartoonsCatalog(): Promise<SectionCatalog> {
       title: "Popular Cartoons",
       items: interleave(extra, topAnimMovies, topAnimSeries).slice(0, 24),
     },
-    ...(moviesAll.length
-      ? [{ id: "cartoon-movies", title: "Animated Movies", items: moviesAll.slice(0, 24) }]
-      : []),
     ...(seriesAll.length
       ? [{ id: "cartoon-series", title: "Full Cartoon Series", items: seriesAll.slice(0, 24) }]
       : []),
@@ -296,22 +408,48 @@ async function buildCartoonsCatalog(): Promise<SectionCatalog> {
 
   return {
     section: "cartoons",
-    featured: pickFeatured(pinned, 6),
+    featured: pickFeatured(
+      lang === "fr" && frenchCartoons.length ? [...frenchCartoons, ...pinned] : pinned,
+      6,
+    ),
     shelves,
     items,
     provider: "SHADOW Live Catalog",
   };
 }
 
-async function buildHollywoodCatalog(): Promise<SectionCatalog> {
-  const [newMoviesRaw, newSeriesRaw, topMoviesRaw, topSeriesRaw, ratedMoviesRaw] =
-    await Promise.all([
-      fetchCinemetaCatalog("movie", "year").catch(() => [] as CinemetaMeta[]),
-      fetchCinemetaCatalog("series", "year").catch(() => [] as CinemetaMeta[]),
-      fetchCinemetaCatalog("movie", "top").catch(() => [] as CinemetaMeta[]),
-      fetchCinemetaCatalog("series", "top").catch(() => [] as CinemetaMeta[]),
-      fetchCinemetaCatalog("movie", "imdbRating").catch(() => [] as CinemetaMeta[]),
-    ]);
+async function buildHollywoodCatalog(lang: CatalogLang): Promise<SectionCatalog> {
+  const [
+    curatedEnglish,
+    frenchHits,
+    frenchLiveEntries,
+    newMoviesRaw,
+    newSeriesRaw,
+    topMoviesRaw,
+    topSeriesRaw,
+    ratedMoviesRaw,
+  ] = await Promise.all([
+    hydrateEntries(CURATED_HOLLYWOOD_ENGLISH, "hollywood", 16),
+    lang === "fr"
+      ? hydrateEntries(CURATED_FRENCH_MOVIES, "hollywood", 14)
+      : Promise.resolve([] as MediaItem[]),
+    lang === "fr" ? fetchWikidataImdbReleases("french") : Promise.resolve([] as CuratedEntry[]),
+    fetchCinemetaCatalog("movie", "year").catch(() => [] as CinemetaMeta[]),
+    fetchCinemetaCatalog("series", "year").catch(() => [] as CinemetaMeta[]),
+    fetchCinemetaCatalog("movie", "top").catch(() => [] as CinemetaMeta[]),
+    fetchCinemetaCatalog("series", "top").catch(() => [] as CinemetaMeta[]),
+    fetchCinemetaCatalog("movie", "imdbRating").catch(() => [] as CinemetaMeta[]),
+  ]);
+
+  const frenchCuratedIds = new Set(CURATED_FRENCH_MOVIES.map((c) => c.imdbId));
+  const frenchLive =
+    lang === "fr" && frenchLiveEntries.length
+      ? await hydrateEntries(
+          frenchLiveEntries.filter((e) => !frenchCuratedIds.has(e.imdbId)),
+          "hollywood",
+          10,
+        )
+      : [];
 
   const newMovies = mapMetas(newMoviesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
   const newSeries = mapMetas(newSeriesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
@@ -319,12 +457,37 @@ async function buildHollywoodCatalog(): Promise<SectionCatalog> {
   const topSeries = mapMetas(topSeriesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
   const ratedMovies = mapMetas(ratedMoviesRaw, "hollywood", { filter: isEnglishOrGlobalHollywood });
 
+  const englishMoviesAll = dedupe([
+    ...curatedEnglish.filter((i) => i.mediaType === "movie"),
+    ...newMovies,
+    ...topMovies,
+    ...ratedMovies,
+  ]);
   const newReleases = interleave(newMovies, newSeries);
-  const trending = interleave(topMovies, topSeries);
-  const items = dedupe([...newReleases, ...trending, ...ratedMovies]);
+  const trending = interleave(englishMoviesAll, topSeries);
+  const frenchMerged = dedupe([...frenchHits, ...frenchLive]);
+  const items = dedupe([...frenchMerged, ...curatedEnglish, ...newReleases, ...trending]);
   const genreShelves = buildShelves(items, "Hollywood").filter((s) => s.id !== "trending");
 
   const shelves = [
+    ...(lang === "fr" && frenchMerged.length
+      ? [
+          {
+            id: "french-selection",
+            title: "Cinéma Français & VF",
+            items: frenchMerged.slice(0, 24),
+          },
+        ]
+      : []),
+    ...(englishMoviesAll.length
+      ? [
+          {
+            id: "hollywood-movies",
+            title: lang === "fr" ? "Films Populaires (FR / EN)" : "English Blockbuster Movies",
+            items: englishMoviesAll.slice(0, 24),
+          },
+        ]
+      : []),
     ...(newReleases.length
       ? [
           {
@@ -335,49 +498,52 @@ async function buildHollywoodCatalog(): Promise<SectionCatalog> {
         ]
       : []),
     { id: "trending", title: "Trending in Hollywood", items: trending.slice(0, 24) },
-    ...(topMovies.length
-      ? [
-          {
-            id: "hollywood-movies",
-            title: "Hollywood Movies",
-            items: dedupe([...newMovies, ...topMovies]).slice(0, 24),
-          },
-        ]
-      : []),
     ...(topSeries.length
       ? [
           {
             id: "hollywood-series",
             title: "Hollywood Series",
-            items: dedupe([...newSeries, ...topSeries]).slice(0, 24),
+            items: dedupe([
+              ...curatedEnglish.filter((i) => i.mediaType === "tv"),
+              ...newSeries,
+              ...topSeries,
+            ]).slice(0, 24),
           },
         ]
       : []),
     ...genreShelves,
-  ].filter((s) => s.items.length >= 3);
+  ].filter((s) => s.items.length >= 2);
 
   return {
     section: "hollywood",
-    featured: pickFeatured([...topMovies, ...newMovies, ...topSeries], 6),
+    featured: pickFeatured(
+      lang === "fr" && frenchMerged.length
+        ? [...frenchMerged, ...curatedEnglish, ...topMovies]
+        : [...curatedEnglish, ...topMovies, ...newMovies],
+      6,
+    ),
     shelves,
     items,
     provider: "SHADOW Live Catalog",
   };
 }
 
-async function buildIndianOrKoreanCatalog(
-  section: "bollywood" | "tollywood" | "k-dramas",
+async function buildRegionalCatalog(
+  section: "bollywood" | "tollywood" | "nollywood" | "k-dramas",
+  lang: CatalogLang,
 ): Promise<SectionCatalog> {
   const curated =
     section === "bollywood"
       ? CURATED_BOLLYWOOD
       : section === "tollywood"
         ? CURATED_TOLLYWOOD
-        : CURATED_KDRAMAS;
+        : section === "nollywood"
+          ? CURATED_NOLLYWOOD
+          : CURATED_KDRAMAS;
 
   const [liveEntries, curatedItems, fallback] = await Promise.all([
     fetchWikidataImdbReleases(section),
-    hydrateEntries(curated, section, 20),
+    hydrateEntries(curated, section, 24),
     section === "k-dramas"
       ? loadFallbackCatalog()
           .then((c) => c["k-dramas"] ?? [])
@@ -387,11 +553,23 @@ async function buildIndianOrKoreanCatalog(
 
   const curatedIds = new Set(curated.map((c) => c.imdbId));
   const freshEntries = liveEntries.filter((e) => !curatedIds.has(e.imdbId));
-  const freshItems = freshEntries.length ? await hydrateEntries(freshEntries, section, 14) : [];
+  const freshItems = freshEntries.length ? await hydrateEntries(freshEntries, section, 16) : [];
 
-  const items = dedupe([...freshItems, ...curatedItems, ...fallback]);
+  // Deduplicate TVmaze fallback entries by imdbId so curated Cinemeta items (with richer posters/episode lists) win.
+  const presentImdb = new Set(
+    [...freshItems, ...curatedItems].map((i) => i.imdbId).filter(Boolean),
+  );
+  const uniqueFallback = fallback.filter((f) => !f.imdbId || !presentImdb.has(f.imdbId));
+
+  const items = dedupe([...freshItems, ...curatedItems, ...uniqueFallback]);
   const label =
-    section === "bollywood" ? "Bollywood" : section === "tollywood" ? "Tollywood" : "K-Dramas";
+    section === "bollywood"
+      ? "Bollywood"
+      : section === "tollywood"
+        ? "Tollywood"
+        : section === "nollywood"
+          ? "Nollywood"
+          : "K-Dramas";
   const movies = items.filter((i) => i.mediaType === "movie");
   const series = items.filter((i) => i.mediaType !== "movie");
   const newReleases = dedupe([
@@ -401,18 +579,28 @@ async function buildIndianOrKoreanCatalog(
 
   const genreShelves = buildShelves(items, label).filter((s) => s.id !== "trending");
   const shelves = [
-    ...(newReleases.length >= 3
-      ? [{ id: "new-releases", title: `New in ${label}`, items: newReleases.slice(0, 24) }]
+    ...(newReleases.length >= 2
+      ? [
+          {
+            id: "new-releases",
+            title: lang === "fr" ? `Nouveautés ${label}` : `New in ${label}`,
+            items: newReleases.slice(0, 24),
+          },
+        ]
       : []),
-    { id: "trending", title: `Trending in ${label}`, items: items.slice(0, 24) },
-    ...(movies.length >= 3
+    {
+      id: "trending",
+      title: lang === "fr" ? `Tendances ${label} (FR / EN)` : `Trending in ${label}`,
+      items: items.slice(0, 24),
+    },
+    ...(movies.length >= 2
       ? [{ id: `${section}-movies`, title: `${label} Movies`, items: movies.slice(0, 24) }]
       : []),
-    ...(series.length >= 3
+    ...(series.length >= 2
       ? [{ id: `${section}-series`, title: `${label} Series`, items: series.slice(0, 24) }]
       : []),
     ...genreShelves,
-  ].filter((s) => s.items.length >= 3);
+  ].filter((s) => s.items.length >= 2);
 
   return {
     section,
@@ -423,40 +611,150 @@ async function buildIndianOrKoreanCatalog(
   };
 }
 
-async function computeSectionCatalog(section: NonAnimeSection): Promise<SectionCatalog> {
+async function computeSectionCatalog(
+  section: NonAnimeSection,
+  lang: CatalogLang,
+): Promise<SectionCatalog> {
   switch (section) {
     case "cartoons":
-      return buildCartoonsCatalog();
+      return buildCartoonsCatalog(lang);
     case "hollywood":
-      return buildHollywoodCatalog();
+      return buildHollywoodCatalog(lang);
     case "bollywood":
     case "tollywood":
+    case "nollywood":
     case "k-dramas":
-      return buildIndianOrKoreanCatalog(section);
+      return buildRegionalCatalog(section, lang);
   }
 }
 
 export const getLiveSectionCatalog = createServerFn({ method: "GET" })
-  .inputValidator((input) => z.object({ section: z.enum(NON_ANIME_SECTIONS) }).parse(input))
+  .inputValidator((input) =>
+    z
+      .object({
+        section: z.enum(NON_ANIME_SECTIONS),
+        lang: z.enum(["en", "fr"]).default("en"),
+      })
+      .parse(input),
+  )
   .handler(async ({ data }): Promise<SectionCatalog> => {
-    const cached = sectionCache.get(data.section);
+    const cacheKey = `${data.section}:${data.lang}`;
+    const cached = sectionCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS && cached.catalog.items.length > 0) {
       return cached.catalog;
     }
-    const existingFlight = inflight.get(data.section);
+    const existingFlight = inflight.get(cacheKey);
     if (existingFlight) return existingFlight;
 
-    const promise = computeSectionCatalog(data.section)
+    const promise = computeSectionCatalog(data.section, data.lang)
       .then((catalog) => {
         if (catalog.items.length > 0) {
-          sectionCache.set(data.section, { ts: Date.now(), catalog });
+          sectionCache.set(cacheKey, { ts: Date.now(), catalog });
         }
         return catalog;
       })
       .finally(() => {
-        inflight.delete(data.section);
+        inflight.delete(cacheKey);
       });
 
-    inflight.set(data.section, promise);
+    inflight.set(cacheKey, promise);
     return promise;
+  });
+
+async function searchImdbSuggestions(query: string): Promise<MediaItem[]> {
+  try {
+    const clean = query
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ");
+    const firstChar = /^[a-z0-9]/.test(clean) ? clean[0]! : "x";
+    const res = await fetch(
+      `https://v3.sg.media-imdb.com/suggestion/${firstChar}/${encodeURIComponent(query.trim())}.json`,
+      { signal: AbortSignal.timeout(4500) },
+    );
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      d?: {
+        id?: string;
+        l?: string;
+        qid?: string;
+        y?: number;
+        i?: { imageUrl?: string };
+      }[];
+    };
+
+    const out: MediaItem[] = [];
+    for (const entry of json.d ?? []) {
+      if (!entry.id || !/^tt\d{5,10}$/.test(entry.id) || !entry.l) continue;
+      if (entry.qid !== "movie" && entry.qid !== "tvSeries" && entry.qid !== "tvMiniSeries") {
+        continue;
+      }
+      const type: "movie" | "series" = entry.qid === "movie" ? "movie" : "series";
+      const isCartoon =
+        /bad guys|boss baby|ninja turtles|spider-man|inside out|moana|minions|kung fu/i.test(
+          entry.l,
+        );
+      const poster =
+        entry.i?.imageUrl ?? `https://images.metahub.space/poster/medium/${entry.id}/img`;
+      out.push({
+        key: `cinemeta:${type}-${entry.id}`,
+        id: `${type}-${entry.id}`,
+        source: "cinemeta",
+        section: isCartoon ? "cartoons" : "hollywood",
+        title: entry.l,
+        poster,
+        posterHd: entry.i?.imageUrl ?? `https://images.metahub.space/poster/large/${entry.id}/img`,
+        backdrop: `https://images.metahub.space/background/medium/${entry.id}/img`,
+        year: entry.y ?? null,
+        genres: isCartoon ? ["Animation"] : [],
+        description: "",
+        mediaType: type === "movie" ? "movie" : "tv",
+        imdbId: entry.id,
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export const searchMediaCatalog = createServerFn({ method: "GET" })
+  .inputValidator((input) =>
+    z
+      .object({
+        q: z.string().min(1).max(200),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<MediaItem[]> => {
+    const q = data.q.trim();
+    if (q.length < 2) return [];
+
+    const [moviesRaw, seriesRaw, imdbHits] = await Promise.all([
+      fetchCinemetaCatalog("movie", "top", { search: q }).catch(() => [] as CinemetaMeta[]),
+      fetchCinemetaCatalog("series", "top", { search: q }).catch(() => [] as CinemetaMeta[]),
+      searchImdbSuggestions(q),
+    ]);
+
+    const cinemetaItems = [
+      ...moviesRaw.map((m) => mapCinemetaItem(m)).filter((x): x is MediaItem => x !== null),
+      ...seriesRaw.map((s) => mapCinemetaItem(s)).filter((x): x is MediaItem => x !== null),
+    ];
+
+    // Also search cached section items immediately in case external catalogs miss a curated franchise.
+    const qLower = q.toLowerCase();
+    const cachedMatches: MediaItem[] = [];
+    for (const cached of sectionCache.values()) {
+      for (const item of cached.catalog.items) {
+        if (
+          item.title.toLowerCase().includes(qLower) ||
+          item.englishTitle?.toLowerCase().includes(qLower) ||
+          item.romajiTitle?.toLowerCase().includes(qLower)
+        ) {
+          cachedMatches.push(item);
+        }
+      }
+    }
+
+    return dedupe([...cachedMatches, ...cinemetaItems, ...imdbHits]).slice(0, 60);
   });

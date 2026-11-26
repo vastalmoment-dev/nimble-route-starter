@@ -1,3 +1,5 @@
+import { signMediaProxyUrl } from "./media-proxy";
+
 const ANILAST_ORIGIN = "https://anilast.xyz";
 
 const ANILAST_HEADERS: Record<string, string> = {
@@ -38,10 +40,53 @@ function isAllowedImageUrl(target: string | null): boolean {
   }
 }
 
-export function rewriteHlsPlaylist(body: string): string {
+export function rewriteHlsPlaylist(body: string, playlistBaseUrl?: string): string {
+  const rewriteUri = (uri: string): string => {
+    if (uri.startsWith("/api/anilast/hls") || uri.startsWith("/api/media/segment")) {
+      return uri;
+    }
+    if (uri.startsWith(`${ANILAST_ORIGIN}/api/proxy/hls`)) {
+      return uri.replace(`${ANILAST_ORIGIN}/api/proxy/hls`, "/api/anilast/hls");
+    }
+    if (uri.startsWith("/api/proxy/hls")) {
+      return uri.replace("/api/proxy/hls", "/api/anilast/hls");
+    }
+    if (playlistBaseUrl) {
+      try {
+        const abs = new URL(uri, playlistBaseUrl).toString();
+        return signMediaProxyUrl(abs, `${ANILAST_ORIGIN}/`);
+      } catch {
+        return uri;
+      }
+    }
+    return uri;
+  };
+
   return body
-    .replaceAll(`${ANILAST_ORIGIN}/api/proxy/hls`, "/api/anilast/hls")
-    .replaceAll("/api/proxy/hls", "/api/anilast/hls");
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (_m, uri: string) => `URI="${rewriteUri(uri)}"`);
+      }
+      return rewriteUri(trimmed);
+    })
+    .join("\n");
+}
+
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, init);
+      if ((res.status >= 500 || res.status === 429) && i + 1 < attempts) continue;
+      return res;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error("Upstream request failed");
 }
 
 async function handleImageProxy(url: URL): Promise<Response> {
@@ -55,11 +100,12 @@ async function handleImageProxy(url: URL): Promise<Response> {
   }
 
   const candidates: string[] = [];
+  if (validUrl) {
+    candidates.push(validUrl);
+    candidates.push(`${ANILAST_ORIGIN}/api/proxy/image?url=${encodeURIComponent(validUrl)}`);
+  }
   if (validId) {
     candidates.push(`${ANILAST_ORIGIN}/api/mirror/image/${validId}/cover.webp`);
-  }
-  if (validUrl) {
-    candidates.push(`${ANILAST_ORIGIN}/api/proxy/image?url=${encodeURIComponent(validUrl)}`);
   }
 
   for (const candidate of candidates) {
@@ -67,6 +113,7 @@ async function handleImageProxy(url: URL): Promise<Response> {
       const upstream = await fetch(candidate, {
         headers: { ...ANILAST_HEADERS, Accept: "image/*" },
         redirect: "follow",
+        signal: AbortSignal.timeout(6000),
       });
       const ct = upstream.headers.get("content-type") ?? "";
       if (upstream.ok && ct.startsWith("image/")) {
@@ -93,7 +140,7 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
   const isImage = url.pathname === "/api/anilast/image";
   if (!isHls && !isSub && !isImage) return null;
 
-  if (request.method !== "GET") {
+  if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405 });
   }
 
@@ -111,9 +158,10 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
   const upstreamUrl = `${ANILAST_ORIGIN}${upstreamPath}${url.search}`;
 
   try {
-    const upstream = await fetch(upstreamUrl, {
+    const upstream = await fetchWithRetry(upstreamUrl, {
       headers: ANILAST_HEADERS,
       redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
     });
 
     if (!upstream.ok) {
@@ -128,7 +176,9 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
 
     if (looksLikePlaylist) {
       const text = await upstream.text();
-      const rewritten = text.includes("#EXTM3U") ? rewriteHlsPlaylist(text) : text;
+      const rewritten = text.includes("#EXTM3U")
+        ? rewriteHlsPlaylist(text, target ?? upstreamUrl)
+        : text;
       return new Response(rewritten, {
         status: 200,
         headers: {

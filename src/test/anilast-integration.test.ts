@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { buildAniLastEmbedUrl } from "@/lib/stream/anilast.functions";
 import { handleAniLastProxyRequest, rewriteHlsPlaylist } from "@/lib/stream/anilast-proxy";
 import { canStreamSource } from "@/lib/stream/resolver";
 
 describe("AniLast anime integration", () => {
-  it("rewrites AniLast proxy paths inside HLS playlists to local proxy routes", () => {
+  it("rewrites AniLast proxy paths and external segment URIs inside HLS playlists to local proxy routes", () => {
     const master = [
       "#EXTM3U",
+      '#EXT-X-KEY:METHOD=AES-128,URI="https://cdn.example.com/key.bin"',
       "#EXT-X-STREAM-INF:BANDWIDTH=2300316,RESOLUTION=1920x1080",
       "/api/proxy/hls?url=https%3A%2F%2Fexample.com%2F1080.m3u8",
       "https://anilast.xyz/api/proxy/hls?url=https%3A%2F%2Fexample.com%2F720.m3u8",
+      "seg-001.ts",
     ].join("\n");
 
-    const rewritten = rewriteHlsPlaylist(master);
+    const rewritten = rewriteHlsPlaylist(master, "https://cdn.example.com/hls/master.m3u8");
     expect(rewritten).toContain("/api/anilast/hls?url=https%3A%2F%2Fexample.com%2F1080.m3u8");
     expect(rewritten).toContain("/api/anilast/hls?url=https%3A%2F%2Fexample.com%2F720.m3u8");
+    expect(rewritten).toContain("/api/media/segment?token=");
     expect(rewritten).not.toContain("/api/proxy/hls");
+    expect(rewritten).not.toContain("https://cdn.example.com/key.bin");
   });
 
   it("validates proxy paths and target URLs safely", async () => {
@@ -40,28 +43,10 @@ describe("AniLast anime integration", () => {
     expect(missingTarget?.status).toBe(400);
   });
 
-  it("builds sub and dub AniLast embed URLs and enables anime streaming/downloads", () => {
+  it("enables native anime streaming/downloads without exposing anilast embed URLs", async () => {
     expect(canStreamSource("anilist")).toBe(true);
-    const subUrl = buildAniLastEmbedUrl({
-      anilistId: "16498",
-      malId: 16498,
-      episode: 3,
-      audio: "sub",
-      title: "Attack on Titan",
-    });
-    const dubUrl = buildAniLastEmbedUrl({
-      anilistId: "16498",
-      malId: 16498,
-      episode: 3,
-      audio: "dub",
-      title: "Attack on Titan",
-    });
-    expect(subUrl).toBe(
-      "https://anilast.xyz/watch/16498/3?anilistId=16498&lang=sub&title=Attack+on+Titan",
-    );
-    expect(dubUrl).toBe(
-      "https://anilast.xyz/watch/16498/3?anilistId=16498&lang=dub&title=Attack+on+Titan",
-    );
+    const mod = await import("@/lib/stream/anilast.functions");
+    expect("buildAniLastEmbedUrl" in mod).toBe(false);
   });
 
   it("validates image proxy parameters and restricts image hostnames", async () => {
