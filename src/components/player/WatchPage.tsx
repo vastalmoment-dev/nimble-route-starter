@@ -70,7 +70,7 @@ function AudioToggle({
   value: AudioOption;
   onChange: (next: AudioOption) => void;
 }) {
-  const { t } = useT();
+  const { lang, t } = useT();
   return (
     <div
       role="group"
@@ -82,6 +82,15 @@ function AudioToggle({
           key={opt}
           type="button"
           onClick={() => onChange(opt)}
+          title={
+            lang === "fr"
+              ? opt === "sub"
+                ? "Audio japonais avec sous-titres français (VOSTFR)"
+                : "Version française (VF)"
+              : opt === "sub"
+                ? "Japanese audio with English subtitles"
+                : "English dubbed audio"
+          }
           className={cn(
             "min-h-[38px] rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wider transition sm:min-h-0",
             value === opt
@@ -89,7 +98,13 @@ function AudioToggle({
               : "text-foreground/75 hover:text-foreground",
           )}
         >
-          {opt}
+          {opt === "sub"
+            ? lang === "fr"
+              ? "SUB · VOSTFR"
+              : "SUB · JP"
+            : lang === "fr"
+              ? "DUB · VF"
+              : "DUB · EN"}
         </button>
       ))}
     </div>
@@ -132,16 +147,24 @@ export function WatchPage({
   useEffect(() => router.subscribe("onBeforeNavigate", () => stopPlayback.current?.()), [router]);
 
   const [playerMode, setPlayerMode] = useState<"native" | "embed">(() =>
-    isAnime ? "native" : "embed",
+    isAnime ? (lang === "fr" && audio === "dub" ? "embed" : "native") : "embed",
   );
   const [selectedSourceIndex, setSelectedSourceIndex] = useState(0);
   const [embedIndex, setEmbedIndex] = useState(0);
+  const [failedEmbedUrls, setFailedEmbedUrls] = useState<string[]>([]);
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+  const [autoSwitchNote, setAutoSwitchNote] = useState<string | null>(null);
   const [episodesOpen, setEpisodesOpen] = useState(false);
   const [includeSubtitles, setIncludeSubtitles] = useState(false);
   const [drawerSeason, setDrawerSeason] = useState(season);
 
   const liveProgressRef = useRef<{ time: number; duration: number }>({ time: 0, duration: 0 });
   const carryOverRef = useRef<{ epKey: string; time: number } | null>(null);
+  const autoSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeEmbedTargetRef = useRef<{
+    url: string | null;
+    pool: { label: string; url: string; available?: boolean }[];
+  }>({ url: null, pool: [] });
   const epKey = `${source}:${id}:s${season}:e${ep}`;
 
   const [resumeTime, setResumeTime] = useState<number>(() => {
@@ -154,9 +177,12 @@ export function WatchPage({
   }, [season]);
 
   useEffect(() => {
-    setPlayerMode(isAnime ? "native" : "embed");
+    setPlayerMode(isAnime ? (lang === "fr" && audio === "dub" ? "embed" : "native") : "embed");
     setSelectedSourceIndex(0);
     setEmbedIndex(0);
+    setFailedEmbedUrls([]);
+    setIframeLoaded(false);
+    setAutoSwitchNote(null);
     if (carryOverRef.current && carryOverRef.current.epKey === epKey) {
       setResumeTime(carryOverRef.current.time);
       carryOverRef.current = null;
@@ -166,7 +192,7 @@ export function WatchPage({
     const t = saved?.currentTime ?? 0;
     liveProgressRef.current = { time: t, duration: saved?.duration ?? 0 };
     setResumeTime(t);
-  }, [source, id, season, ep, epKey, audio, isAnime]);
+  }, [source, id, season, ep, epKey, audio, isAnime, lang]);
 
   const handleTimeProgress = useCallback(
     (currentTime: number, duration: number) => {
@@ -215,7 +241,7 @@ export function WatchPage({
     : null;
 
   const aniStream = useQuery({
-    queryKey: ["anime-stream", id, ep, audio, lang],
+    queryKey: ["anime-stream", id, ep, audio, lang, detail.data?.mediaType ?? null],
     queryFn: () =>
       getAniLastAnimeStream({
         data: {
@@ -224,6 +250,7 @@ export function WatchPage({
           episode: ep,
           audio,
           lang,
+          isMovie: detail.data?.mediaType === "movie",
           title: detail.data?.title ?? null,
           englishTitle: detail.data?.englishTitle ?? null,
           romajiTitle: detail.data?.romajiTitle ?? null,
@@ -233,6 +260,42 @@ export function WatchPage({
     staleTime: 1000 * 60 * 5,
     retry: false,
   });
+
+  const advanceEmbedServer = useCallback(
+    (badUrl: string, pool: { label: string; url: string }[]) => {
+      setFailedEmbedUrls((prev) => {
+        const nextFailed = prev.includes(badUrl) ? prev : [...prev, badUrl];
+        const remaining = pool.filter((item) => !nextFailed.includes(item.url));
+        if (remaining[0]) {
+          const msg = t("watch.switchingServer").replace("{server}", remaining[0].label);
+          setAutoSwitchNote(msg);
+          if (autoSwitchTimerRef.current) clearTimeout(autoSwitchTimerRef.current);
+          autoSwitchTimerRef.current = setTimeout(() => setAutoSwitchNote(null), 3500);
+        }
+        return nextFailed;
+      });
+      setEmbedIndex(0);
+      setIframeLoaded(false);
+    },
+    [t],
+  );
+
+  // In French + SUB (VOSTFR), auto-switch to VOSTFR embed if native HLS has no French subtitles.
+  useEffect(() => {
+    if (!isAnime || lang !== "fr") return;
+    if (audio === "dub") {
+      setPlayerMode("embed");
+      return;
+    }
+    if (
+      audio === "sub" &&
+      aniStream.data &&
+      !aniStream.data.hasFrenchSubtitles &&
+      (aniStream.data.embedFallbacks?.length ?? 0) > 0
+    ) {
+      setPlayerMode("embed");
+    }
+  }, [isAnime, lang, audio, aniStream.data]);
 
   const inferredMediaType: "movie" | "tv" =
     detail.data?.mediaType ??
@@ -276,6 +339,25 @@ export function WatchPage({
     staleTime: 1000 * 60 * 5,
     retry: false,
   });
+
+  // Watchdog: if an embed iframe fails to load within 9s and another server exists, auto-advance.
+  useEffect(() => {
+    if (playerMode !== "embed" || iframeLoaded) return;
+    const { url, pool } = activeEmbedTargetRef.current;
+    if (!url || pool.length <= 1) return;
+    const timer = setTimeout(() => {
+      advanceEmbedServer(url, pool);
+    }, 9_000);
+    return () => clearTimeout(timer);
+  }, [
+    playerMode,
+    iframeLoaded,
+    embedIndex,
+    failedEmbedUrls.length,
+    aniStream.data,
+    mediaStream.data,
+    advanceEmbedServer,
+  ]);
 
   const trailer = useQuery({
     queryKey: ["trailer", source, id],
@@ -436,6 +518,11 @@ export function WatchPage({
       title: title || `Anime ${id}`,
     };
 
+    const isFrenchDub = lang === "fr" && audio === "dub";
+    const isFrenchSub = lang === "fr" && audio === "sub";
+    const waitingForAnimeResolve =
+      (playerMode === "native" || isFrenchDub || isFrenchSub) && aniStream.isPending;
+
     const aniSources = aniStream.data?.sources ?? [];
     const clientAniEmbeds = buildAnimeEmbedFallbacks({
       anilistId: id,
@@ -443,15 +530,24 @@ export function WatchPage({
       episode: ep,
       audio,
     });
-    const aniEmbedFallbacks = aniStream.data?.embedFallbacks?.length
-      ? aniStream.data.embedFallbacks
-      : clientAniEmbeds;
+    const rawAniEmbedFallbacks = aniStream.data
+      ? (aniStream.data.embedFallbacks ?? [])
+      : isFrenchDub
+        ? []
+        : clientAniEmbeds;
+    const aniEmbedFallbacks = rawAniEmbedFallbacks.filter(
+      (fb) => !failedEmbedUrls.includes(fb.url),
+    );
     const safeAniEmbedIdx = aniEmbedFallbacks.length
       ? Math.min(embedIndex, aniEmbedFallbacks.length - 1)
       : 0;
-    const aniEmbedUrl = aniEmbedFallbacks[safeAniEmbedIdx]?.url ?? aniStream.data?.embedUrl ?? null;
-    const canUseAniNative = Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
+    const aniEmbedUrl = aniEmbedFallbacks[safeAniEmbedIdx]?.url ?? null;
+    const canUseAniNative = !isFrenchDub && Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
     const showAniNative = playerMode === "native" && canUseAniNative;
+    activeEmbedTargetRef.current = {
+      url: showAniNative ? null : aniEmbedUrl,
+      pool: aniEmbedFallbacks,
+    };
 
     const animeServerSwitcher = (canUseAniNative || aniEmbedFallbacks.length > 0) && (
       <div
@@ -510,6 +606,7 @@ export function WatchPage({
     const animeControls = (
       <>
         {animeServerSwitcher}
+        <LanguageToggle compact />
         <AudioToggle value={audio} onChange={switchAudio} />
         <div className="hidden items-center gap-1 sm:flex">
           <Button
@@ -592,7 +689,8 @@ export function WatchPage({
           <div>
             <p className="font-display text-sm font-semibold">{t("detail.episodes")}</p>
             <p className="text-xs text-muted-foreground">
-              Audio: {audio.toUpperCase()} · {episodes.length || ep} {t("watch.available")}
+              Audio: {lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase()} ·{" "}
+              {episodes.length || ep} {t("watch.available")}
             </p>
           </div>
           <Button
@@ -685,7 +783,9 @@ export function WatchPage({
                   ...(aniStream.data.sources?.length ? { sources: aniStream.data.sources } : {}),
                 }}
                 title={title || t("common.loading")}
-                subtitle={`${t("detail.episode")} ${ep} · ${audio.toUpperCase()}${
+                subtitle={`${t("detail.episode")} ${ep} · ${
+                  lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase()
+                }${
                   currentEp?.title && currentEp.title !== `Episode ${ep}`
                     ? ` — ${currentEp.title}`
                     : ""
@@ -729,41 +829,65 @@ export function WatchPage({
                 {title || t("common.loading")}
               </p>
               <p className="text-xs text-muted-foreground">
-                {t("detail.episode")} {ep} · {audio.toUpperCase()}
+                {t("detail.episode")} {ep} ·{" "}
+                {lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase()}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">{animeControls}</div>
         </div>
-        {!detail.isLoading &&
-          !(playerMode === "native" && aniStream.isPending) &&
-          aniEmbedFallbacks.length > 1 && (
-            <div className="flex flex-wrap items-center justify-center gap-2 border-b border-foreground/5 bg-background/60 px-3 py-1.5">
-              <span className="text-xs text-muted-foreground">{t("watch.embedNotice")}</span>
-              {aniEmbedFallbacks.map((fb, idx) => (
-                <button
-                  key={fb.url}
-                  type="button"
-                  onClick={() => setEmbedIndex(idx)}
-                  className={cn(
-                    "min-h-[44px] whitespace-nowrap rounded-lg border px-3 py-1 text-xs font-semibold transition sm:min-h-8",
-                    idx === safeAniEmbedIdx
-                      ? "border-cerulean bg-brand-gradient text-primary-foreground"
-                      : "border-foreground/15 bg-surface/80 text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {fb.label}
-                </button>
-              ))}
-            </div>
-          )}
+        {!detail.isLoading && !waitingForAnimeResolve && aniEmbedFallbacks.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-2 border-b border-foreground/5 bg-background/60 px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">
+              {autoSwitchNote ?? t("watch.embedNotice")}
+            </span>
+            {aniEmbedFallbacks.map((fb, idx) => (
+              <button
+                key={fb.url}
+                type="button"
+                onClick={() => {
+                  setIframeLoaded(false);
+                  setEmbedIndex(idx);
+                }}
+                className={cn(
+                  "inline-flex min-h-[44px] items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1 text-xs font-semibold transition sm:min-h-8",
+                  idx === safeAniEmbedIdx
+                    ? "border-cerulean bg-brand-gradient text-primary-foreground"
+                    : "border-foreground/15 bg-surface/80 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {fb.available !== false && (
+                  <span
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      idx === safeAniEmbedIdx ? "bg-primary-foreground" : "bg-emerald-400",
+                    )}
+                  />
+                )}
+                <span>{fb.label}</span>
+              </button>
+            ))}
+            {aniEmbedFallbacks.length > 1 && aniEmbedUrl && (
+              <button
+                type="button"
+                onClick={() => advanceEmbedServer(aniEmbedUrl, aniEmbedFallbacks)}
+                className="min-h-[44px] whitespace-nowrap rounded-lg border border-foreground/15 bg-surface/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground sm:min-h-8"
+              >
+                {t("watch.nextServer")} →
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4">
-          {detail.isLoading || (playerMode === "native" && aniStream.isPending) ? (
+          {detail.isLoading || waitingForAnimeResolve ? (
             <div className="flex flex-col items-center gap-3 text-center">
               <Loader2 className="size-12 animate-spin text-cerulean" />
               <p className="text-sm text-muted-foreground">
                 {t("watch.loadingAudioEp")
-                  .replace("{audio}", audio.toUpperCase())
+                  .replace(
+                    "{audio}",
+                    lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase(),
+                  )
                   .replace("{ep}", String(ep))}
               </p>
             </div>
@@ -777,18 +901,26 @@ export function WatchPage({
                 allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                 allowFullScreen
                 referrerPolicy="origin"
+                onLoad={() => setIframeLoaded(true)}
+                onError={() => advanceEmbedServer(aniEmbedUrl, aniEmbedFallbacks)}
               />
             </div>
           ) : (
             <div className="flex max-w-md flex-col items-center gap-4 text-center">
               <p className="font-display text-xl font-semibold">
-                {aniStream.data?.error || t("watch.streamUnavailable")}
+                {isFrenchDub
+                  ? t("watch.vfUnavailable")
+                  : aniStream.data?.error || t("watch.streamUnavailable")}
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 <Button
                   variant="brand"
                   className="min-h-[44px]"
-                  onClick={() => void aniStream.refetch()}
+                  onClick={() => {
+                    setFailedEmbedUrls([]);
+                    setEmbedIndex(0);
+                    void aniStream.refetch();
+                  }}
                 >
                   <RefreshCw className="size-4" /> {t("watch.retryStream")}
                 </Button>
@@ -797,7 +929,14 @@ export function WatchPage({
                   className="min-h-[44px]"
                   onClick={() => switchAudio(audio === "sub" ? "dub" : "sub")}
                 >
-                  {t("watch.switchTo")} {audio === "sub" ? "DUB" : "SUB"}
+                  {t("watch.switchTo")}{" "}
+                  {audio === "sub"
+                    ? lang === "fr"
+                      ? "DUB · VF"
+                      : "DUB"
+                    : lang === "fr"
+                      ? "SUB · VOSTFR"
+                      : "SUB"}
                 </Button>
                 {hasNext && nextAction && (
                   <Button variant="glass" className="min-h-[44px]" onClick={nextAction}>
@@ -890,13 +1029,18 @@ export function WatchPage({
       season: isMovie ? 1 : season,
       episode: isMovie ? 1 : ep,
     });
-    const embedFallbacks = mediaStream.data?.embedFallbacks?.length
+    const rawEmbedFallbacks = mediaStream.data?.embedFallbacks?.length
       ? mediaStream.data.embedFallbacks
       : clientEmbedFallbacks;
+    const embedFallbacks = rawEmbedFallbacks.filter((fb) => !failedEmbedUrls.includes(fb.url));
     const safeEmbedIdx = embedFallbacks.length
       ? Math.min(embedIndex, embedFallbacks.length - 1)
       : 0;
-    const mediaEmbedUrl = embedFallbacks[safeEmbedIdx]?.url ?? mediaStream.data?.embedUrl ?? null;
+    const mediaEmbedUrl = embedFallbacks[safeEmbedIdx]?.url ?? null;
+    activeEmbedTargetRef.current = {
+      url: showNative ? null : mediaEmbedUrl,
+      pool: embedFallbacks,
+    };
 
     const mediaServerSwitcher = (canUseNative || embedFallbacks.length > 0) && (
       <div
@@ -1189,24 +1333,46 @@ export function WatchPage({
           {!detail.isLoading &&
             !(!mediaEmbedUrl && mediaStream.isPending) &&
             !(playerMode === "native" && mediaStream.isPending) &&
-            embedFallbacks.length > 1 && (
+            embedFallbacks.length > 0 && (
               <div className="flex flex-wrap items-center justify-center gap-2 border-b border-foreground/5 bg-background/60 px-3 py-1.5">
-                <span className="text-xs text-muted-foreground">{t("watch.embedNotice")}</span>
+                <span className="text-xs text-muted-foreground">
+                  {autoSwitchNote ?? t("watch.embedNotice")}
+                </span>
                 {embedFallbacks.map((fb, idx) => (
                   <button
                     key={fb.url}
                     type="button"
-                    onClick={() => setEmbedIndex(idx)}
+                    onClick={() => {
+                      setIframeLoaded(false);
+                      setEmbedIndex(idx);
+                    }}
                     className={cn(
-                      "min-h-[44px] whitespace-nowrap rounded-lg border px-3 py-1 text-xs font-semibold transition sm:min-h-8",
+                      "inline-flex min-h-[44px] items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1 text-xs font-semibold transition sm:min-h-8",
                       idx === safeEmbedIdx
                         ? "border-cerulean bg-brand-gradient text-primary-foreground"
                         : "border-foreground/15 bg-surface/80 text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {fb.label}
+                    {fb.available !== false && (
+                      <span
+                        className={cn(
+                          "size-1.5 rounded-full",
+                          idx === safeEmbedIdx ? "bg-primary-foreground" : "bg-emerald-400",
+                        )}
+                      />
+                    )}
+                    <span>{fb.label}</span>
                   </button>
                 ))}
+                {embedFallbacks.length > 1 && mediaEmbedUrl && (
+                  <button
+                    type="button"
+                    onClick={() => advanceEmbedServer(mediaEmbedUrl, embedFallbacks)}
+                    className="min-h-[44px] whitespace-nowrap rounded-lg border border-foreground/15 bg-surface/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground sm:min-h-8"
+                  >
+                    {t("watch.nextServer")} →
+                  </button>
+                )}
               </div>
             )}
           <div className="flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4">
@@ -1235,9 +1401,28 @@ export function WatchPage({
                   allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                   allowFullScreen
                   referrerPolicy="origin"
+                  onLoad={() => setIframeLoaded(true)}
+                  onError={() => advanceEmbedServer(mediaEmbedUrl, embedFallbacks)}
                 />
               </div>
-            ) : null}
+            ) : (
+              <div className="flex max-w-md flex-col items-center gap-4 text-center">
+                <p className="font-display text-xl font-semibold">
+                  {mediaStream.data?.error || t("watch.streamUnavailable")}
+                </p>
+                <Button
+                  variant="brand"
+                  className="min-h-[44px]"
+                  onClick={() => {
+                    setFailedEmbedUrls([]);
+                    setEmbedIndex(0);
+                    void mediaStream.refetch();
+                  }}
+                >
+                  <RefreshCw className="size-4" /> {t("watch.retryStream")}
+                </Button>
+              </div>
+            )}
           </div>
           <WatchDiscordPrompt />
           {mediaDrawer}

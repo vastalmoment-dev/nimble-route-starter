@@ -1,14 +1,17 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { filterAvailableEmbeds } from "./embed-probe";
 import { signMediaProxyUrl } from "./media-proxy";
 import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
-const VIDSRC_CC_ORIGIN = "https://vidsrc.cc";
-const VIDSRC_XYZ_ORIGIN = "https://vidsrc.xyz";
-const EMBED_SU_ORIGIN = "https://embed.su";
-const FALLBACK_EMBED_ORIGIN = "https://vidlink.pro";
-const BACKUP_EMBED_ORIGIN = "https://www.2embed.cc";
+const VIDLINK_ORIGIN = "https://vidlink.pro";
+const VIDFAST_ORIGIN = "https://vidfast.pro";
+const TWOEMBED_ORIGIN = "https://www.2embed.cc";
+const VIDSRC_ME_ORIGIN = "https://vidsrc.me";
+const VIDNEST_ORIGIN = "https://vidnest.fun";
+const BINGEAPI_ORIGIN = "https://bingeapi.st";
+const VIDCORE_ORIGIN = "https://vidcore.io";
 
 const STREAM_HEADERS = {
   "User-Agent":
@@ -25,6 +28,7 @@ const STREAM_HEADERS = {
 export interface EmbedFallback {
   label: string;
   url: string;
+  available?: boolean;
 }
 
 export interface MediaStreamResult {
@@ -85,38 +89,57 @@ export function buildMediaEmbedFallbacks(params: {
     push(
       "vidlink.pro",
       params.mediaType === "movie"
-        ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
-        : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+        ? `${VIDLINK_ORIGIN}/movie/${params.tmdbId}`
+        : `${VIDLINK_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+    );
+    push(
+      "vidfast.pro",
+      params.mediaType === "movie"
+        ? `${VIDFAST_ORIGIN}/movie/${params.tmdbId}`
+        : `${VIDFAST_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
     );
   }
   if (params.imdbId) {
     push(
       "2embed",
       params.mediaType === "movie"
-        ? `${BACKUP_EMBED_ORIGIN}/embed/${params.imdbId}`
-        : `${BACKUP_EMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
+        ? `${TWOEMBED_ORIGIN}/embed/${params.imdbId}`
+        : `${TWOEMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
     );
   }
-
-  const primaryId = params.tmdbId || params.imdbId;
-  if (primaryId) {
+  if (params.tmdbId) {
     push(
-      "vidsrc.cc",
+      "vidsrc.me",
       params.mediaType === "movie"
-        ? `${VIDSRC_CC_ORIGIN}/v2/embed/movie/${primaryId}`
-        : `${VIDSRC_CC_ORIGIN}/v2/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+        ? `${VIDSRC_ME_ORIGIN}/embed/movie?tmdb=${params.tmdbId}`
+        : `${VIDSRC_ME_ORIGIN}/embed/tv?tmdb=${params.tmdbId}&season=${params.season}&episode=${params.episode}`,
+    );
+  } else if (params.imdbId) {
+    push(
+      "vidsrc.me",
+      params.mediaType === "movie"
+        ? `${VIDSRC_ME_ORIGIN}/embed/movie?imdb=${params.imdbId}`
+        : `${VIDSRC_ME_ORIGIN}/embed/tv?imdb=${params.imdbId}&season=${params.season}&episode=${params.episode}`,
+    );
+  }
+  if (params.tmdbId) {
+    push(
+      "vidnest.fun",
+      params.mediaType === "movie"
+        ? `${VIDNEST_ORIGIN}/movie/${params.tmdbId}`
+        : `${VIDNEST_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
     );
     push(
-      "vidsrc.xyz",
+      "bingeapi.st",
       params.mediaType === "movie"
-        ? `${VIDSRC_XYZ_ORIGIN}/embed/movie/${primaryId}`
-        : `${VIDSRC_XYZ_ORIGIN}/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+        ? `${BINGEAPI_ORIGIN}/embed/movie/${params.tmdbId}`
+        : `${BINGEAPI_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
     );
     push(
-      "embed.su",
+      "vidcore.io",
       params.mediaType === "movie"
-        ? `${EMBED_SU_ORIGIN}/embed/movie/${primaryId}`
-        : `${EMBED_SU_ORIGIN}/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+        ? `${VIDCORE_ORIGIN}/embed/movie/${params.tmdbId}`
+        : `${VIDCORE_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
     );
   }
   return out;
@@ -334,7 +357,7 @@ async function resolveFromLookupId(
 
   const htmlRes = await fetch(pageUrl, {
     headers: STREAM_HEADERS,
-    signal: AbortSignal.timeout(4500),
+    signal: AbortSignal.timeout(2500),
   });
   if (!htmlRes.ok) return null;
 
@@ -354,7 +377,7 @@ async function resolveFromLookupId(
         : `${STREAM_ORIGIN}/pl/api.php?a=sources&type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
     const srcRes = await fetch(srcUrl, {
       headers: { ...STREAM_HEADERS, Referer: pageUrl, Accept: "application/json,*/*;q=0.8" },
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(2500),
     });
     if (srcRes.ok) {
       const srcJson = (await srcRes.json()) as {
@@ -377,7 +400,7 @@ async function resolveFromLookupId(
         `${STREAM_ORIGIN}/pl/api.php?a=play&ref=${encodeURIComponent(srv.ref)}`,
         {
           headers: { ...STREAM_HEADERS, Referer: pageUrl, Accept: "application/json,*/*;q=0.8" },
-          signal: AbortSignal.timeout(4000),
+          signal: AbortSignal.timeout(2500),
         },
       );
       if (!playRes.ok) return null;
@@ -419,7 +442,7 @@ async function resolveFromLookupId(
           : `type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
       const subRes = await fetch(`${STREAM_ORIGIN}/pl/api.php?a=subs&${subQuery}`, {
         headers: { ...STREAM_HEADERS, Referer: pageUrl },
-        signal: AbortSignal.timeout(4500),
+        signal: AbortSignal.timeout(2500),
       });
       if (subRes.ok) {
         const subJson = (await subRes.json()) as {
@@ -445,6 +468,35 @@ async function resolveFromLookupId(
   return { sources, subtitles };
 }
 
+async function resolveTmdbIdFromImdb(
+  imdbId: string,
+  mediaType: "movie" | "tv",
+): Promise<string | null> {
+  const key = process.env["TMDB_API_KEY"]?.trim();
+  if (!key) return null;
+  try {
+    const isBearer = key.startsWith("eyJ");
+    const url = isBearer
+      ? `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`
+      : `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${encodeURIComponent(key)}`;
+    const res = await fetch(url, {
+      headers: isBearer
+        ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
+        : { Accept: "application/json" },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      movie_results?: { id?: number }[];
+      tv_results?: { id?: number }[];
+    };
+    const hit = mediaType === "movie" ? json.movie_results?.[0]?.id : json.tv_results?.[0]?.id;
+    return hit ? String(hit) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const getMediaStream = createServerFn({ method: "GET" })
   .inputValidator((input) => MediaStreamInputSchema.parse(input))
   .handler(async ({ data }): Promise<MediaStreamResult> => {
@@ -452,17 +504,20 @@ export const getMediaStream = createServerFn({ method: "GET" })
     if (!resolvedImdb && !data.tmdbId && data.title) {
       resolvedImdb = await resolveImdbByTitle(data.title, data.mediaType, data.year);
     }
+    let resolvedTmdb = data.tmdbId ?? null;
+    if (!resolvedTmdb && resolvedImdb) {
+      resolvedTmdb = await resolveTmdbIdFromImdb(resolvedImdb, data.mediaType);
+    }
 
-    const embedFallbacks = buildMediaEmbedFallbacks({
+    const rawEmbedFallbacks = buildMediaEmbedFallbacks({
       mediaType: data.mediaType,
       imdbId: resolvedImdb,
-      tmdbId: data.tmdbId,
+      tmdbId: resolvedTmdb,
       season: data.season,
       episode: data.episode,
     });
-    const embedUrl = embedFallbacks[0]?.url ?? null;
 
-    const lookupIds = [resolvedImdb, data.tmdbId].filter((x): x is string => Boolean(x));
+    const lookupIds = [resolvedImdb, resolvedTmdb].filter((x): x is string => Boolean(x));
     if (!lookupIds.length) {
       return {
         ok: false,
@@ -470,31 +525,40 @@ export const getMediaStream = createServerFn({ method: "GET" })
         type: "hls",
         provider: "SHADOW Stream",
         subtitles: [],
-        embedUrl,
-        embedFallbacks,
+        embedUrl: null,
+        embedFallbacks: [],
         error: "Playback identifier is unavailable for this title.",
       };
     }
 
-    try {
+    const embedProbePromise = filterAvailableEmbeds(rawEmbedFallbacks);
+    const nativePromise = (async () => {
       for (const lookupId of lookupIds) {
         try {
           const hit = await resolveFromLookupId(lookupId, data);
-          if (hit && hit.sources.length > 0) {
-            return {
-              ok: true,
-              streamUrl: hit.sources[0]!.url,
-              type: hit.sources[0]!.type,
-              provider: "SHADOW Stream",
-              subtitles: hit.subtitles,
-              embedUrl,
-              sources: hit.sources,
-              embedFallbacks,
-            };
-          }
+          if (hit && hit.sources.length > 0) return hit;
         } catch {
           /* try secondary ID */
         }
+      }
+      return null;
+    })();
+
+    try {
+      const [embedFallbacks, nativeHit] = await Promise.all([embedProbePromise, nativePromise]);
+      const embedUrl = embedFallbacks[0]?.url ?? null;
+
+      if (nativeHit) {
+        return {
+          ok: true,
+          streamUrl: nativeHit.sources[0]!.url,
+          type: nativeHit.sources[0]!.type,
+          provider: "SHADOW Stream",
+          subtitles: nativeHit.subtitles,
+          embedUrl,
+          sources: nativeHit.sources,
+          embedFallbacks,
+        };
       }
 
       return {
@@ -509,13 +573,14 @@ export const getMediaStream = createServerFn({ method: "GET" })
       };
     } catch (error) {
       console.error("Media stream resolution failed", error);
+      const embedFallbacks = await embedProbePromise.catch(() => rawEmbedFallbacks);
       return {
         ok: false,
         streamUrl: null,
         type: "hls",
         provider: "SHADOW Stream",
         subtitles: [],
-        embedUrl,
+        embedUrl: embedFallbacks[0]?.url ?? null,
         embedFallbacks,
         error: "Stream temporarily unavailable.",
       };

@@ -114,6 +114,7 @@ function getSignSecret(): string | Buffer {
 interface TokenPayload {
   u: string;
   ref?: string;
+  kind?: "segment" | "sub";
   exp: number;
 }
 
@@ -121,11 +122,24 @@ export function signMediaProxyUrl(upstreamUrl: string, referer?: string): string
   const payload: TokenPayload = {
     u: upstreamUrl,
     ...(referer ? { ref: referer } : {}),
+    kind: "segment",
     exp: Date.now() + 1000 * 60 * 60 * 6,
   };
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const sig = crypto.createHmac("sha256", getSignSecret()).update(body).digest("base64url");
   return `/api/media/segment?token=${encodeURIComponent(`${body}.${sig}`)}`;
+}
+
+export function signSubtitleProxyUrl(upstreamUrl: string, referer?: string): string {
+  const payload: TokenPayload = {
+    u: upstreamUrl,
+    ...(referer ? { ref: referer } : {}),
+    kind: "sub",
+    exp: Date.now() + 1000 * 60 * 60 * 6,
+  };
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const sig = crypto.createHmac("sha256", getSignSecret()).update(body).digest("base64url");
+  return `/api/media/sub?token=${encodeURIComponent(`${body}.${sig}`)}`;
 }
 
 export function verifyMediaProxyToken(token: string | null): TokenPayload | null {
@@ -350,11 +364,24 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       sameOrigin: true,
     });
   } else if (isSub) {
-    const ref = url.searchParams.get("ref");
-    if (!ref || !SUB_REF_RE.test(ref)) {
-      return new Response("Invalid subtitle reference", { status: 400 });
+    const token = url.searchParams.get("token");
+    if (token) {
+      const payload = verifyMediaProxyToken(token);
+      if (!payload || (payload.kind && payload.kind !== "sub")) {
+        return new Response("Invalid or expired subtitle token", { status: 403 });
+      }
+      upstreamUrl = payload.u;
+      customHeaders = buildBrowserProxyHeaders({
+        ...(payload.ref ? { referer: payload.ref } : {}),
+        accept: "text/vtt,text/plain,*/*;q=0.8",
+      });
+    } else {
+      const ref = url.searchParams.get("ref");
+      if (!ref || !SUB_REF_RE.test(ref)) {
+        return new Response("Invalid subtitle reference", { status: 400 });
+      }
+      upstreamUrl = `${UPSTREAM_ORIGIN}/pl/api.php?a=sub&ref=${encodeURIComponent(ref)}`;
     }
-    upstreamUrl = `${UPSTREAM_ORIGIN}/pl/api.php?a=sub&ref=${encodeURIComponent(ref)}`;
   } else {
     const payload = verifyMediaProxyToken(url.searchParams.get("token"));
     if (!payload) {
@@ -398,10 +425,11 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
 
     const contentType = upstream.headers.get("content-type") ?? "";
     const looksLikePlaylist =
-      isHls ||
-      /mpegurl|m3u8/i.test(contentType) ||
-      /\.m3u8(\?|#|$)/i.test(upstreamUrl) ||
-      /master\.txt(\?|#|$)/i.test(upstreamUrl);
+      !isSub &&
+      (isHls ||
+        /mpegurl|m3u8/i.test(contentType) ||
+        /\.m3u8(\?|#|$)/i.test(upstreamUrl) ||
+        /master\.txt(\?|#|$)/i.test(upstreamUrl));
 
     if (looksLikePlaylist) {
       const text = await upstream.text();
@@ -432,6 +460,21 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
         502,
         { blocked: true },
       );
+    }
+
+    if (isSub && url.searchParams.get("token")) {
+      const rawText = await upstream.text();
+      const normalized = rawText.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+      const vttBody = normalized.trimStart().startsWith("WEBVTT")
+        ? normalized
+        : `WEBVTT\n\n${normalized.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, "$1.$2")}`;
+      return new Response(vttBody, {
+        status: 200,
+        headers: {
+          "content-type": "text/vtt; charset=utf-8",
+          "cache-control": "public, max-age=3600",
+        },
+      });
     }
 
     const headers = new Headers({

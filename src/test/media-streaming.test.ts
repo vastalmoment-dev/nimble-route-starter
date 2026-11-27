@@ -165,7 +165,7 @@ describe("Media streaming & live catalog helpers", () => {
     }
   });
 
-  it("builds direct embed fallback list with vidsrc.cc, vidsrc.xyz, embed.su, and vidlink.pro", async () => {
+  it("builds reliable embed list without dead servers (vidsrc.cc, vidsrc.xyz, embed.su)", async () => {
     const { buildMediaEmbedFallbacks } = await import("@/lib/stream/media.functions");
     const fallbacks = buildMediaEmbedFallbacks({
       mediaType: "tv",
@@ -174,14 +174,52 @@ describe("Media streaming & live catalog helpers", () => {
       season: 2,
       episode: 5,
     });
-    expect(fallbacks.map((f) => f.label)).toEqual(
-      expect.arrayContaining(["vidsrc.cc", "vidsrc.xyz", "embed.su", "vidlink.pro"]),
+    const labels = fallbacks.map((f) => f.label);
+    expect(labels).toEqual(
+      expect.arrayContaining([
+        "vidlink.pro",
+        "vidfast.pro",
+        "2embed",
+        "vidsrc.me",
+        "vidnest.fun",
+        "bingeapi.st",
+        "vidcore.io",
+      ]),
     );
-    expect(fallbacks.find((f) => f.label === "vidsrc.cc")?.url).toBe(
-      "https://vidsrc.cc/v2/embed/tv/1399/2/5",
+    expect(labels).not.toContain("vidsrc.cc");
+    expect(labels).not.toContain("vidsrc.xyz");
+    expect(labels).not.toContain("embed.su");
+    expect(fallbacks.find((f) => f.label === "vidlink.pro")?.url).toBe(
+      "https://vidlink.pro/tv/1399/2/5",
     );
-    expect(fallbacks.find((f) => f.label === "embed.su")?.url).toBe(
-      "https://embed.su/embed/tv/1399/2/5",
+    expect(fallbacks.find((f) => f.label === "vidfast.pro")?.url).toBe(
+      "https://vidfast.pro/tv/1399/2/5",
     );
+    expect(fallbacks.find((f) => f.label === "2embed")?.url).toBe(
+      "https://www.2embed.cc/embedtv/tt0944947&s=2&e=5",
+    );
+  });
+
+  it("proxies signed subtitle URLs and converts SRT timestamps into WEBVTT", async () => {
+    const { signSubtitleProxyUrl } = await import("@/lib/stream/media-proxy");
+    const signedPath = signSubtitleProxyUrl("https://subs.example.com/aot-ep1-fr.srt");
+    expect(signedPath).toMatch(/^\/api\/media\/sub\?token=/);
+
+    const srtSample = "1\r\n00:00:01,500 --> 00:00:04,250\r\nBonjour tout le monde!\r\n";
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(srtSample, { status: 200 }));
+
+    try {
+      const res = await handleMediaProxyRequest(new Request(`http://localhost:3000${signedPath}`));
+      expect(res?.status).toBe(200);
+      expect(res?.headers.get("content-type")).toContain("text/vtt");
+      const vtt = await res?.text();
+      expect(vtt).toMatch(/^WEBVTT\n\n/);
+      expect(vtt).toContain("00:00:01.500 --> 00:00:04.250");
+      expect(vtt).toContain("Bonjour tout le monde!");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

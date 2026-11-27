@@ -182,7 +182,7 @@ export function ShowDetailBody({
               </Link>
             </Button>
             <WatchlistButton item={d} />
-            {!isAnime && <LanguageToggle />}
+            <LanguageToggle />
             {isAnime && (
               <>
                 <div
@@ -195,6 +195,15 @@ export function ShowDetailBody({
                       key={opt}
                       type="button"
                       onClick={() => setAudio(opt)}
+                      title={
+                        lang === "fr"
+                          ? opt === "sub"
+                            ? "Audio japonais avec sous-titres français (VOSTFR)"
+                            : "Version française (VF)"
+                          : opt === "sub"
+                            ? "Japanese audio with English subtitles"
+                            : "English dubbed audio"
+                      }
                       className={cn(
                         "rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-wider transition",
                         audio === opt
@@ -202,7 +211,13 @@ export function ShowDetailBody({
                           : "text-foreground/75 hover:text-foreground",
                       )}
                     >
-                      {opt}
+                      {opt === "sub"
+                        ? lang === "fr"
+                          ? "SUB · VOSTFR"
+                          : "SUB · JP"
+                        : lang === "fr"
+                          ? "DUB · VF"
+                          : "DUB · EN"}
                     </button>
                   ))}
                 </div>

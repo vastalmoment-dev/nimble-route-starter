@@ -235,6 +235,10 @@ const EN = {
   "watch.server3Embed": "Server 3 · Direct Embed",
   "watch.directEmbed": "Direct Embed",
   "watch.embedNotice": "Direct browser player — switch providers below if one doesn't load:",
+  "watch.nextServer": "Next server",
+  "watch.switchingServer": "Server unavailable — switching to {server}…",
+  "watch.vfUnavailable":
+    "French dub (VF) is not available for this episode yet — try Sub (VOSTFR).",
 
   // VideoPlayer Controls
   "player.play": "Play",
@@ -549,6 +553,10 @@ const FR: Record<TranslationKey, string> = {
   "watch.server3Embed": "Serveur 3 · Lecteur Direct",
   "watch.directEmbed": "Lecteur Direct",
   "watch.embedNotice": "Lecteur direct navigateur — changez de fournisseur ci-dessous si besoin :",
+  "watch.nextServer": "Serveur suivant",
+  "watch.switchingServer": "Serveur indisponible — passage vers {server}…",
+  "watch.vfUnavailable":
+    "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
 
   // VideoPlayer Controls
   "player.play": "Lecture",
