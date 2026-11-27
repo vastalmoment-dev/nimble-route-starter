@@ -81,6 +81,23 @@ export function buildMediaEmbedFallbacks(params: {
     }
   };
 
+  if (params.tmdbId) {
+    push(
+      "vidlink.pro",
+      params.mediaType === "movie"
+        ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
+        : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+    );
+  }
+  if (params.imdbId) {
+    push(
+      "2embed",
+      params.mediaType === "movie"
+        ? `${BACKUP_EMBED_ORIGIN}/embed/${params.imdbId}`
+        : `${BACKUP_EMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
+    );
+  }
+
   const primaryId = params.tmdbId || params.imdbId;
   if (primaryId) {
     push(
@@ -100,22 +117,6 @@ export function buildMediaEmbedFallbacks(params: {
       params.mediaType === "movie"
         ? `${EMBED_SU_ORIGIN}/embed/movie/${primaryId}`
         : `${EMBED_SU_ORIGIN}/embed/tv/${primaryId}/${params.season}/${params.episode}`,
-    );
-  }
-  if (params.tmdbId) {
-    push(
-      "vidlink.pro",
-      params.mediaType === "movie"
-        ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
-        : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
-    );
-  }
-  if (params.imdbId) {
-    push(
-      "2embed",
-      params.mediaType === "movie"
-        ? `${BACKUP_EMBED_ORIGIN}/embed/${params.imdbId}`
-        : `${BACKUP_EMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
     );
   }
   return out;

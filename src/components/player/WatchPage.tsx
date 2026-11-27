@@ -131,7 +131,9 @@ export function WatchPage({
   }, []);
   useEffect(() => router.subscribe("onBeforeNavigate", () => stopPlayback.current?.()), [router]);
 
-  const [playerMode, setPlayerMode] = useState<"native" | "embed">("native");
+  const [playerMode, setPlayerMode] = useState<"native" | "embed">(() =>
+    isAnime ? "native" : "embed",
+  );
   const [selectedSourceIndex, setSelectedSourceIndex] = useState(0);
   const [embedIndex, setEmbedIndex] = useState(0);
   const [episodesOpen, setEpisodesOpen] = useState(false);
@@ -152,7 +154,7 @@ export function WatchPage({
   }, [season]);
 
   useEffect(() => {
-    setPlayerMode("native");
+    setPlayerMode(isAnime ? "native" : "embed");
     setSelectedSourceIndex(0);
     setEmbedIndex(0);
     if (carryOverRef.current && carryOverRef.current.epKey === epKey) {
@@ -164,7 +166,7 @@ export function WatchPage({
     const t = saved?.currentTime ?? 0;
     liveProgressRef.current = { time: t, duration: saved?.duration ?? 0 };
     setResumeTime(t);
-  }, [source, id, season, ep, epKey, audio]);
+  }, [source, id, season, ep, epKey, audio, isAnime]);
 
   const handleTimeProgress = useCallback(
     (currentTime: number, duration: number) => {
@@ -772,10 +774,9 @@ export function WatchPage({
                 src={aniEmbedUrl}
                 title={`${title || "Anime"} — ${t("detail.episode")} ${ep}`}
                 className="size-full border-0"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                 allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
+                referrerPolicy="origin"
               />
             </div>
           ) : (
@@ -1158,7 +1159,7 @@ export function WatchPage({
       );
     }
 
-    if (detail.isLoading || (playerMode === "native" && mediaStream.isPending) || mediaEmbedUrl) {
+    if (detail.isLoading || mediaStream.isPending || mediaEmbedUrl) {
       return (
         <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-foreground/5 p-3 sm:gap-3 sm:p-4">
@@ -1186,6 +1187,7 @@ export function WatchPage({
             <div className="flex flex-wrap items-center gap-2">{mediaControls}</div>
           </div>
           {!detail.isLoading &&
+            !(!mediaEmbedUrl && mediaStream.isPending) &&
             !(playerMode === "native" && mediaStream.isPending) &&
             embedFallbacks.length > 1 && (
               <div className="flex flex-wrap items-center justify-center gap-2 border-b border-foreground/5 bg-background/60 px-3 py-1.5">
@@ -1208,7 +1210,9 @@ export function WatchPage({
               </div>
             )}
           <div className="flex min-h-0 flex-1 items-center justify-center p-2 sm:p-4">
-            {detail.isLoading || (playerMode === "native" && mediaStream.isPending) ? (
+            {detail.isLoading ||
+            (!mediaEmbedUrl && mediaStream.isPending) ||
+            (playerMode === "native" && mediaStream.isPending) ? (
               <div className="flex flex-col items-center gap-3 text-center">
                 <Loader2 className="size-12 animate-spin text-cerulean" />
                 <p className="text-sm text-muted-foreground">
@@ -1228,10 +1232,9 @@ export function WatchPage({
                     isMovie ? `${title || "Movie"}` : `${title || "Series"} — S${season} E${ep}`
                   }
                   className="size-full border-0"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
                   allowFullScreen
-                  referrerPolicy="no-referrer-when-downgrade"
+                  referrerPolicy="origin"
                 />
               </div>
             ) : null}
