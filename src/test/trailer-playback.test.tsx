@@ -52,4 +52,15 @@ describe("Trailer playback lifecycle", () => {
     view.unmount();
     expect(frame?.getAttribute("src")).toBe("about:blank");
   });
+
+  it("sets required allow and sandbox attributes for Cloudflare Pages embeds", () => {
+    const view = render(
+      <TrailerFrame youtubeId="test123" title="Test" registerStop={() => () => {}} />,
+    );
+    const frame = view.container.querySelector("iframe");
+    expect(frame?.getAttribute("allow")).toBe(
+      "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
+    );
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin allow-forms");
+  });
 });

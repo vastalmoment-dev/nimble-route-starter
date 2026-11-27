@@ -458,6 +458,80 @@ describe("Two-step Back navigation, ordered episodes & Policy page", () => {
     expect(text).toMatch(/permanently banned/i);
     expect(text.toLowerCase()).not.toContain("anilast");
   });
+
+  it("never falls back to YouTube trailers on WatchPage when watching shows without IMDb IDs", async () => {
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+      if (url.includes("api.tvmaze.com/shows/43687")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: 43687,
+              name: "Squid Game",
+              type: "Scripted",
+              language: "Korean",
+              genres: ["Drama"],
+              status: "Running",
+              premiered: "2021-09-17",
+              runtime: 55,
+              rating: { average: 8.1 },
+              weight: 99,
+              network: null,
+              webChannel: { name: "Netflix" },
+              image: null,
+              summary: "<p>Survival game.</p>",
+              externals: { imdb: null },
+              _embedded: {
+                episodes: [
+                  {
+                    id: 1,
+                    name: "Red Light",
+                    season: 1,
+                    number: 1,
+                    runtime: 60,
+                    image: null,
+                    summary: "",
+                  },
+                ],
+                seasons: [{ number: 1 }],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ ok: false, streamUrl: null, embedUrl: null, embedFallbacks: [] }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({
+        initialEntries: ["/watch/tvmaze/43687?season=1&ep=1"],
+      }),
+    });
+
+    await router.load();
+    const { container } = render(<RouterProvider router={router} />);
+
+    const retryBtn = await screen.findByRole("button", { name: /Retry stream/i });
+    expect(retryBtn).toBeTruthy();
+    expect(container.innerHTML.toLowerCase()).not.toContain("youtube");
+    expect(screen.queryByText(/Official trailer/i)).toBeNull();
+  });
 });
 
 async function waitForCompat(fn: () => void) {

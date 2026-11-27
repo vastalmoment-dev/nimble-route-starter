@@ -165,7 +165,7 @@ describe("Media streaming & live catalog helpers", () => {
     }
   });
 
-  it("builds reliable embed list without dead servers (vidsrc.cc, vidsrc.xyz, embed.su)", async () => {
+  it("builds sandbox-free embed list without broken servers (2embed, vidsrc.me, vidsrc.cc, vidsrc.xyz, embed.su)", async () => {
     const { buildMediaEmbedFallbacks } = await import("@/lib/stream/media.functions");
     const fallbacks = buildMediaEmbedFallbacks({
       mediaType: "tv",
@@ -175,17 +175,16 @@ describe("Media streaming & live catalog helpers", () => {
       episode: 5,
     });
     const labels = fallbacks.map((f) => f.label);
-    expect(labels).toEqual(
-      expect.arrayContaining([
-        "vidlink.pro",
-        "vidfast.pro",
-        "2embed",
-        "vidsrc.me",
-        "vidnest.fun",
-        "bingeapi.st",
-        "vidcore.io",
-      ]),
-    );
+    expect(labels).toEqual([
+      "vidlink.pro",
+      "vidfast.pro",
+      "vidnest.fun",
+      "vidsrc.su",
+      "vidcore.io",
+      "bingeapi.st",
+    ]);
+    expect(labels).not.toContain("2embed");
+    expect(labels).not.toContain("vidsrc.me");
     expect(labels).not.toContain("vidsrc.cc");
     expect(labels).not.toContain("vidsrc.xyz");
     expect(labels).not.toContain("embed.su");
@@ -195,9 +194,26 @@ describe("Media streaming & live catalog helpers", () => {
     expect(fallbacks.find((f) => f.label === "vidfast.pro")?.url).toBe(
       "https://vidfast.pro/tv/1399/2/5",
     );
-    expect(fallbacks.find((f) => f.label === "2embed")?.url).toBe(
-      "https://www.2embed.cc/embedtv/tt0944947&s=2&e=5",
+    expect(fallbacks.find((f) => f.label === "vidsrc.su")?.url).toBe(
+      "https://vidsrc.su/embed/tv/1399/2/5",
     );
+
+    const imdbOnly = buildMediaEmbedFallbacks({
+      mediaType: "movie",
+      imdbId: "tt24083908",
+      season: 1,
+      episode: 1,
+    });
+    expect(imdbOnly[0]?.url).toBe("https://vidlink.pro/movie/tt24083908");
+
+    const imdbOnlyTv = buildMediaEmbedFallbacks({
+      mediaType: "tv",
+      imdbId: "tt10919420",
+      season: 1,
+      episode: 1,
+    });
+    expect(imdbOnlyTv[0]?.label).toBe("vidfast.pro");
+    expect(imdbOnlyTv[imdbOnlyTv.length - 1]?.label).toBe("vidlink.pro");
   });
 
   it("proxies signed subtitle URLs and converts SRT timestamps into WEBVTT", async () => {

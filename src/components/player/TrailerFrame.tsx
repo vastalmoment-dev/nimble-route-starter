@@ -67,7 +67,8 @@ export function TrailerFrame({
       className="size-full"
       src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&enablejsapi=1`}
       title={`${title} ${playbackLabel}`}
-      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+      sandbox="allow-scripts allow-same-origin allow-forms"
       allowFullScreen
     />
   );

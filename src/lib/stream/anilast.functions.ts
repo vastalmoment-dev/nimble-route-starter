@@ -59,17 +59,19 @@ export function buildAnimeEmbedFallbacks(params: {
       "vidnest.fun",
       `https://vidnest.fun/anime/${params.anilistId}/${params.episode}/${params.audio}`,
     );
+    push(
+      "vidsrc.su",
+      `https://vidsrc.su/embed/anime/${params.anilistId}/${params.episode}/${params.audio}`,
+    );
+    push(
+      "vidcore.io",
+      `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}${params.audio === "dub" ? "?dub=true" : ""}`,
+    );
   }
   if (params.malId && params.malId > 0) {
     push(
       "megaplay.buzz",
       `https://megaplay.buzz/stream/mal/${params.malId}/${params.episode}/${params.audio}`,
-    );
-  }
-  if (/^\d+$/.test(params.anilistId)) {
-    push(
-      "vidcore.io",
-      `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}${params.audio === "dub" ? "?dub=true" : ""}`,
     );
   }
   return out;
@@ -284,7 +286,13 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         }
       }
 
-      const mirrorOk = upstreamEmbedUrl ? await probeSingleEmbed(upstreamEmbedUrl, 2400) : false;
+      const isSandboxBlockedHost =
+        Boolean(upstreamEmbedUrl) &&
+        /(^|\.)(2embed\.cc|vidsrc\.me|vidsrc\.buzz)\b/i.test(upstreamEmbedUrl!);
+      const mirrorOk =
+        upstreamEmbedUrl && !isSandboxBlockedHost
+          ? await probeSingleEmbed(upstreamEmbedUrl, 2400)
+          : false;
       const mirrorList: AnimeEmbedFallback[] =
         upstreamEmbedUrl && mirrorOk
           ? [{ label: "Mirror Embed", url: upstreamEmbedUrl, available: true }]

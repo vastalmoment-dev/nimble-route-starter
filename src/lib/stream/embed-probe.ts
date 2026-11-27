@@ -19,11 +19,20 @@ function blocksFraming(res: Response): boolean {
 }
 
 function looksLikeUnavailableHtml(text: string): boolean {
-  const lower = text.slice(0, 4000).toLowerCase();
+  const lower = text.slice(0, 12000).toLowerCase();
   if (
     lower.includes("just a moment") ||
     lower.includes("cf-browser-verification") ||
     lower.includes("attention required")
+  ) {
+    return true;
+  }
+  if (
+    lower.includes("sandbox not allowed") ||
+    lower.includes("sandbox is not allowed") ||
+    lower.includes("remove sandbox from") ||
+    lower.includes("remove the sandbox attribute") ||
+    lower.includes("/assets/sbx.js")
   ) {
     return true;
   }

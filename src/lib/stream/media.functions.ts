@@ -7,9 +7,8 @@ import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 const STREAM_ORIGIN = "https://vidsrc.buzz";
 const VIDLINK_ORIGIN = "https://vidlink.pro";
 const VIDFAST_ORIGIN = "https://vidfast.pro";
-const TWOEMBED_ORIGIN = "https://www.2embed.cc";
-const VIDSRC_ME_ORIGIN = "https://vidsrc.me";
 const VIDNEST_ORIGIN = "https://vidnest.fun";
+const VIDSRC_SU_ORIGIN = "https://vidsrc.su";
 const BINGEAPI_ORIGIN = "https://bingeapi.st";
 const VIDCORE_ORIGIN = "https://vidcore.io";
 
@@ -55,6 +54,11 @@ const MediaStreamInputSchema = z.object({
     .regex(/^\d{1,10}$/)
     .nullable()
     .optional(),
+  tvmazeId: z
+    .string()
+    .regex(/^\d{1,10}$/)
+    .nullable()
+    .optional(),
   title: z.string().max(300).nullable().optional(),
   year: z.number().int().min(1900).max(2100).nullable().optional(),
   season: z.number().int().min(1).max(100).default(1),
@@ -85,62 +89,57 @@ export function buildMediaEmbedFallbacks(params: {
     }
   };
 
-  if (params.tmdbId) {
+  // Prefer numeric TMDB IDs when known, otherwise fall back to IMDb IDs.
+  // Never emit 2embed.cc or vidsrc.me because they block playback in modern browsers
+  // with "Sandbox not allowed" errors under Origin-Agent-Cluster / nested previews.
+  const mediaKey = params.tmdbId || params.imdbId || null;
+  if (!mediaKey) return out;
+
+  const isImdbOnlyTv = params.mediaType === "tv" && !params.tmdbId;
+  const pushVidlink = () =>
     push(
       "vidlink.pro",
       params.mediaType === "movie"
-        ? `${VIDLINK_ORIGIN}/movie/${params.tmdbId}`
-        : `${VIDLINK_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
+        ? `${VIDLINK_ORIGIN}/movie/${mediaKey}`
+        : `${VIDLINK_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
     );
-    push(
-      "vidfast.pro",
-      params.mediaType === "movie"
-        ? `${VIDFAST_ORIGIN}/movie/${params.tmdbId}`
-        : `${VIDFAST_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
-    );
+
+  // vidlink.pro/tv requires a numeric TMDB ID and returns 500 on IMDb IDs; put IMDb-safe servers first when TMDB ID is missing.
+  if (!isImdbOnlyTv) {
+    pushVidlink();
   }
-  if (params.imdbId) {
-    push(
-      "2embed",
-      params.mediaType === "movie"
-        ? `${TWOEMBED_ORIGIN}/embed/${params.imdbId}`
-        : `${TWOEMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
-    );
-  }
-  if (params.tmdbId) {
-    push(
-      "vidsrc.me",
-      params.mediaType === "movie"
-        ? `${VIDSRC_ME_ORIGIN}/embed/movie?tmdb=${params.tmdbId}`
-        : `${VIDSRC_ME_ORIGIN}/embed/tv?tmdb=${params.tmdbId}&season=${params.season}&episode=${params.episode}`,
-    );
-  } else if (params.imdbId) {
-    push(
-      "vidsrc.me",
-      params.mediaType === "movie"
-        ? `${VIDSRC_ME_ORIGIN}/embed/movie?imdb=${params.imdbId}`
-        : `${VIDSRC_ME_ORIGIN}/embed/tv?imdb=${params.imdbId}&season=${params.season}&episode=${params.episode}`,
-    );
-  }
-  if (params.tmdbId) {
-    push(
-      "vidnest.fun",
-      params.mediaType === "movie"
-        ? `${VIDNEST_ORIGIN}/movie/${params.tmdbId}`
-        : `${VIDNEST_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
-    );
-    push(
-      "bingeapi.st",
-      params.mediaType === "movie"
-        ? `${BINGEAPI_ORIGIN}/embed/movie/${params.tmdbId}`
-        : `${BINGEAPI_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
-    );
-    push(
-      "vidcore.io",
-      params.mediaType === "movie"
-        ? `${VIDCORE_ORIGIN}/embed/movie/${params.tmdbId}`
-        : `${VIDCORE_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
-    );
+  push(
+    "vidfast.pro",
+    params.mediaType === "movie"
+      ? `${VIDFAST_ORIGIN}/movie/${mediaKey}`
+      : `${VIDFAST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+  push(
+    "vidnest.fun",
+    params.mediaType === "movie"
+      ? `${VIDNEST_ORIGIN}/movie/${mediaKey}`
+      : `${VIDNEST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+  push(
+    "vidsrc.su",
+    params.mediaType === "movie"
+      ? `${VIDSRC_SU_ORIGIN}/embed/movie/${mediaKey}`
+      : `${VIDSRC_SU_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+  push(
+    "vidcore.io",
+    params.mediaType === "movie"
+      ? `${VIDCORE_ORIGIN}/embed/movie/${mediaKey}`
+      : `${VIDCORE_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+  push(
+    "bingeapi.st",
+    params.mediaType === "movie"
+      ? `${BINGEAPI_ORIGIN}/embed/movie/${mediaKey}`
+      : `${BINGEAPI_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+  if (isImdbOnlyTv) {
+    pushVidlink();
   }
   return out;
 }
@@ -315,11 +314,13 @@ async function verifyPlayableStream(
       method: isMp4Hint ? "HEAD" : "GET",
       headers: {
         "User-Agent": STREAM_HEADERS["User-Agent"],
+        Referer: `${STREAM_ORIGIN}/`,
+        Origin: STREAM_ORIGIN,
         Accept: "*/*",
         "Accept-Language": "en-US,en;q=0.9",
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(4000),
+      signal: AbortSignal.timeout(4500),
     });
     if (!check.ok) return null;
 
@@ -357,7 +358,7 @@ async function resolveFromLookupId(
 
   const htmlRes = await fetch(pageUrl, {
     headers: STREAM_HEADERS,
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.timeout(4500),
   });
   if (!htmlRes.ok) return null;
 
@@ -473,27 +474,93 @@ async function resolveTmdbIdFromImdb(
   mediaType: "movie" | "tv",
 ): Promise<string | null> {
   const key = process.env["TMDB_API_KEY"]?.trim();
-  if (!key) return null;
+  if (key) {
+    try {
+      const isBearer = key.startsWith("eyJ");
+      const url = isBearer
+        ? `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`
+        : `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${encodeURIComponent(key)}`;
+      const res = await fetch(url, {
+        headers: isBearer
+          ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
+          : { Accept: "application/json" },
+        signal: AbortSignal.timeout(2500),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as {
+          movie_results?: { id?: number }[];
+          tv_results?: { id?: number }[];
+        };
+        const hit = mediaType === "movie" ? json.movie_results?.[0]?.id : json.tv_results?.[0]?.id;
+        if (hit) return String(hit);
+      }
+    } catch {
+      /* fall through to keyless Cinemeta metadata lookup */
+    }
+  }
+
   try {
-    const isBearer = key.startsWith("eyJ");
-    const url = isBearer
-      ? `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id`
-      : `https://api.themoviedb.org/3/find/${encodeURIComponent(imdbId)}?external_source=imdb_id&api_key=${encodeURIComponent(key)}`;
-    const res = await fetch(url, {
-      headers: isBearer
-        ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
-        : { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      movie_results?: { id?: number }[];
-      tv_results?: { id?: number }[];
-    };
-    const hit = mediaType === "movie" ? json.movie_results?.[0]?.id : json.tv_results?.[0]?.id;
-    return hit ? String(hit) : null;
+    const cmType = mediaType === "movie" ? "movie" : "series";
+    const cmRes = await fetch(
+      `https://v3-cinemeta.strem.io/meta/${cmType}/${encodeURIComponent(imdbId)}.json`,
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(3000) },
+    );
+    if (cmRes.ok) {
+      const cmJson = (await cmRes.json()) as { meta?: { moviedb_id?: number | string | null } };
+      if (cmJson.meta?.moviedb_id != null) {
+        return String(cmJson.meta.moviedb_id);
+      }
+    }
   } catch {
-    return null;
+    /* fall through to Wikidata */
+  }
+
+  try {
+    const prop = mediaType === "movie" ? "wdt:P4947" : "wdt:P4983";
+    const sparql = `SELECT ?tmdb WHERE { ?item wdt:P345 "${imdbId}"; ${prop} ?tmdb. } LIMIT 1`;
+    const wdRes = await fetch(
+      `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`,
+      {
+        headers: {
+          "User-Agent": "ShadowStreamingCatalog/1.0 (https://shadow.app)",
+          Accept: "application/sparql-results+json",
+        },
+        signal: AbortSignal.timeout(3000),
+      },
+    );
+    if (wdRes.ok) {
+      const wdJson = (await wdRes.json()) as {
+        results?: { bindings?: { tmdb?: { value?: string } }[] };
+      };
+      const tmdbVal = wdJson.results?.bindings?.[0]?.tmdb?.value;
+      if (tmdbVal && /^\d+$/.test(tmdbVal)) return tmdbVal;
+    }
+  } catch {
+    /* TMDB lookup optional */
+  }
+  return null;
+}
+
+async function resolveFromTvmaze(
+  tvmazeId: string,
+): Promise<{ imdbId: string | null; title: string | null; year: number | null }> {
+  try {
+    const res = await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(tvmazeId)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!res.ok) return { imdbId: null, title: null, year: null };
+    const show = (await res.json()) as {
+      name?: string;
+      premiered?: string | null;
+      externals?: { imdb?: string | null } | null;
+    };
+    const imdbId =
+      show.externals?.imdb && /^tt\d{5,10}$/.test(show.externals.imdb) ? show.externals.imdb : null;
+    const year = show.premiered ? Number(show.premiered.slice(0, 4)) || null : null;
+    return { imdbId, title: show.name ?? null, year };
+  } catch {
+    return { imdbId: null, title: null, year: null };
   }
 }
 
@@ -501,8 +568,18 @@ export const getMediaStream = createServerFn({ method: "GET" })
   .inputValidator((input) => MediaStreamInputSchema.parse(input))
   .handler(async ({ data }): Promise<MediaStreamResult> => {
     let resolvedImdb = data.imdbId ?? null;
-    if (!resolvedImdb && !data.tmdbId && data.title) {
-      resolvedImdb = await resolveImdbByTitle(data.title, data.mediaType, data.year);
+    let lookupTitle = data.title ?? null;
+    let lookupYear = data.year ?? null;
+
+    if (!resolvedImdb && !data.tmdbId && data.tvmazeId) {
+      const tvm = await resolveFromTvmaze(data.tvmazeId);
+      resolvedImdb = tvm.imdbId;
+      lookupTitle ??= tvm.title;
+      lookupYear ??= tvm.year;
+    }
+
+    if (!resolvedImdb && !data.tmdbId && lookupTitle) {
+      resolvedImdb = await resolveImdbByTitle(lookupTitle, data.mediaType, lookupYear);
     }
     let resolvedTmdb = data.tmdbId ?? null;
     if (!resolvedTmdb && resolvedImdb) {
