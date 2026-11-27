@@ -42,6 +42,8 @@ export interface VideoPlayerProps {
   onNext?: (() => void) | null | undefined;
   nextLabel?: string | null | undefined;
   onSwitchEmbed?: (() => void) | undefined;
+  selectedSourceIndex?: number | undefined;
+  onSelectSourceIndex?: ((index: number) => void) | undefined;
   /** Number of seconds to jump forward when Skip Intro is clicked (e.g. 85 for anime/movies). */
   skipIntroSeconds?: number | undefined;
   /** Optional controls rendered on the right side of the top player bar. */
@@ -142,6 +144,8 @@ export default function VideoPlayer({
   onNext,
   nextLabel,
   onSwitchEmbed,
+  selectedSourceIndex,
+  onSelectSourceIndex,
   skipIntroSeconds = 85,
   topRight,
   pausedOverlay,
@@ -155,10 +159,12 @@ export default function VideoPlayer({
   const resumeOverrideRef = useRef<number | null>(null);
   const initialTimeRef = useRef(initialTime);
   const onProgressRef = useRef(onTimeProgress);
+  const onSelectSourceRef = useRef(onSelectSourceIndex);
   const lastReportRef = useRef(0);
 
   initialTimeRef.current = initialTime;
   onProgressRef.current = onTimeProgress;
+  onSelectSourceRef.current = onSelectSourceIndex;
 
   const activeSources = useMemo<StreamSource[]>(() => {
     if (stream.sources?.length) {
@@ -167,7 +173,13 @@ export default function VideoPlayer({
     return [{ url: stream.url, type: stream.type, label: "Server 1" }];
   }, [stream.sources, stream.url, stream.type]);
 
-  const [sourceIndex, setSourceIndex] = useState(0);
+  const [sourceIndex, setSourceIndex] = useState(() =>
+    typeof selectedSourceIndex === "number" &&
+    selectedSourceIndex >= 0 &&
+    selectedSourceIndex < activeSources.length
+      ? selectedSourceIndex
+      : 0,
+  );
   const [reloadNonce, setReloadNonce] = useState(0);
   const [switchingMessage, setSwitchingMessage] = useState<string | null>(null);
 
@@ -212,7 +224,13 @@ export default function VideoPlayer({
   const [subTrack, setSubTrack] = useState<number>(() => pickPreferredSubTrack(subtitles, lang));
 
   useEffect(() => {
-    setSourceIndex(0);
+    const nextIdx =
+      typeof selectedSourceIndex === "number" &&
+      selectedSourceIndex >= 0 &&
+      selectedSourceIndex < activeSources.length
+        ? selectedSourceIndex
+        : 0;
+    setSourceIndex(nextIdx);
     setReloadNonce(0);
     setSwitchingMessage(null);
     resumeOverrideRef.current = null;
@@ -220,7 +238,7 @@ export default function VideoPlayer({
     setUpNextIn(null);
     setEndedManual(false);
     appliedSeekUrlRef.current = null;
-  }, [stream.url, stream.sources]);
+  }, [stream.url, stream.sources, selectedSourceIndex, activeSources.length]);
 
   useEffect(() => {
     setSubTrack(pickPreferredSubTrack(subtitles, lang));
@@ -240,6 +258,7 @@ export default function VideoPlayer({
         statusMessage ?? `${t("player.switchingTo")} ${activeSources[nextIdx]!.label}…`,
       );
       setSourceIndex(nextIdx);
+      onSelectSourceRef.current?.(nextIdx);
       setMenu(null);
     },
     [activeSources, t],
@@ -382,7 +401,7 @@ export default function VideoPlayer({
       if (!disposed && !hasStarted) {
         triggerFallbackRef.current();
       }
-    }, 12_000);
+    }, 7_500);
 
     const markReady = () => {
       if (hasStarted) return;
@@ -408,12 +427,23 @@ export default function VideoPlayer({
         markReady();
         setLevels(data.levels);
         applyInitialSeek(video);
-        void video.play?.()?.catch?.(() => setPlaying(false));
+        const playPromise = video.play?.();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(() => {
+            setPlaying(false);
+            setWaiting(false);
+          });
+        } else {
+          setWaiting(false);
+        }
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setActiveLevel(data.level));
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal || disposed) return;
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 1) {
+        const statusCode = (data.response as { code?: number } | undefined)?.code ?? 0;
+        const hardBlocked =
+          statusCode === 403 || statusCode === 404 || statusCode === 502 || statusCode === 503;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && networkRetries < 1 && !hardBlocked) {
           networkRetries += 1;
           hls.startLoad();
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaRetries < 1) {
@@ -450,7 +480,10 @@ export default function VideoPlayer({
 
     video.src = activeUrl;
     try {
-      void video.play?.()?.catch?.(() => setPlaying(false));
+      void video.play?.()?.catch?.(() => {
+        setPlaying(false);
+        if (video.readyState >= 1) setWaiting(false);
+      });
     } catch {
       setPlaying(false);
     }
@@ -471,6 +504,18 @@ export default function VideoPlayer({
       }
     };
   }, [activeUrl, activeType, reloadNonce, applyInitialSeek]);
+
+  // Stall watchdog: if buffering stays stuck for > 10s mid-playback without user pausing, fail over cleanly.
+  useEffect(() => {
+    if (!waiting || error) return;
+    const stallTimer = setTimeout(() => {
+      const v = videoRef.current;
+      if (v && !v.paused && v.readyState < 3) {
+        triggerFallbackRef.current();
+      }
+    }, 10_000);
+    return () => clearTimeout(stallTimer);
+  }, [waiting, error, activeUrl, reloadNonce]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -992,7 +1037,7 @@ export default function VideoPlayer({
                 onClick={onSwitchEmbed}
                 className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-foreground/20 bg-surface px-4 py-2 text-xs font-semibold text-foreground transition hover:border-cerulean/60"
               >
-                <MonitorPlay className="size-3.5" /> {t("watch.alternatePlayer")}
+                <MonitorPlay className="size-3.5" /> {t("watch.server3Embed")}
               </button>
             )}
           </div>
@@ -1362,7 +1407,7 @@ export default function VideoPlayer({
                         >
                           <span className="flex items-center gap-1.5">
                             <MonitorPlay className="size-3.5 text-cerulean" />
-                            {t("watch.alternatePlayer")}
+                            {t("watch.server3Embed")}
                           </span>
                         </MenuItem>
                       </>
@@ -1413,7 +1458,7 @@ export default function VideoPlayer({
                             onSwitchEmbed();
                           }}
                         >
-                          <span>{t("watch.alternatePlayer")}</span>
+                          <span>{t("watch.server3Embed")}</span>
                         </MenuItem>
                       )}
                       <div className="my-1.5 h-px bg-foreground/10" />

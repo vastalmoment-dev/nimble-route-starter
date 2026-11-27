@@ -230,6 +230,11 @@ const EN = {
   "watch.switchTo": "Switch to",
   "watch.loadingAudioEp": "Loading {audio} stream for Episode {ep}…",
   "watch.loadingSeasonEp": "Loading Season {season} Episode {ep}…",
+  "watch.server1": "Server 1",
+  "watch.server2": "Server 2",
+  "watch.server3Embed": "Server 3 · Direct Embed",
+  "watch.directEmbed": "Direct Embed",
+  "watch.embedNotice": "Direct browser player — switch providers below if one doesn't load:",
 
   // VideoPlayer Controls
   "player.play": "Play",
@@ -539,6 +544,11 @@ const FR: Record<TranslationKey, string> = {
   "watch.switchTo": "Passer en",
   "watch.loadingAudioEp": "Chargement du flux {audio} pour l'épisode {ep}…",
   "watch.loadingSeasonEp": "Chargement Saison {season} Épisode {ep}…",
+  "watch.server1": "Serveur 1",
+  "watch.server2": "Serveur 2",
+  "watch.server3Embed": "Serveur 3 · Lecteur Direct",
+  "watch.directEmbed": "Lecteur Direct",
+  "watch.embedNotice": "Lecteur direct navigateur — changez de fournisseur ci-dessous si besoin :",
 
   // VideoPlayer Controls
   "player.play": "Lecture",

@@ -4,14 +4,22 @@ import { signMediaProxyUrl } from "./media-proxy";
 import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
+const VIDSRC_CC_ORIGIN = "https://vidsrc.cc";
+const VIDSRC_XYZ_ORIGIN = "https://vidsrc.xyz";
+const EMBED_SU_ORIGIN = "https://embed.su";
 const FALLBACK_EMBED_ORIGIN = "https://vidlink.pro";
 const BACKUP_EMBED_ORIGIN = "https://www.2embed.cc";
 
 const STREAM_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  Referer: "https://www.2embed.cc/",
-  Accept: "*/*",
+  Referer: `${STREAM_ORIGIN}/`,
+  Origin: STREAM_ORIGIN,
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
 };
 
 export interface EmbedFallback {
@@ -57,7 +65,7 @@ interface EmbeddedQ {
   };
 }
 
-function buildEmbedFallbacks(params: {
+export function buildMediaEmbedFallbacks(params: {
   mediaType: "movie" | "tv";
   imdbId?: string | null | undefined;
   tmdbId?: string | null | undefined;
@@ -73,9 +81,30 @@ function buildEmbedFallbacks(params: {
     }
   };
 
+  const primaryId = params.tmdbId || params.imdbId;
+  if (primaryId) {
+    push(
+      "vidsrc.cc",
+      params.mediaType === "movie"
+        ? `${VIDSRC_CC_ORIGIN}/v2/embed/movie/${primaryId}`
+        : `${VIDSRC_CC_ORIGIN}/v2/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+    );
+    push(
+      "vidsrc.xyz",
+      params.mediaType === "movie"
+        ? `${VIDSRC_XYZ_ORIGIN}/embed/movie/${primaryId}`
+        : `${VIDSRC_XYZ_ORIGIN}/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+    );
+    push(
+      "embed.su",
+      params.mediaType === "movie"
+        ? `${EMBED_SU_ORIGIN}/embed/movie/${primaryId}`
+        : `${EMBED_SU_ORIGIN}/embed/tv/${primaryId}/${params.season}/${params.episode}`,
+    );
+  }
   if (params.tmdbId) {
     push(
-      "Backup Player 1",
+      "vidlink.pro",
       params.mediaType === "movie"
         ? `${FALLBACK_EMBED_ORIGIN}/movie/${params.tmdbId}`
         : `${FALLBACK_EMBED_ORIGIN}/tv/${params.tmdbId}/${params.season}/${params.episode}`,
@@ -83,23 +112,10 @@ function buildEmbedFallbacks(params: {
   }
   if (params.imdbId) {
     push(
-      out.length === 0 ? "Backup Player 1" : "Backup Player 2",
-      params.mediaType === "movie"
-        ? `${STREAM_ORIGIN}/embed/movie/${params.imdbId}`
-        : `${STREAM_ORIGIN}/embed/tv/${params.imdbId}/${params.season}/${params.episode}`,
-    );
-    push(
-      `Backup Player ${out.length + 1}`,
+      "2embed",
       params.mediaType === "movie"
         ? `${BACKUP_EMBED_ORIGIN}/embed/${params.imdbId}`
         : `${BACKUP_EMBED_ORIGIN}/embedtv/${params.imdbId}&s=${params.season}&e=${params.episode}`,
-    );
-  } else if (params.tmdbId) {
-    push(
-      "Backup Player 2",
-      params.mediaType === "movie"
-        ? `${STREAM_ORIGIN}/embed/movie/${params.tmdbId}`
-        : `${STREAM_ORIGIN}/embed/tv/${params.tmdbId}/${params.season}/${params.episode}`,
     );
   }
   return out;
@@ -240,8 +256,14 @@ async function verifyPlayableStream(
     const checkUrl = `${STREAM_ORIGIN}/_stream?id=${encodeURIComponent(streamMatch[1])}`;
     try {
       const check = await fetch(checkUrl, {
-        headers: { ...STREAM_HEADERS, Referer: `${STREAM_ORIGIN}/` },
-        signal: AbortSignal.timeout(5000),
+        headers: {
+          "User-Agent": STREAM_HEADERS["User-Agent"],
+          Referer: `${STREAM_ORIGIN}/`,
+          Origin: STREAM_ORIGIN,
+          Accept: "application/vnd.apple.mpegurl,application/x-mpegurl,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        signal: AbortSignal.timeout(4000),
       });
       if (!check.ok) return null;
       const preview = await check.text();
@@ -270,9 +292,10 @@ async function verifyPlayableStream(
       headers: {
         "User-Agent": STREAM_HEADERS["User-Agent"],
         Accept: "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       redirect: "follow",
-      signal: AbortSignal.timeout(5500),
+      signal: AbortSignal.timeout(4000),
     });
     if (!check.ok) return null;
 
@@ -310,7 +333,7 @@ async function resolveFromLookupId(
 
   const htmlRes = await fetch(pageUrl, {
     headers: STREAM_HEADERS,
-    signal: AbortSignal.timeout(7000),
+    signal: AbortSignal.timeout(4500),
   });
   if (!htmlRes.ok) return null;
 
@@ -329,8 +352,8 @@ async function resolveFromLookupId(
         ? `${STREAM_ORIGIN}/pl/api.php?a=sources&type=movie&id=${encodeURIComponent(lookupId)}&t=${encodeURIComponent(q.t)}`
         : `${STREAM_ORIGIN}/pl/api.php?a=sources&type=tv&id=${encodeURIComponent(lookupId)}&s=${data.season}&e=${data.episode}&t=${encodeURIComponent(q.t)}`;
     const srcRes = await fetch(srcUrl, {
-      headers: { ...STREAM_HEADERS, Referer: pageUrl },
-      signal: AbortSignal.timeout(6000),
+      headers: { ...STREAM_HEADERS, Referer: pageUrl, Accept: "application/json,*/*;q=0.8" },
+      signal: AbortSignal.timeout(4000),
     });
     if (srcRes.ok) {
       const srcJson = (await srcRes.json()) as {
@@ -346,14 +369,14 @@ async function resolveFromLookupId(
     (a, b) => scoreServer(b.name, b.lang, data.lang) - scoreServer(a.name, a.lang, data.lang),
   );
 
-  const candidates = servers.slice(0, 6);
+  const candidates = servers.slice(0, 4);
   const settled = await Promise.allSettled(
     candidates.map(async (srv) => {
       const playRes = await fetch(
         `${STREAM_ORIGIN}/pl/api.php?a=play&ref=${encodeURIComponent(srv.ref)}`,
         {
-          headers: { ...STREAM_HEADERS, Referer: pageUrl },
-          signal: AbortSignal.timeout(5500),
+          headers: { ...STREAM_HEADERS, Referer: pageUrl, Accept: "application/json,*/*;q=0.8" },
+          signal: AbortSignal.timeout(4000),
         },
       );
       if (!playRes.ok) return null;
@@ -429,7 +452,7 @@ export const getMediaStream = createServerFn({ method: "GET" })
       resolvedImdb = await resolveImdbByTitle(data.title, data.mediaType, data.year);
     }
 
-    const embedFallbacks = buildEmbedFallbacks({
+    const embedFallbacks = buildMediaEmbedFallbacks({
       mediaType: data.mediaType,
       imdbId: resolvedImdb,
       tmdbId: data.tmdbId,

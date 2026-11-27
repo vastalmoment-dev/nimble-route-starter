@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { inferSectionFromMeta, mapCinemetaItem, parseCinemetaId } from "@/lib/catalog/cinemeta";
 import { handleMediaProxyRequest, rewriteMediaPlaylist } from "@/lib/stream/media-proxy";
 import { canStreamSource } from "@/lib/stream/resolver";
@@ -114,5 +114,74 @@ describe("Media streaming & live catalog helpers", () => {
         genres: ["Drama"],
       }),
     ).toBe("k-dramas");
+  });
+
+  it("returns 502 JSON on upstream 403 or HTML challenge and strips cf-*/x-forwarded-* headers", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("Forbidden", { status: 403 }))
+      .mockResolvedValueOnce(
+        new Response("<!DOCTYPE html><html><title>Just a moment...</title></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+
+    try {
+      const req1 = new Request("http://localhost:3000/api/media/hls?id=abcDEF123456", {
+        headers: {
+          "cf-connecting-ip": "1.2.3.4",
+          "cf-ray": "abc123",
+          "x-forwarded-for": "1.2.3.4",
+        },
+      });
+      const res403 = await handleMediaProxyRequest(req1);
+      expect(res403?.status).toBe(502);
+      const body1 = (await res403?.json()) as {
+        ok: boolean;
+        upstreamStatus: number;
+        blocked: boolean;
+      };
+      expect(body1.ok).toBe(false);
+      expect(body1.upstreamStatus).toBe(403);
+      expect(body1.blocked).toBe(true);
+
+      const sentHeaders = fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(sentHeaders["cf-connecting-ip"]).toBeUndefined();
+      expect(sentHeaders["cf-ray"]).toBeUndefined();
+      expect(sentHeaders["x-forwarded-for"]).toBeUndefined();
+      expect(sentHeaders["Referer"]).toBe("https://vidsrc.buzz/");
+      expect(sentHeaders["Accept-Language"]).toBeTruthy();
+
+      const resChallenge = await handleMediaProxyRequest(
+        new Request("http://localhost:3000/api/media/hls?id=abcDEF123456"),
+      );
+      expect(resChallenge?.status).toBe(502);
+      const body2 = (await resChallenge?.json()) as { ok: boolean; blocked: boolean };
+      expect(body2.ok).toBe(false);
+      expect(body2.blocked).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("builds direct embed fallback list with vidsrc.cc, vidsrc.xyz, embed.su, and vidlink.pro", async () => {
+    const { buildMediaEmbedFallbacks } = await import("@/lib/stream/media.functions");
+    const fallbacks = buildMediaEmbedFallbacks({
+      mediaType: "tv",
+      imdbId: "tt0944947",
+      tmdbId: "1399",
+      season: 2,
+      episode: 5,
+    });
+    expect(fallbacks.map((f) => f.label)).toEqual(
+      expect.arrayContaining(["vidsrc.cc", "vidsrc.xyz", "embed.su", "vidlink.pro"]),
+    );
+    expect(fallbacks.find((f) => f.label === "vidsrc.cc")?.url).toBe(
+      "https://vidsrc.cc/v2/embed/tv/1399/2/5",
+    );
+    expect(fallbacks.find((f) => f.label === "embed.su")?.url).toBe(
+      "https://embed.su/embed/tv/1399/2/5",
+    );
   });
 });

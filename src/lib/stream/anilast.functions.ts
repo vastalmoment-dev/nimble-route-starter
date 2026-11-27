@@ -16,7 +16,54 @@ const ANILAST_HEADERS = {
   Referer: `${ANILAST_ORIGIN}/`,
   Origin: ANILAST_ORIGIN,
   Accept: "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "same-origin",
 };
+
+export interface AnimeEmbedFallback {
+  label: string;
+  url: string;
+}
+
+export function buildAnimeEmbedFallbacks(params: {
+  anilistId: string;
+  malId?: number | null | undefined;
+  episode: number;
+  audio: "sub" | "dub";
+}): AnimeEmbedFallback[] {
+  const out: AnimeEmbedFallback[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, url: string) => {
+    if (!seen.has(url)) {
+      seen.add(url);
+      out.push({ label, url });
+    }
+  };
+
+  if (/^\d+$/.test(params.anilistId)) {
+    push(
+      "vidsrc.cc",
+      `https://vidsrc.cc/v2/embed/anime/ani${params.anilistId}/${params.episode}/${params.audio}`,
+    );
+    push(
+      "vidlink.pro",
+      `https://vidlink.pro/anime/${params.anilistId}/${params.episode}/${params.audio}`,
+    );
+    push(
+      "vidsrc.icu",
+      `https://vidsrc.icu/embed/anime/${params.anilistId}/${params.episode}/${params.audio === "dub" ? 1 : 0}`,
+    );
+  }
+  if (params.malId && params.malId > 0) {
+    push(
+      "vidsrc.cc (MAL)",
+      `https://vidsrc.cc/v2/embed/anime/mal${params.malId}/${params.episode}/${params.audio}`,
+    );
+  }
+  return out;
+}
 
 export interface AniLastStreamResult {
   ok: boolean;
@@ -27,6 +74,7 @@ export interface AniLastStreamResult {
   subtitles: SubtitleTrack[];
   sources?: StreamSource[];
   embedUrl?: string | null;
+  embedFallbacks?: AnimeEmbedFallback[];
   error?: string;
 }
 
@@ -91,7 +139,7 @@ async function queryAnimeEndpoint(
   const endpoint = `${ANILAST_ORIGIN}/api/anime/stream/${lookupId}/${data.episode}?${params.toString()}`;
   const res = await fetch(endpoint, {
     headers: ANILAST_HEADERS,
-    signal: AbortSignal.timeout(9000),
+    signal: AbortSignal.timeout(5500),
   });
   if (!res.ok) return null;
   const json = (await res.json()) as AniLastApiResponse;
@@ -108,21 +156,33 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
       candidates.push(data.anilistId);
     }
 
+    const baseEmbeds = buildAnimeEmbedFallbacks({
+      anilistId: data.anilistId,
+      malId: data.malId,
+      episode: data.episode,
+      audio: data.audio,
+    });
+
     try {
       const settled = await Promise.allSettled(
         candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data)),
       );
 
       const directHits: AniLastApiResponse[] = [];
-      let fallbackEmbedUrl: string | null = null;
+      let upstreamEmbedUrl: string | null = null;
       for (const r of settled) {
         if (r.status !== "fulfilled" || !r.value?.url) continue;
         if (r.value.type === "embed") {
-          fallbackEmbedUrl ??= r.value.url;
+          upstreamEmbedUrl ??= r.value.url;
         } else {
           directHits.push(r.value);
         }
       }
+
+      const embedFallbacks = upstreamEmbedUrl
+        ? [{ label: "Mirror Embed", url: upstreamEmbedUrl }, ...baseEmbeds]
+        : baseEmbeds;
+      const primaryEmbed = embedFallbacks[0]?.url ?? null;
 
       if (directHits.length === 0) {
         return {
@@ -132,7 +192,8 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
           provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
-          ...(fallbackEmbedUrl ? { embedUrl: fallbackEmbedUrl } : {}),
+          embedUrl: primaryEmbed,
+          embedFallbacks,
           error:
             data.audio === "dub"
               ? "Dub audio is not available for this episode yet — try Sub or another episode."
@@ -182,7 +243,8 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         quality: primary.quality ?? null,
         subtitles,
         sources,
-        ...(fallbackEmbedUrl ? { embedUrl: fallbackEmbedUrl } : {}),
+        embedUrl: primaryEmbed,
+        embedFallbacks,
       };
     } catch (error) {
       console.error("Anime stream lookup failed", error);
@@ -193,6 +255,8 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         provider: "SHADOW Stream",
         quality: null,
         subtitles: [],
+        embedUrl: baseEmbeds[0]?.url ?? null,
+        embedFallbacks: baseEmbeds,
         error: "Stream server temporarily unavailable.",
       };
     }

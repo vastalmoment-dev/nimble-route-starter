@@ -2,12 +2,91 @@ import crypto from "node:crypto";
 
 const UPSTREAM_ORIGIN = "https://vidsrc.buzz";
 
-const UPSTREAM_HEADERS: Record<string, string> = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  Referer: `${UPSTREAM_ORIGIN}/`,
-  Accept: "*/*",
-};
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+function buildBrowserProxyHeaders(options: {
+  referer?: string;
+  origin?: string;
+  accept?: string;
+  range?: string | null;
+  sameOrigin?: boolean;
+}): Record<string, string> {
+  // Build a fresh header map so incoming cf-* / x-forwarded-* / cookie headers are never leaked upstream.
+  const headers: Record<string, string> = {
+    "User-Agent": BROWSER_UA,
+    Accept: options.accept ?? "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": options.sameOrigin ? "same-origin" : "cross-site",
+  };
+  if (options.referer) headers["Referer"] = options.referer;
+  if (options.origin) headers["Origin"] = options.origin;
+  if (options.range) headers["Range"] = options.range;
+  return headers;
+}
+
+const UPSTREAM_HEADERS: Record<string, string> = buildBrowserProxyHeaders({
+  referer: `${UPSTREAM_ORIGIN}/`,
+  origin: UPSTREAM_ORIGIN,
+  sameOrigin: true,
+});
+
+function isDisallowedUpstreamHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h) return true;
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h === "::1") {
+    return true;
+  }
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+  if (/^(fc|fd|fe80):/i.test(h)) return true;
+  return false;
+}
+
+function isHtmlOrChallengeBody(text: string, contentType: string): boolean {
+  if (/text\/html/i.test(contentType)) return true;
+  const head = text.slice(0, 600).toLowerCase();
+  return (
+    head.includes("<!doctype") ||
+    head.includes("<html") ||
+    head.includes("just a moment") ||
+    head.includes("cf-browser-verification") ||
+    head.includes("attention required")
+  );
+}
+
+function proxyJsonError(
+  message: string,
+  upstreamStatus: number,
+  status = 502,
+  extra?: Record<string, unknown>,
+): Response {
+  return new Response(
+    JSON.stringify({
+      ok: false,
+      error: message,
+      upstreamStatus,
+      blocked: upstreamStatus === 403 || upstreamStatus === 503 || upstreamStatus === 429,
+      ...extra,
+    }),
+    {
+      status,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    },
+  );
+}
 
 const ALLOWED_IMAGE_HOSTS = new Set([
   "images.metahub.space",
@@ -69,6 +148,7 @@ export function verifyMediaProxyToken(token: string | null): TokenPayload | null
     if (!parsed.u || typeof parsed.exp !== "number" || Date.now() > parsed.exp) return null;
     const u = new URL(parsed.u);
     if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (isDisallowedUpstreamHost(u.hostname)) return null;
     return parsed;
   } catch {
     return null;
@@ -117,12 +197,22 @@ export function rewriteMediaPlaylist(body: string, baseUrl: string): string {
     .join("\n");
 }
 
-async function fetchWithRetry(url: string, init: RequestInit, attempts = 2): Promise<Response> {
+async function fetchWithRetry(
+  url: string,
+  init: Omit<RequestInit, "signal">,
+  attempts = 2,
+  timeoutMs = 9500,
+): Promise<Response> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
-      const res = await fetch(url, init);
-      if (res.status >= 500 && i + 1 < attempts) continue;
+      const res = await fetch(url, {
+        ...init,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if ((res.status === 500 || res.status === 502 || res.status === 504) && i + 1 < attempts) {
+        continue;
+      }
       return res;
     } catch (err) {
       lastErr = err;
@@ -253,6 +343,12 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       return new Response("Invalid stream identifier", { status: 400 });
     }
     upstreamUrl = `${UPSTREAM_ORIGIN}/_stream?id=${encodeURIComponent(id)}`;
+    customHeaders = buildBrowserProxyHeaders({
+      referer: `${UPSTREAM_ORIGIN}/`,
+      origin: UPSTREAM_ORIGIN,
+      accept: "application/vnd.apple.mpegurl,application/x-mpegurl,*/*;q=0.8",
+      sameOrigin: true,
+    });
   } else if (isSub) {
     const ref = url.searchParams.get("ref");
     if (!ref || !SUB_REF_RE.test(ref)) {
@@ -265,26 +361,39 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       return new Response("Invalid or expired stream token", { status: 403 });
     }
     upstreamUrl = payload.u;
-    customHeaders = {
-      "User-Agent": UPSTREAM_HEADERS["User-Agent"]!,
-      Accept: "*/*",
-      ...(payload.ref ? { Referer: payload.ref } : {}),
-    };
-    const range = request.headers.get("range");
-    if (range) customHeaders["Range"] = range;
+    let originHeader: string | undefined;
+    let sameOrigin = false;
+    try {
+      const uOrigin = new URL(upstreamUrl).origin;
+      if (payload.ref && new URL(payload.ref).origin === uOrigin) {
+        originHeader = uOrigin;
+        sameOrigin = true;
+      } else if (payload.ref) {
+        originHeader = new URL(payload.ref).origin;
+      }
+    } catch {
+      /* ignore */
+    }
+    customHeaders = buildBrowserProxyHeaders({
+      ...(payload.ref ? { referer: payload.ref } : {}),
+      ...(originHeader ? { origin: originHeader } : {}),
+      range: request.headers.get("range"),
+      sameOrigin,
+    });
   }
 
   try {
     const upstream = await fetchWithRetry(upstreamUrl, {
       headers: customHeaders,
       redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
     });
 
     if (!upstream.ok) {
-      return new Response(`Stream proxy error (${upstream.status})`, {
-        status: upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502,
-      });
+      return proxyJsonError(
+        `Upstream stream host returned HTTP ${upstream.status}`,
+        upstream.status,
+        502,
+      );
     }
 
     const contentType = upstream.headers.get("content-type") ?? "";
@@ -306,13 +415,23 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
           },
         });
       }
-      return new Response(text, {
-        status: 200,
-        headers: {
-          "content-type": contentType || "text/plain; charset=utf-8",
-          "cache-control": "no-store",
-        },
-      });
+      return proxyJsonError(
+        isHtmlOrChallengeBody(text, contentType)
+          ? "Upstream stream host returned a challenge/HTML page instead of an HLS playlist"
+          : "Upstream returned an invalid HLS playlist",
+        upstream.status,
+        502,
+        { blocked: true },
+      );
+    }
+
+    if (isSeg && /text\/html/i.test(contentType)) {
+      return proxyJsonError(
+        "Upstream segment host returned an HTML challenge instead of media data",
+        upstream.status,
+        502,
+        { blocked: true },
+      );
     }
 
     const headers = new Headers({
@@ -333,6 +452,6 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
     });
   } catch (error) {
     console.error("Media proxy error", error);
-    return new Response("Failed to fetch stream data", { status: 502 });
+    return proxyJsonError("Failed to fetch upstream stream data", 504, 502, { blocked: true });
   }
 }

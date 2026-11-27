@@ -68,11 +68,25 @@ function withEdgeImageCache(request: Request, response: Response): Response {
   });
 }
 
+function syncRuntimeEnv(env: unknown) {
+  if (!env || typeof env !== "object" || typeof process === "undefined" || !process.env) return;
+  const target = process.env;
+  const source = env as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    const val = source[key];
+    if (typeof val === "string" && val.length > 0 && !target[key]) {
+      target[key] = val;
+    }
+  }
+}
+
 // Hosting compresses every response at the edge. Never compress a body (gzip, brotli,
 // CompressionStream) or set content-encoding here or in a server route: the body gets encoded
 // twice and renders garbled.
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    syncRuntimeEnv(env);
     try {
       const proxiedAnime = await handleAniLastProxyRequest(request);
       if (proxiedAnime) return proxiedAnime;
