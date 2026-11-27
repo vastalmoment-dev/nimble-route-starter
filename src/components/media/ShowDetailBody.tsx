@@ -40,6 +40,7 @@ export interface ShowDetailBodyProps {
   mode?: "modal" | "page";
   initialSeason?: number | undefined;
   initialAudio?: AudioOption | undefined;
+  backLabel?: string | undefined;
   onClose?: (() => void) | undefined;
   onBack?: (() => void) | undefined;
 }
@@ -49,6 +50,7 @@ export function ShowDetailBody({
   mode = "modal",
   initialSeason,
   initialAudio,
+  backLabel,
   onClose,
   onBack,
 }: ShowDetailBodyProps) {
@@ -134,11 +136,11 @@ export function ShowDetailBody({
             variant="glass"
             size="sm"
             onClick={onBack}
-            aria-label={t("common.backHome")}
-            className="gap-2 rounded-full px-4"
+            aria-label={backLabel || t("common.backHome")}
+            className="min-h-[44px] gap-2 rounded-full px-4 sm:min-h-0"
           >
             <ArrowLeft className="size-4" />
-            <span>{t("common.backHome")}</span>
+            <span>{backLabel || t("common.backHome")}</span>
           </Button>
           <span className={cn("text-xs font-bold uppercase tracking-[0.28em]", meta.colorClass)}>
             {localizedMeta?.label ?? meta.label}
@@ -148,8 +150,10 @@ export function ShowDetailBody({
 
       <div
         className={cn(
-          "relative min-h-[340px] w-full overflow-hidden bg-surface sm:aspect-video",
-          mode === "page" ? "max-h-[56vh] rounded-2xl border border-foreground/10" : "max-h-[50vh]",
+          "relative flex min-h-[360px] w-full flex-col justify-end overflow-hidden bg-surface sm:block sm:aspect-video sm:min-h-0",
+          mode === "page"
+            ? "rounded-2xl border border-foreground/10 sm:max-h-[56vh]"
+            : "sm:max-h-[50vh]",
         )}
       >
         <MediaImage
@@ -160,10 +164,10 @@ export function ShowDetailBody({
           imdbId={d.imdbId ?? item.imdbId}
           loading="eager"
           fetchPriority="high"
-          className="size-full object-cover object-[center_25%]"
+          className="absolute inset-0 size-full object-cover object-[center_25%]"
         />
         <div className="absolute inset-0 bg-hero-bottom" />
-        <div className="absolute inset-x-0 bottom-0 space-y-3 p-4 sm:space-y-4 sm:p-8">
+        <div className="relative z-10 space-y-3 p-4 pt-20 sm:absolute sm:inset-x-0 sm:bottom-0 sm:space-y-4 sm:p-8">
           <span className={cn("text-xs font-bold uppercase tracking-[0.3em]", meta.colorClass)}>
             {localizedMeta?.label ?? meta.label}
           </span>

@@ -50,6 +50,8 @@ export interface VideoPlayerProps {
   topRight?: ReactNode | undefined;
   /** Shown over the video while paused (e.g. companion ad slot). */
   pausedOverlay?: ReactNode | undefined;
+  /** Whether to auto-enable preferred subtitles initially (defaults true). */
+  preferSubtitles?: boolean | undefined;
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -113,8 +115,12 @@ function getFullscreenElement(): Element | null {
   return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
 }
 
-function pickPreferredSubTrack(subtitles: SubtitleTrack[], lang: SiteLanguage): number {
-  if (subtitles.length === 0) return -1;
+function pickPreferredSubTrack(
+  subtitles: SubtitleTrack[],
+  lang: SiteLanguage,
+  preferSubtitles = true,
+): number {
+  if (!preferSubtitles || subtitles.length === 0) return -1;
   if (lang === "fr") {
     const frIdx = subtitles.findIndex(
       (s) =>
@@ -149,6 +155,7 @@ export default function VideoPlayer({
   skipIntroSeconds = 85,
   topRight,
   pausedOverlay,
+  preferSubtitles = true,
 }: VideoPlayerProps) {
   const { lang, t } = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -221,7 +228,9 @@ export default function VideoPlayer({
   }, []);
 
   const subtitles = useMemo(() => stream.subtitles ?? [], [stream.subtitles]);
-  const [subTrack, setSubTrack] = useState<number>(() => pickPreferredSubTrack(subtitles, lang));
+  const [subTrack, setSubTrack] = useState<number>(() =>
+    pickPreferredSubTrack(subtitles, lang, preferSubtitles),
+  );
 
   useEffect(() => {
     const nextIdx =
@@ -241,8 +250,8 @@ export default function VideoPlayer({
   }, [stream.url, stream.sources, selectedSourceIndex, activeSources.length]);
 
   useEffect(() => {
-    setSubTrack(pickPreferredSubTrack(subtitles, lang));
-  }, [stream.url, stream.sources, subtitles, lang]);
+    setSubTrack(pickPreferredSubTrack(subtitles, lang, preferSubtitles));
+  }, [stream.url, stream.sources, subtitles, lang, preferSubtitles]);
 
   const switchToSource = useCallback(
     (nextIdx: number, statusMessage?: string) => {
@@ -1213,7 +1222,7 @@ export default function VideoPlayer({
         </div>
         {topRight && (
           <div
-            className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2"
+            className="flex w-full min-w-0 flex-wrap items-center justify-start gap-1.5 sm:w-auto sm:shrink-0 sm:justify-end sm:gap-2"
             onClick={(e) => e.stopPropagation()}
           >
             {topRight}

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { ShowDetailBody } from "@/components/media/ShowDetailBody";
+import { useWatchReturn } from "@/components/player/WatchNavigation";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import { itemKey, type MediaItem, type Source } from "@/lib/catalog/types";
@@ -12,6 +13,26 @@ function inferSectionFromId(src: Source, id: string): MediaItem["section"] {
   if (src === "anilist") return "anime";
   if (id.startsWith("movie-")) return "hollywood";
   return "hollywood";
+}
+
+function resolveBackLabel(pathname: string | undefined, t: ReturnType<typeof useT>["t"]): string {
+  if (!pathname || pathname === "/") return t("common.backHome");
+  const sectionMap: Record<string, string> = {
+    "/anime": t("nav.anime"),
+    "/k-dramas": t("nav.kdramas"),
+    "/hollywood": t("nav.hollywood"),
+    "/bollywood": t("nav.bollywood"),
+    "/tollywood": t("nav.tollywood"),
+    "/nollywood": t("nav.nollywood"),
+    "/cartoons": t("nav.cartoons"),
+    "/manga": t("nav.manga"),
+    "/mood": t("nav.mood"),
+    "/watchlist": t("nav.watchlist"),
+    "/search": t("nav.search"),
+  };
+  const label = sectionMap[pathname];
+  if (!label) return t("common.backHome");
+  return t("common.backToSection").replace("{section}", label);
 }
 
 export interface TitleDetailPageProps {
@@ -25,8 +46,21 @@ export function TitleDetailPage({ source, id, season, audio }: TitleDetailPagePr
   const { lang, t } = useT();
   const navigate = useNavigate();
   const detail = useQuery(detailQuery(source, id, lang));
+  const { getReturnTarget, requestScrollRestore } = useWatchReturn();
 
-  const goHome = () => {
+  const returnTarget = getReturnTarget();
+  const backLabel = resolveBackLabel(returnTarget?.pathname, t);
+
+  const goBack = () => {
+    const target = getReturnTarget();
+    if (target) {
+      requestScrollRestore(target.href);
+      void navigate({
+        to: target.pathname as never,
+        search: target.search as never,
+      });
+      return;
+    }
     void navigate({ to: "/" });
   };
 
@@ -49,12 +83,12 @@ export function TitleDetailPage({ source, id, season, audio }: TitleDetailPagePr
           type="button"
           variant="glass"
           size="sm"
-          onClick={goHome}
-          aria-label={t("common.backHome")}
-          className="mb-6 gap-2 rounded-full px-4"
+          onClick={goBack}
+          aria-label={backLabel}
+          className="mb-6 min-h-[44px] gap-2 rounded-full px-4 sm:min-h-0"
         >
           <ArrowLeft className="size-4" />
-          <span>{t("common.backHome")}</span>
+          <span>{backLabel}</span>
         </Button>
         <div className="flex min-h-[45vh] flex-col items-center justify-center gap-3 text-center">
           <Loader2 className="size-10 animate-spin text-cerulean" />
@@ -71,7 +105,8 @@ export function TitleDetailPage({ source, id, season, audio }: TitleDetailPagePr
         mode="page"
         initialSeason={season}
         initialAudio={audio}
-        onBack={goHome}
+        backLabel={backLabel}
+        onBack={goBack}
       />
     </div>
   );

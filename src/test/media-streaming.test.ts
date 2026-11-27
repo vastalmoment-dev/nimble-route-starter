@@ -165,7 +165,7 @@ describe("Media streaming & live catalog helpers", () => {
     }
   });
 
-  it("builds sandbox-free embed list without broken servers (2embed, vidsrc.me, vidsrc.cc, vidsrc.xyz, embed.su)", async () => {
+  it("builds sandbox-safe embed list with bingeapi.st first and frembed.one first in French mode", async () => {
     const { buildMediaEmbedFallbacks } = await import("@/lib/stream/media.functions");
     const fallbacks = buildMediaEmbedFallbacks({
       mediaType: "tv",
@@ -173,23 +173,29 @@ describe("Media streaming & live catalog helpers", () => {
       tmdbId: "1399",
       season: 2,
       episode: 5,
+      lang: "en",
     });
     const labels = fallbacks.map((f) => f.label);
     expect(labels).toEqual([
-      "vidlink.pro",
-      "vidfast.pro",
-      "vidnest.fun",
-      "vidsrc.su",
-      "vidcore.io",
       "bingeapi.st",
+      "primesrc.me",
+      "vidcore.io",
+      "vidsrc.pm",
+      "vidfast.pro",
+      "vidsrc.su",
+      "vidnest.fun",
+      "vidlink.pro",
     ]);
     expect(labels).not.toContain("2embed");
     expect(labels).not.toContain("vidsrc.me");
     expect(labels).not.toContain("vidsrc.cc");
     expect(labels).not.toContain("vidsrc.xyz");
     expect(labels).not.toContain("embed.su");
-    expect(fallbacks.find((f) => f.label === "vidlink.pro")?.url).toBe(
-      "https://vidlink.pro/tv/1399/2/5",
+    expect(fallbacks.find((f) => f.label === "bingeapi.st")?.url).toBe(
+      "https://bingeapi.st/embed/tv/1399/2/5",
+    );
+    expect(fallbacks.find((f) => f.label === "primesrc.me")?.url).toBe(
+      "https://primesrc.me/embed/tv?tmdb=1399&s=2&e=5",
     );
     expect(fallbacks.find((f) => f.label === "vidfast.pro")?.url).toBe(
       "https://vidfast.pro/tv/1399/2/5",
@@ -198,13 +204,45 @@ describe("Media streaming & live catalog helpers", () => {
       "https://vidsrc.su/embed/tv/1399/2/5",
     );
 
+    const frenchMovie = buildMediaEmbedFallbacks({
+      mediaType: "movie",
+      imdbId: "tt10364034",
+      tmdbId: "496450",
+      season: 1,
+      episode: 1,
+      lang: "fr",
+    });
+    expect(frenchMovie[0]).toEqual({
+      label: "frembed.one · VF/VOSTFR",
+      url: "https://frembed.one/api/film.php?id=496450",
+    });
+    expect(frenchMovie[1]).toEqual({
+      label: "bingeapi.st",
+      url: "https://bingeapi.st/embed/movie/496450",
+    });
+
+    const frenchSeries = buildMediaEmbedFallbacks({
+      mediaType: "tv",
+      imdbId: "tt2580046",
+      tmdbId: "65334",
+      season: 1,
+      episode: 3,
+      lang: "fr",
+    });
+    expect(frenchSeries[0]).toEqual({
+      label: "frembed.one · VF/VOSTFR",
+      url: "https://frembed.one/api/serie.php?id=65334&sa=1&epi=3",
+    });
+    expect(frenchSeries[1]?.label).toBe("bingeapi.st");
+
     const imdbOnly = buildMediaEmbedFallbacks({
       mediaType: "movie",
       imdbId: "tt24083908",
       season: 1,
       episode: 1,
     });
-    expect(imdbOnly[0]?.url).toBe("https://vidlink.pro/movie/tt24083908");
+    expect(imdbOnly[0]?.url).toBe("https://bingeapi.st/embed/movie/tt24083908");
+    expect(imdbOnly[1]?.url).toBe("https://primesrc.me/embed/movie?imdb=tt24083908");
 
     const imdbOnlyTv = buildMediaEmbedFallbacks({
       mediaType: "tv",
@@ -212,8 +250,8 @@ describe("Media streaming & live catalog helpers", () => {
       season: 1,
       episode: 1,
     });
-    expect(imdbOnlyTv[0]?.label).toBe("vidfast.pro");
-    expect(imdbOnlyTv[imdbOnlyTv.length - 1]?.label).toBe("vidlink.pro");
+    expect(imdbOnlyTv[0]?.label).toBe("bingeapi.st");
+    expect(imdbOnlyTv[1]?.label).toBe("primesrc.me");
   });
 
   it("proxies signed subtitle URLs and converts SRT timestamps into WEBVTT", async () => {

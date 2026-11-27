@@ -4,10 +4,40 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { getSectionMeta, useT } from "@/lib/i18n";
+import { useShowProgress } from "@/lib/player/progress";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
 import { WatchlistButton } from "./WatchlistButton";
+
+function HeroWatchLink({ item }: { item: MediaItem }) {
+  const { lang, t } = useT();
+  const { last } = useShowProgress(item.source, item.id);
+  const label = last
+    ? item.mediaType === "movie"
+      ? t("common.resumeMovie")
+      : item.source !== "anilist" && last.season > 1
+        ? `${t("common.resume")} S${last.season}·E${last.episode}`
+        : `${t("common.resume")} ${lang === "fr" ? "Ép." : "Ep"} ${last.episode}`
+    : item.mediaType === "movie"
+      ? t("common.watchMovie")
+      : t("common.watchNow");
+  const search = last
+    ? item.source === "anilist"
+      ? { ep: last.episode, ...(last.audio ? { audio: last.audio } : {}) }
+      : item.mediaType === "movie"
+        ? {}
+        : { season: last.season, ep: last.episode }
+    : {};
+
+  return (
+    <Button asChild variant="hero" size="xl">
+      <Link to="/watch/$source/$id" params={{ source: item.source, id: item.id }} search={search}>
+        <Play /> {label}
+      </Link>
+    </Button>
+  );
+}
 
 export function HeroCarousel({ items }: { items: MediaItem[] }) {
   const { lang, t } = useT();
@@ -25,7 +55,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
 
   return (
     <section
-      className="relative h-[78vh] min-h-[540px] w-full overflow-hidden"
+      className="relative h-[72vh] min-h-[470px] w-full overflow-hidden sm:h-[78vh] sm:min-h-[540px]"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-roledescription="carousel"
@@ -88,16 +118,8 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
               <p className="line-clamp-3 max-w-xl text-sm leading-relaxed text-foreground/80 sm:text-base">
                 {item.description}
               </p>
-              <div className="flex flex-wrap gap-3 pt-2">
-                <Button asChild variant="hero" size="xl">
-                  <Link
-                    to="/watch/$source/$id"
-                    params={{ source: item.source, id: item.id }}
-                    search={{}}
-                  >
-                    <Play /> {t("common.watchNow")}
-                  </Link>
-                </Button>
+              <div className="flex flex-wrap gap-2.5 pt-2 sm:gap-3">
+                <HeroWatchLink item={item} />
                 <WatchlistButton item={item} />
                 <Button variant="glass" size="xl" onClick={() => open(item)}>
                   <Info /> {t("common.moreInfo")}

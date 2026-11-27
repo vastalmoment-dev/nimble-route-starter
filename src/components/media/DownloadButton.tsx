@@ -36,12 +36,12 @@ export function DownloadButton({
   compact?: boolean;
   className?: string;
 }) {
-  const { t } = useT();
+  const { lang, t } = useT();
   const jobs = useDownloads();
   const trackAudio: AudioOption = audio ?? "sub";
   const includeSubs = Boolean(includeSubtitles);
   const seasonNum = season ?? 1;
-  const jobId = `${item.source}:${item.id}:${seasonNum}:${episode}:${trackAudio}:${includeSubs ? "subs" : "nosubs"}`;
+  const jobId = `${item.source}:${item.id}:${seasonNum}:${episode}:${trackAudio}:${lang}:${includeSubs ? "subs" : "nosubs"}`;
   const job = jobs.find((j) => j.id === jobId);
   const busy = job?.status === "resolving" || job?.status === "downloading";
   const done = job?.status === "done";

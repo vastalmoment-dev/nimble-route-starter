@@ -77,47 +77,78 @@ export async function fetchAnimeExternalIds(anilistId: string): Promise<AnimeExt
   return { imdbId: null, tmdbId: null, frTitle: null, isMovie: false };
 }
 
-export async function fetchFrenchOpenSubtitles(params: {
+async function fetchOpenSubtitlesByLang(params: {
+  imdbId: string;
+  episode: number;
+  season?: number;
+  isMovie?: boolean;
+  targetLang: "fr" | "en";
+}): Promise<SubtitleTrack[]> {
+  const seasonsToTry =
+    !params.isMovie && (params.season ?? 1) > 1 ? [params.season!, 1] : [params.season ?? 1];
+
+  const langRegex = params.targetLang === "fr" ? /^(fre|fra|fr)$/i : /^(eng|en)$/i;
+  const nameRegex =
+    params.targetLang === "fr" ? /\b(french|fran[cç]ais|vostfr)\b/i : /\b(english|anglais)\b/i;
+
+  for (const seasonNum of seasonsToTry) {
+    try {
+      const subPath = params.isMovie
+        ? `movie/${params.imdbId}.json`
+        : `series/${params.imdbId}:${seasonNum}:${params.episode}.json`;
+      const res = await fetch(`https://opensubtitles-v3.strem.io/subtitles/${subPath}`, {
+        headers: { Accept: "application/json", "User-Agent": BROWSER_UA },
+        signal: AbortSignal.timeout(3500),
+      });
+      if (!res.ok) continue;
+      const json = (await res.json()) as {
+        subtitles?: { url?: string; lang?: string; subtitleFileName?: string }[];
+      };
+      const matches = (json.subtitles ?? []).filter(
+        (s) =>
+          s.url &&
+          /^https?:\/\//i.test(s.url) &&
+          (langRegex.test((s.lang ?? "").trim()) || nameRegex.test(s.subtitleFileName ?? "")),
+      );
+      if (matches.length === 0) continue;
+
+      const seen = new Set<string>();
+      const out: SubtitleTrack[] = [];
+      for (const track of matches) {
+        if (!track.url || seen.has(track.url)) continue;
+        seen.add(track.url);
+        const baseLabel = params.targetLang === "fr" ? "Français" : "English";
+        out.push({
+          url: signSubtitleProxyUrl(track.url),
+          lang: params.targetLang,
+          label: out.length === 0 ? baseLabel : `${baseLabel} ${out.length + 1}`,
+        });
+        if (out.length >= 2) break;
+      }
+      if (out.length > 0) return out;
+    } catch {
+      /* try next season or return empty */
+    }
+  }
+  return [];
+}
+
+export function fetchFrenchOpenSubtitles(params: {
   imdbId: string;
   episode: number;
   season?: number;
   isMovie?: boolean;
 }): Promise<SubtitleTrack[]> {
-  try {
-    const subPath = params.isMovie
-      ? `movie/${params.imdbId}.json`
-      : `series/${params.imdbId}:${params.season ?? 1}:${params.episode}.json`;
-    const res = await fetch(`https://opensubtitles-v3.strem.io/subtitles/${subPath}`, {
-      headers: { Accept: "application/json", "User-Agent": BROWSER_UA },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!res.ok) return [];
-    const json = (await res.json()) as {
-      subtitles?: { url?: string; lang?: string; subtitleFileName?: string }[];
-    };
-    const frTracks = (json.subtitles ?? []).filter(
-      (s) =>
-        s.url &&
-        /^https?:\/\//i.test(s.url) &&
-        (/^(fre|fra|fr)$/i.test((s.lang ?? "").trim()) ||
-          /\b(french|fran[cç]ais|vostfr)\b/i.test(s.subtitleFileName ?? "")),
-    );
-    const seen = new Set<string>();
-    const out: SubtitleTrack[] = [];
-    for (const track of frTracks) {
-      if (!track.url || seen.has(track.url)) continue;
-      seen.add(track.url);
-      out.push({
-        url: signSubtitleProxyUrl(track.url),
-        lang: "fr",
-        label: out.length === 0 ? "Français" : `Français ${out.length + 1}`,
-      });
-      if (out.length >= 2) break;
-    }
-    return out;
-  } catch {
-    return [];
-  }
+  return fetchOpenSubtitlesByLang({ ...params, targetLang: "fr" });
+}
+
+export function fetchEnglishOpenSubtitles(params: {
+  imdbId: string;
+  episode: number;
+  season?: number;
+  isMovie?: boolean;
+}): Promise<SubtitleTrack[]> {
+  return fetchOpenSubtitlesByLang({ ...params, targetLang: "en" });
 }
 
 function normalizeTitle(raw: string): string {

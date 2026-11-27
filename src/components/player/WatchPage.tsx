@@ -133,9 +133,7 @@ export function WatchPage({
 
   const navigate = useNavigate();
 
-  const [playerMode, setPlayerMode] = useState<"native" | "embed">(() =>
-    isAnime && lang === "fr" && audio === "dub" ? "embed" : "native",
-  );
+  const [playerMode, setPlayerMode] = useState<"native" | "embed">("native");
   const [selectedSourceIndex, setSelectedSourceIndex] = useState(0);
   const [embedIndex, setEmbedIndex] = useState(0);
   const [failedEmbedUrls, setFailedEmbedUrls] = useState<string[]>([]);
@@ -164,7 +162,7 @@ export function WatchPage({
   }, [season]);
 
   useEffect(() => {
-    setPlayerMode(isAnime && lang === "fr" && audio === "dub" ? "embed" : "native");
+    setPlayerMode("native");
     setSelectedSourceIndex(0);
     setEmbedIndex(0);
     setFailedEmbedUrls([]);
@@ -181,6 +179,10 @@ export function WatchPage({
     setResumeTime(t);
   }, [source, id, season, ep, epKey, audio, isAnime, lang]);
 
+  const detail = useQuery(detailQuery(source, id, lang));
+  const detailItemRef = useRef(detail.data);
+  detailItemRef.current = detail.data;
+
   const handleTimeProgress = useCallback(
     (currentTime: number, duration: number) => {
       liveProgressRef.current = { time: currentTime, duration };
@@ -192,10 +194,27 @@ export function WatchPage({
         currentTime,
         duration,
         audio: isAnime ? audio : undefined,
+        item: detailItemRef.current,
       });
     },
     [source, id, season, ep, audio, isAnime],
   );
+
+  // Record show/episode in Continue Watching as soon as metadata resolves (covers iframe embeds too!)
+  useEffect(() => {
+    if (!detail.data) return;
+    const saved = playbackProgress.get(source, id, season, ep);
+    playbackProgress.save({
+      source,
+      id,
+      season,
+      episode: ep,
+      currentTime: saved?.currentTime ?? liveProgressRef.current.time,
+      duration: saved?.duration ?? liveProgressRef.current.duration,
+      audio: isAnime ? audio : undefined,
+      item: detail.data,
+    });
+  }, [source, id, season, ep, audio, isAnime, detail.data]);
 
   useEffect(() => {
     const flush = () => {
@@ -209,6 +228,7 @@ export function WatchPage({
           currentTime: time,
           duration,
           audio: isAnime ? audio : undefined,
+          item: detailItemRef.current,
         });
       }
     };
@@ -221,7 +241,6 @@ export function WatchPage({
     };
   }, [source, id, season, ep, audio, isAnime]);
 
-  const detail = useQuery(detailQuery(source, id, lang));
   const title = detail.data?.title ?? "";
   const streamUrl = detail.data
     ? customStreamUrl(detail.data.key, detail.data.videoStreamUrl)
@@ -267,19 +286,38 @@ export function WatchPage({
     [t],
   );
 
-  // In French + SUB (VOSTFR), auto-switch to VOSTFR embed if native HLS has no French subtitles.
+  // Anime French audio/subtitle routing:
+  // - fr + sub: Japanese audio + French subtitles, switching to VOSTFR embed if native lacks French subtitles.
+  // - fr + dub: genuine VF embed if available, otherwise English dub + French subtitles in native player!
   useEffect(() => {
-    if (!isAnime || lang !== "fr") return;
-    if (audio === "dub") {
-      setPlayerMode("embed");
+    if (!isAnime || !aniStream.data) return;
+    if (lang === "fr") {
+      if (audio === "dub") {
+        if (aniStream.data.isFrenchAudio) {
+          setPlayerMode("embed");
+        } else if (aniStream.data.ok && aniStream.data.streamUrl) {
+          setPlayerMode("native");
+        } else {
+          setPlayerMode("embed");
+        }
+        return;
+      }
+      if (
+        audio === "sub" &&
+        !aniStream.data.hasFrenchSubtitles &&
+        (aniStream.data.embedFallbacks?.length ?? 0) > 0
+      ) {
+        setPlayerMode("embed");
+      } else if (aniStream.data.ok && aniStream.data.streamUrl) {
+        setPlayerMode("native");
+      } else {
+        setPlayerMode("embed");
+      }
       return;
     }
-    if (
-      audio === "sub" &&
-      aniStream.data &&
-      !aniStream.data.hasFrenchSubtitles &&
-      (aniStream.data.embedFallbacks?.length ?? 0) > 0
-    ) {
+    if (aniStream.data.ok && aniStream.data.streamUrl) {
+      setPlayerMode("native");
+    } else {
       setPlayerMode("embed");
     }
   }, [isAnime, lang, audio, aniStream.data]);
@@ -331,14 +369,31 @@ export function WatchPage({
     retry: false,
   });
 
-  // Watchdog: if an embed iframe fails to load within 9s and another server exists, auto-advance.
+  // Non-anime routing: switch to French server when lang=fr & native lacks FR audio,
+  // use native player when playable, otherwise fall back cleanly to embed mode so watchdog failover runs.
+  useEffect(() => {
+    if (isAnime || !mediaStream.data) return;
+    if (
+      lang === "fr" &&
+      !mediaStream.data.hasFrenchAudio &&
+      (mediaStream.data.embedFallbacks?.some((fb) => fb.label.includes("VF")) ?? false)
+    ) {
+      setPlayerMode("embed");
+    } else if (mediaStream.data.ok && mediaStream.data.streamUrl) {
+      setPlayerMode("native");
+    } else {
+      setPlayerMode("embed");
+    }
+  }, [isAnime, lang, mediaStream.data]);
+
+  // Watchdog: if an embed iframe fails to load within 7.5s and another server exists, auto-advance.
   useEffect(() => {
     if (playerMode !== "embed" || iframeLoaded) return;
     const { url, pool } = activeEmbedTargetRef.current;
     if (!url || pool.length <= 1) return;
     const timer = setTimeout(() => {
       advanceEmbedServer(url, pool);
-    }, 9_000);
+    }, 7_500);
     return () => clearTimeout(timer);
   }, [
     playerMode,
@@ -350,9 +405,33 @@ export function WatchPage({
     advanceEmbedServer,
   ]);
 
+  // Also listen for explicit player/sandbox error events posted from the active embed iframe origin.
+  useEffect(() => {
+    if (playerMode !== "embed") return;
+    const onMessage = (event: MessageEvent) => {
+      const { url, pool } = activeEmbedTargetRef.current;
+      if (!url || pool.length <= 1) return;
+      try {
+        if (event.origin !== new URL(url).origin) return;
+      } catch {
+        return;
+      }
+      const raw = typeof event.data === "string" ? event.data : JSON.stringify(event.data ?? "");
+      if (
+        /"(?:event|type)"\s*:\s*"(?:error|PLAYER_ERROR|sandbox)"|"fatal"\s*:\s*true|disable\s*sandbox|sandbox\s*not\s*allowed/i.test(
+          raw,
+        )
+      ) {
+        advanceEmbedServer(url, pool);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [playerMode, advanceEmbedServer]);
+
   const goBack = () => {
     const { time, duration } = liveProgressRef.current;
-    if (time > 0.5) {
+    if (time > 0.5 || detailItemRef.current) {
       playbackProgress.save({
         source,
         id,
@@ -361,6 +440,7 @@ export function WatchPage({
         currentTime: time,
         duration,
         audio: isAnime ? audio : undefined,
+        item: detailItemRef.current,
       });
     }
     void navigate({
@@ -398,7 +478,7 @@ export function WatchPage({
     if (nextAudio === audio) return;
     const { time, duration } = liveProgressRef.current;
     carryOverRef.current = { epKey, time };
-    if (time > 0.5) {
+    if (time > 0.5 || detailItemRef.current) {
       playbackProgress.save({
         source,
         id,
@@ -407,6 +487,7 @@ export function WatchPage({
         currentTime: time,
         duration,
         audio: nextAudio,
+        item: detailItemRef.current,
       });
     }
     void navigate({
@@ -497,8 +578,18 @@ export function WatchPage({
       ? Math.min(embedIndex, aniEmbedFallbacks.length - 1)
       : 0;
     const aniEmbedUrl = aniEmbedFallbacks[safeAniEmbedIdx]?.url ?? null;
-    const canUseAniNative = !isFrenchDub && Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
+    const canUseAniNative =
+      !(isFrenchDub && aniStream.data?.isFrenchAudio) &&
+      Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
     const showAniNative = playerMode === "native" && canUseAniNative;
+    const aniAudioBadge =
+      lang === "fr"
+        ? audio === "dub"
+          ? aniStream.data?.dubFallbackToEnglish
+            ? t("watch.dubEnFrSubs")
+            : "VF"
+          : "VOSTFR"
+        : audio.toUpperCase();
     activeEmbedTargetRef.current = {
       url: showAniNative ? null : aniEmbedUrl,
       pool: aniEmbedFallbacks,
@@ -738,9 +829,7 @@ export function WatchPage({
                   ...(aniStream.data.sources?.length ? { sources: aniStream.data.sources } : {}),
                 }}
                 title={title || t("common.loading")}
-                subtitle={`${t("detail.episode")} ${ep} · ${
-                  lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase()
-                }${
+                subtitle={`${t("detail.episode")} ${ep} · ${aniAudioBadge}${
                   currentEp?.title && currentEp.title !== `Episode ${ep}`
                     ? ` — ${currentEp.title}`
                     : ""
@@ -756,6 +845,7 @@ export function WatchPage({
                 selectedSourceIndex={selectedSourceIndex}
                 onSelectSourceIndex={setSelectedSourceIndex}
                 skipIntroSeconds={85}
+                preferSubtitles={!(lang === "en" && audio === "dub")}
                 topRight={animeControls}
               />
             </Suspense>
@@ -784,8 +874,7 @@ export function WatchPage({
                 {title || t("common.loading")}
               </p>
               <p className="text-xs text-muted-foreground">
-                {t("detail.episode")} {ep} ·{" "}
-                {lang === "fr" ? (audio === "dub" ? "VF" : "VOSTFR") : audio.toUpperCase()}
+                {t("detail.episode")} {ep} · {aniAudioBadge}
               </p>
             </div>
           </div>
@@ -975,6 +1064,7 @@ export function WatchPage({
       tmdbId: rawTmdb,
       season: isMovie ? 1 : season,
       episode: isMovie ? 1 : ep,
+      lang,
     });
     const rawEmbedFallbacks = mediaStream.data?.embedFallbacks?.length
       ? mediaStream.data.embedFallbacks

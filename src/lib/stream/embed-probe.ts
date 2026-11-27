@@ -76,7 +76,7 @@ export async function probeSingleEmbed(url: string, timeoutMs = 2600): Promise<b
  */
 export async function filterAvailableEmbeds<T extends ProbeableEmbed>(
   embeds: T[],
-  maxProbe = 7,
+  maxProbe = 10,
 ): Promise<(T & { available: boolean })[]> {
   if (embeds.length === 0) return [];
   const head = embeds.slice(0, maxProbe);

@@ -81,11 +81,13 @@ const EN = {
   "nav.cartoons": "Cartoons",
   "nav.manga": "Manga",
   "nav.mood": "Mood Match",
+  "nav.search": "Search",
   "nav.mainAria": "Main",
   "nav.footerAria": "Footer",
   "shell.searchPlaceholder": "Search anime, cartoons, dramas, movies…",
   "shell.searchAria": "Search titles",
   "shell.clearSearch": "Clear search",
+  "shell.closeSearch": "Close search",
   "shell.openMenu": "Open menu",
   "shell.collapse": "Collapse",
   "shell.expandSidebar": "Expand sidebar",
@@ -103,6 +105,7 @@ const EN = {
   "common.resumeMovie": "Resume Movie",
   "common.moreInfo": "More Info",
   "common.backHome": "Back to Home",
+  "common.backToSection": "Back to {section}",
   "common.back": "Back",
   "common.tryAgain": "Try again",
   "common.retry": "Retry",
@@ -122,6 +125,7 @@ const EN = {
   "common.errorDesc": "Something went wrong on our end. You can try refreshing or head back home.",
 
   // Sections & Genres
+  "section.continueWatching": "Continue Watching",
   "section.shelfErrorTitle": "This shelf went dark",
   "section.shelfErrorDesc":
     "We couldn't reach the catalog just now. Check your connection and try again.",
@@ -239,6 +243,7 @@ const EN = {
   "watch.switchingServer": "Server unavailable — switching to {server}…",
   "watch.vfUnavailable":
     "French dub (VF) is not available for this episode yet — try Sub (VOSTFR).",
+  "watch.dubEnFrSubs": "DUB EN · FR Subs (VF unavailable)",
 
   // VideoPlayer Controls
   "player.play": "Play",
@@ -398,11 +403,13 @@ const FR: Record<TranslationKey, string> = {
   "nav.cartoons": "Dessins Animés",
   "nav.manga": "Manga",
   "nav.mood": "Humeur",
+  "nav.search": "Recherche",
   "nav.mainAria": "Navigation principale",
   "nav.footerAria": "Pied de page",
   "shell.searchPlaceholder": "Rechercher animés, séries, films, dessins animés…",
   "shell.searchAria": "Rechercher des titres",
   "shell.clearSearch": "Effacer la recherche",
+  "shell.closeSearch": "Réduire la recherche",
   "shell.openMenu": "Ouvrir le menu",
   "shell.collapse": "Réduire",
   "shell.expandSidebar": "Déplier la barre latérale",
@@ -420,6 +427,7 @@ const FR: Record<TranslationKey, string> = {
   "common.resumeMovie": "Reprendre le film",
   "common.moreInfo": "Plus d'infos",
   "common.backHome": "Retour à l'accueil",
+  "common.backToSection": "Retour vers {section}",
   "common.back": "Retour",
   "common.tryAgain": "Réessayer",
   "common.retry": "Réessayer",
@@ -440,6 +448,7 @@ const FR: Record<TranslationKey, string> = {
     "Un problème est survenu de notre côté. Vous pouvez actualiser ou revenir à l'accueil.",
 
   // Sections & Genres
+  "section.continueWatching": "Reprendre la lecture",
   "section.shelfErrorTitle": "Ce catalogue est momentanément indisponible",
   "section.shelfErrorDesc":
     "Impossible de joindre le catalogue pour l'instant. Vérifiez votre connexion et réessayez.",
@@ -557,6 +566,7 @@ const FR: Record<TranslationKey, string> = {
   "watch.switchingServer": "Serveur indisponible — passage vers {server}…",
   "watch.vfUnavailable":
     "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
+  "watch.dubEnFrSubs": "DUB EN · ST FR (VF indisponible)",
 
   // VideoPlayer Controls
   "player.play": "Lecture",

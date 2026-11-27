@@ -305,6 +305,28 @@ const STATIC_SEEDS: Record<Exclude<FallbackSection, "k-dramas">, StaticCinemetaS
   ],
   cartoons: [
     {
+      imdbId: "tt2580046",
+      title: "Miraculous: Tales of Ladybug & Cat Noir",
+      mediaType: "tv",
+      year: 2015,
+      rating: 7.5,
+      genres: ["Animation", "Action", "Adventure"],
+      language: "French / English",
+      description:
+        "Marinette and Adrien transform into superheroes Ladybug and Cat Noir to protect Paris from the mysterious Hawk Moth.",
+    },
+    {
+      imdbId: "tt10364034",
+      title: "Miraculous: Ladybug & Cat Noir, the Movie",
+      mediaType: "movie",
+      year: 2023,
+      rating: 6.1,
+      genres: ["Animation", "Action", "Adventure"],
+      language: "French / English",
+      description:
+        "An ordinary teenager in Paris discovers magical powers as Ladybug and teams up with Cat Noir to save the city.",
+    },
+    {
       imdbId: "tt8115900",
       title: "The Bad Guys",
       mediaType: "movie",

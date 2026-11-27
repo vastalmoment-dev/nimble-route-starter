@@ -246,4 +246,84 @@ describe("AniLast anime integration", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("falls back to English DUB + French subtitles when FR VF is unavailable, and ensures EN subs in EN SUB mode", async () => {
+    const { resolveAnimeStream } = await import("@/lib/stream/anilast.functions");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("graphql.anilist.co")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              Media: {
+                idMal: 555,
+                format: "TV",
+                title: { english: "Sample Anime", romaji: "Sample Anime", native: "Sample" },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("api.ani.zip/mappings")) {
+        return new Response(JSON.stringify({ mappings: { imdb_id: "tt1234567" } }), {
+          status: 200,
+        });
+      }
+      if (url.includes("anime-sama.to")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      if (url.includes("/api/anime/stream/")) {
+        return new Response(
+          JSON.stringify({
+            url: "/api/proxy/hls?url=https%3A%2F%2Fcdn.example.com%2Fdub%2Fmaster.m3u8",
+            type: "hls",
+            subtitles: [],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("opensubtitles-v3.strem.io")) {
+        return new Response(
+          JSON.stringify({
+            subtitles: [
+              { url: "https://subs.example.com/fr.srt", lang: "fre", label: "French" },
+              { url: "https://subs.example.com/en-backup.srt", lang: "eng", label: "English" },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    try {
+      const frFallback = await resolveAnimeStream({
+        anilistId: "99991",
+        malId: 555,
+        episode: 1,
+        audio: "dub",
+        lang: "fr",
+        title: "Sample Anime",
+      });
+      expect(frFallback.ok).toBe(true);
+      expect(frFallback.isFrenchAudio).toBe(false);
+      expect(frFallback.dubFallbackToEnglish).toBe(true);
+      expect(frFallback.hasFrenchSubtitles).toBe(true);
+      expect(frFallback.subtitles[0]?.lang.toLowerCase()).toMatch(/fr/);
+
+      const enSub = await resolveAnimeStream({
+        anilistId: "99991",
+        malId: 555,
+        episode: 1,
+        audio: "sub",
+        lang: "en",
+        title: "Sample Anime",
+      });
+      expect(enSub.ok).toBe(true);
+      expect(enSub.subtitles.some((s) => /^(en|eng)\b/i.test(s.lang))).toBe(true);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

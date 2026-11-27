@@ -1,16 +1,20 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { fetchFrenchOpenSubtitles } from "./anime-fr";
 import { filterAvailableEmbeds } from "./embed-probe";
 import { signMediaProxyUrl } from "./media-proxy";
 import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
-const VIDLINK_ORIGIN = "https://vidlink.pro";
-const VIDFAST_ORIGIN = "https://vidfast.pro";
-const VIDNEST_ORIGIN = "https://vidnest.fun";
-const VIDSRC_SU_ORIGIN = "https://vidsrc.su";
+const FREMBED_ORIGIN = "https://frembed.one";
 const BINGEAPI_ORIGIN = "https://bingeapi.st";
+const PRIMESRC_ORIGIN = "https://primesrc.me";
 const VIDCORE_ORIGIN = "https://vidcore.io";
+const VIDSRC_PM_ORIGIN = "https://vidsrc.pm";
+const VIDFAST_ORIGIN = "https://vidfast.pro";
+const VIDSRC_SU_ORIGIN = "https://vidsrc.su";
+const VIDNEST_ORIGIN = "https://vidnest.fun";
+const VIDLINK_ORIGIN = "https://vidlink.pro";
 
 const STREAM_HEADERS = {
   "User-Agent":
@@ -39,6 +43,7 @@ export interface MediaStreamResult {
   embedUrl: string | null;
   sources?: StreamSource[];
   embedFallbacks?: EmbedFallback[];
+  hasFrenchAudio?: boolean;
   error?: string;
 }
 
@@ -79,6 +84,7 @@ export function buildMediaEmbedFallbacks(params: {
   tmdbId?: string | null | undefined;
   season: number;
   episode: number;
+  lang?: "en" | "fr" | undefined;
 }): EmbedFallback[] {
   const out: EmbedFallback[] = [];
   const seen = new Set<string>();
@@ -91,56 +97,80 @@ export function buildMediaEmbedFallbacks(params: {
 
   // Prefer numeric TMDB IDs when known, otherwise fall back to IMDb IDs.
   // Never emit 2embed.cc or vidsrc.me because they block playback in modern browsers
-  // with "Sandbox not allowed" errors under Origin-Agent-Cluster / nested previews.
+  // with "Sandbox not allowed" errors under nested previews.
   const mediaKey = params.tmdbId || params.imdbId || null;
   if (!mediaKey) return out;
 
-  const isImdbOnlyTv = params.mediaType === "tv" && !params.tmdbId;
-  const pushVidlink = () =>
+  // When viewer switches to French ("fr"), put French VF/VOSTFR streaming server first.
+  if (params.lang === "fr" && params.tmdbId) {
     push(
-      "vidlink.pro",
+      "frembed.one · VF/VOSTFR",
       params.mediaType === "movie"
-        ? `${VIDLINK_ORIGIN}/movie/${mediaKey}`
-        : `${VIDLINK_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+        ? `${FREMBED_ORIGIN}/api/film.php?id=${params.tmdbId}`
+        : `${FREMBED_ORIGIN}/api/serie.php?id=${params.tmdbId}&sa=${params.season}&epi=${params.episode}`,
     );
-
-  // vidlink.pro/tv requires a numeric TMDB ID and returns 500 on IMDb IDs; put IMDb-safe servers first when TMDB ID is missing.
-  if (!isImdbOnlyTv) {
-    pushVidlink();
   }
-  push(
-    "vidfast.pro",
-    params.mediaType === "movie"
-      ? `${VIDFAST_ORIGIN}/movie/${mediaKey}`
-      : `${VIDFAST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
-  );
-  push(
-    "vidnest.fun",
-    params.mediaType === "movie"
-      ? `${VIDNEST_ORIGIN}/movie/${mediaKey}`
-      : `${VIDNEST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
-  );
-  push(
-    "vidsrc.su",
-    params.mediaType === "movie"
-      ? `${VIDSRC_SU_ORIGIN}/embed/movie/${mediaKey}`
-      : `${VIDSRC_SU_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
-  );
-  push(
-    "vidcore.io",
-    params.mediaType === "movie"
-      ? `${VIDCORE_ORIGIN}/embed/movie/${mediaKey}`
-      : `${VIDCORE_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
-  );
+
+  // Put bingeapi.st FIRST: confirmed working inside Cloudflare Pages sandboxed iframes,
+  // supports both TMDB and IMDb IDs for movies and TV series.
   push(
     "bingeapi.st",
     params.mediaType === "movie"
       ? `${BINGEAPI_ORIGIN}/embed/movie/${mediaKey}`
       : `${BINGEAPI_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
   );
-  if (isImdbOnlyTv) {
-    pushVidlink();
-  }
+
+  // primesrc.me supports sandboxed iframes cleanly with explicit tmdb= / imdb= query params.
+  const primeParam = params.tmdbId ? `tmdb=${params.tmdbId}` : `imdb=${params.imdbId!}`;
+  push(
+    "primesrc.me",
+    params.mediaType === "movie"
+      ? `${PRIMESRC_ORIGIN}/embed/movie?${primeParam}`
+      : `${PRIMESRC_ORIGIN}/embed/tv?${primeParam}&s=${params.season}&e=${params.episode}`,
+  );
+
+  push(
+    "vidcore.io",
+    params.mediaType === "movie"
+      ? `${VIDCORE_ORIGIN}/embed/movie/${mediaKey}`
+      : `${VIDCORE_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
+  push(
+    "vidsrc.pm",
+    params.mediaType === "movie"
+      ? `${VIDSRC_PM_ORIGIN}/embed/movie/${mediaKey}`
+      : `${VIDSRC_PM_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
+  push(
+    "vidfast.pro",
+    params.mediaType === "movie"
+      ? `${VIDFAST_ORIGIN}/movie/${mediaKey}`
+      : `${VIDFAST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
+  push(
+    "vidsrc.su",
+    params.mediaType === "movie"
+      ? `${VIDSRC_SU_ORIGIN}/embed/movie/${mediaKey}`
+      : `${VIDSRC_SU_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
+  push(
+    "vidnest.fun",
+    params.mediaType === "movie"
+      ? `${VIDNEST_ORIGIN}/movie/${mediaKey}`
+      : `${VIDNEST_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
+  push(
+    "vidlink.pro",
+    params.mediaType === "movie"
+      ? `${VIDLINK_ORIGIN}/movie/${mediaKey}`
+      : `${VIDLINK_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
+  );
+
   return out;
 }
 
@@ -259,14 +289,19 @@ function isPreferredSub(
   prefLang: "en" | "fr",
 ): number {
   const s = `${track.label ?? ""} ${track.lang ?? ""} ${track.cc ?? ""}`.toLowerCase();
-  const cc = (track.cc ?? "").toLowerCase();
+  const cc = (track.cc ?? "").trim().toLowerCase();
+  const lang = (track.lang ?? "").trim().toLowerCase();
+  const isFr =
+    cc === "fr" || /^(fr|fre|fra)\b/.test(lang) || /\b(french|fran[cç]ais|vostfr|vf)\b/.test(s);
+  const isEn =
+    cc === "en" || /^(en|eng)\b/.test(lang) || /\b(english|anglais)\b/.test(s) || s.includes(" us");
   if (prefLang === "fr") {
-    if (cc === "fr" || s.includes("french") || s.includes("français")) return 3;
-    if (cc === "en" || s.includes("english")) return 2;
+    if (isFr) return 3;
+    if (isEn) return 2;
     return 0;
   }
-  if (cc === "en" || s.includes("english") || s.includes(" us")) return 3;
-  if (cc === "fr" || s.includes("french")) return 1;
+  if (isEn) return 3;
+  if (isFr) return 1;
   return 0;
 }
 
@@ -592,6 +627,7 @@ export const getMediaStream = createServerFn({ method: "GET" })
       tmdbId: resolvedTmdb,
       season: data.season,
       episode: data.episode,
+      lang: data.lang,
     });
 
     const lookupIds = [resolvedImdb, resolvedTmdb].filter((x): x is string => Boolean(x));
@@ -626,15 +662,34 @@ export const getMediaStream = createServerFn({ method: "GET" })
       const embedUrl = embedFallbacks[0]?.url ?? null;
 
       if (nativeHit) {
+        let subtitles = [...nativeHit.subtitles];
+        const hasFrenchSub = subtitles.some(
+          (s) =>
+            /^(fr|fre|fra)\b/i.test(s.lang.trim()) ||
+            /\b(french|fran[cç]ais|vostfr)\b/i.test(`${s.lang} ${s.label}`),
+        );
+        if (data.lang === "fr" && !hasFrenchSub && resolvedImdb) {
+          const frSubs = await fetchFrenchOpenSubtitles({
+            imdbId: resolvedImdb,
+            season: data.season,
+            episode: data.episode,
+            isMovie: data.mediaType === "movie",
+          });
+          subtitles = [...frSubs, ...subtitles];
+        }
+        const hasFrenchNativeSource = nativeHit.sources.some((s) =>
+          /\b(french|fr|vostfr|vf)\b/i.test(`${s.lang ?? ""} ${s.label}`),
+        );
         return {
           ok: true,
           streamUrl: nativeHit.sources[0]!.url,
           type: nativeHit.sources[0]!.type,
           provider: "SHADOW Stream",
-          subtitles: nativeHit.subtitles,
+          subtitles,
           embedUrl,
           sources: nativeHit.sources,
           embedFallbacks,
+          hasFrenchAudio: hasFrenchNativeSource,
         };
       }
 
@@ -646,6 +701,7 @@ export const getMediaStream = createServerFn({ method: "GET" })
         subtitles: [],
         embedUrl,
         embedFallbacks,
+        hasFrenchAudio: data.lang === "fr" && embedFallbacks.some((e) => e.label.includes("VF")),
         error: "Using alternate player for this title.",
       };
     } catch (error) {

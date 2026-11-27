@@ -532,6 +532,178 @@ describe("Two-step Back navigation, ordered episodes & Policy page", () => {
     expect(container.innerHTML.toLowerCase()).not.toContain("youtube");
     expect(screen.queryByText(/Official trailer/i)).toBeNull();
   });
+  it("returns from /anime -> /watch -> /title back to /anime instead of redirecting to Home", async () => {
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+
+    const mockAnilistResp = {
+      data: {
+        Page: {
+          pageInfo: { total: 1, currentPage: 1, lastPage: 1, hasNextPage: false },
+          media: [
+            {
+              id: 16498,
+              idMal: 16498,
+              title: { english: "Attack on Titan", romaji: "Shingeki no Kyojin" },
+              coverImage: {
+                large: "https://example.com/aot-l.jpg",
+                extraLarge: "https://example.com/aot-xl.jpg",
+              },
+              bannerImage: "https://example.com/aot-b.jpg",
+              episodes: 25,
+              genres: ["Action"],
+              averageScore: 85,
+              seasonYear: 2013,
+              format: "TV",
+              status: "FINISHED",
+              description: "Humanity fights Titans.",
+            },
+          ],
+        },
+        Media: {
+          id: 16498,
+          idMal: 16498,
+          title: { english: "Attack on Titan", romaji: "Shingeki no Kyojin" },
+          coverImage: {
+            large: "https://example.com/aot-l.jpg",
+            extraLarge: "https://example.com/aot-xl.jpg",
+          },
+          bannerImage: "https://example.com/aot-b.jpg",
+          episodes: 2,
+          genres: ["Action"],
+          averageScore: 85,
+          seasonYear: 2013,
+          format: "TV",
+          status: "FINISHED",
+          description: "Humanity fights Titans.",
+          characters: { edges: [] },
+          relations: { edges: [] },
+        },
+      },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+      if (url.includes("graphql.anilist.co")) {
+        return Promise.resolve(
+          new Response(JSON.stringify(mockAnilistResp), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: false, streamUrl: null, embedFallbacks: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({
+        initialEntries: ["/anime"],
+      }),
+    });
+
+    await router.load();
+    render(<RouterProvider router={router} />);
+
+    // Wait for Play link from the HeroCarousel on /anime and click to enter /watch
+    const watchLinks = await screen.findAllByRole("link", {
+      name: /Watch Now|Play Attack on Titan/i,
+    });
+    fireEvent.click(watchLinks[0]!);
+
+    await waitForCompat(() => {
+      expect(router.state.location.pathname).toBe("/watch/anilist/16498");
+    });
+
+    // Step 1: Click Back in WatchPage -> /title/anilist/16498
+    const watchBackBtn = await screen.findByRole("button", { name: "Back" });
+    fireEvent.click(watchBackBtn);
+
+    await waitForCompat(() => {
+      expect(router.state.location.pathname).toBe("/title/anilist/16498");
+    });
+
+    // Step 2: Click Back to Anime on Show page -> returns directly to /anime
+    const backToAnimeBtn = await screen.findByRole("button", { name: /Back to Anime/i });
+    fireEvent.click(backToAnimeBtn);
+
+    await waitForCompat(() => {
+      expect(router.state.location.pathname).toBe("/anime");
+    });
+  });
+
+  it("saves Continue Watching per section with Resume badge and expands mobile search on focus", async () => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+
+    const { playbackProgress, useShowProgress } = await import("@/lib/player/progress");
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+
+    playbackProgress.save({
+      source: "cinemeta",
+      id: "series-tt2580046",
+      season: 2,
+      episode: 7,
+      currentTime: 320,
+      duration: 1280,
+      item: {
+        key: "cinemeta:series-tt2580046",
+        id: "series-tt2580046",
+        source: "cinemeta",
+        section: "cartoons",
+        title: "Miraculous: Tales of Ladybug & Cat Noir",
+        poster: "https://example.com/miraculous.jpg",
+        genres: ["Animation"],
+        description: "Ladybug & Cat Noir.",
+        mediaType: "tv",
+      },
+    });
+
+    function ProbeProgress() {
+      const { last, progressPct } = useShowProgress("cinemeta", "series-tt2580046");
+      return (
+        <div data-testid="progress-probe">
+          {last ? `S${last.season}E${last.episode}:${progressPct}` : "none"}
+        </div>
+      );
+    }
+
+    const { unmount } = render(<ProbeProgress />);
+    expect(screen.getByTestId("progress-probe").textContent).toBe("S2E7:25");
+    unmount();
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+
+    await router.load();
+    render(<RouterProvider router={router} />);
+
+    // Mobile search bar expands cleanly on focus and collapses back when submitted
+    const searchInput = screen.getByLabelText("Search titles");
+    const form = searchInput.closest("form");
+    expect(form?.getAttribute("data-mobile-expanded")).toBe("false");
+
+    fireEvent.focus(searchInput);
+    expect(form?.getAttribute("data-mobile-expanded")).toBe("true");
+
+    fireEvent.change(searchInput, { target: { value: "miraculous" } });
+    fireEvent.submit(form!);
+    expect(form?.getAttribute("data-mobile-expanded")).toBe("false");
+  });
 });
 
 async function waitForCompat(fn: () => void) {

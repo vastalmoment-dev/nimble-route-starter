@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { filterByGenres, sectionQuery, type GenreChipId } from "@/lib/catalog";
 import { SECTION_META, type SectionId } from "@/lib/catalog/types";
 import { getSectionMeta, useT } from "@/lib/i18n";
+import { useContinueWatching } from "@/lib/player/progress";
 import { useWatchlist } from "@/lib/watchlist/store";
 import { GenreChips } from "./GenreChips";
 import { HeroCarousel, HeroSkeleton } from "./HeroCarousel";
@@ -24,6 +25,18 @@ export function SectionPage({
   const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section, lang));
   const [genres, setGenres] = useState<GenreChipId[]>([]);
   const watchlistEntries = useWatchlist();
+  const continueEntries = useContinueWatching();
+
+  const continueItems = useMemo(
+    () =>
+      filterByGenres(
+        continueEntries
+          .filter((e) => section === "home" || e.item.section === section)
+          .map((e) => e.item),
+        genres,
+      ),
+    [section, continueEntries, genres],
+  );
 
   const watchlistItems = useMemo(
     () =>
@@ -71,7 +84,6 @@ export function SectionPage({
 
   const meta = section === "home" ? null : SECTION_META[section];
   const localizedMeta = section === "home" ? null : getSectionMeta(section, lang);
-  const showLanguageToggle = section !== "anime";
 
   return (
     <div>
@@ -91,10 +103,13 @@ export function SectionPage({
             ) : (
               <div />
             )}
-            {showLanguageToggle && <LanguageToggle compact />}
+            <LanguageToggle compact />
           </div>
           <GenreChips value={genres} onChange={setGenres} />
         </div>
+        {continueItems.length > 0 && (
+          <Shelf title={t("section.continueWatching")} items={continueItems} />
+        )}
         {watchlistItems.length > 0 && <Shelf title={t("watchlist.title")} items={watchlistItems} />}
         {shelves.length === 0 ? (
           <div className="px-4 py-16 text-center text-muted-foreground sm:px-8 lg:px-12">

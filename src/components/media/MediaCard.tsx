@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Bookmark, BookmarkCheck, Play, Star } from "lucide-react";
 import type { MediaItem } from "@/lib/catalog/types";
 import { useT } from "@/lib/i18n";
+import { useShowProgress } from "@/lib/player/progress";
 import { useIsInWatchlist, watchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { MediaImage } from "./MediaImage";
@@ -18,14 +19,31 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
 };
 
 export function MediaCard({ item, className }: { item: MediaItem; className?: string }) {
-  const { lang } = useT();
+  const { lang, t } = useT();
   const { open } = useMediaModal();
   const saved = useIsInWatchlist(item.key);
+  const { last, progressPct } = useShowProgress(item.source, item.id);
   const titleFallback = (
     <div className="flex size-full items-center justify-center p-3 text-center font-display text-sm text-muted-foreground">
       {item.title}
     </div>
   );
+
+  const resumeBadge = last
+    ? item.mediaType === "movie"
+      ? t("common.resume")
+      : item.source !== "anilist" && last.season > 1
+        ? `S${last.season}·E${last.episode}`
+        : `${lang === "fr" ? "Ép." : "Ep"} ${last.episode}`
+    : null;
+
+  const playSearch = last
+    ? item.source === "anilist"
+      ? { ep: last.episode, ...(last.audio ? { audio: last.audio } : {}) }
+      : item.mediaType === "movie"
+        ? {}
+        : { season: last.season, ep: last.episode }
+    : {};
 
   return (
     <div className={cn("group/card relative shrink-0", className)}>
@@ -56,7 +74,9 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
                 <Star className="size-3 fill-current" /> {item.rating.toFixed(1)}
               </span>
             ) : null}
-            {item.latestEpisode && item.source === "anilist" ? (
+            {resumeBadge ? (
+              <span className="font-semibold text-cerulean">{resumeBadge}</span>
+            ) : item.latestEpisode && item.source === "anilist" ? (
               <span className="text-cerulean">
                 {lang === "fr" ? "Ép." : "Ep"} {item.latestEpisode}
               </span>
@@ -68,9 +88,24 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         <span
           className={cn("absolute left-2 top-2 size-1.5 rounded-full", SECTION_DOT[item.section])}
         />
-        {item.source === "anilist" && item.latestEpisode && (
-          <span className="absolute bottom-2 left-2 rounded bg-scrim/85 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-foreground backdrop-blur-sm transition-opacity group-hover/card:opacity-0">
-            {lang === "fr" ? "ÉP" : "EP"} {item.latestEpisode}
+        {resumeBadge ? (
+          <span className="absolute bottom-2 left-2 rounded bg-scrim/90 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-cerulean backdrop-blur-sm transition-opacity group-hover/card:opacity-0">
+            {resumeBadge}
+          </span>
+        ) : (
+          item.source === "anilist" &&
+          item.latestEpisode && (
+            <span className="absolute bottom-2 left-2 rounded bg-scrim/85 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-foreground backdrop-blur-sm transition-opacity group-hover/card:opacity-0">
+              {lang === "fr" ? "ÉP" : "EP"} {item.latestEpisode}
+            </span>
+          )
+        )}
+        {last && (
+          <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 bg-foreground/20">
+            <span
+              className="block h-full bg-brand-gradient"
+              style={{ width: `${progressPct ?? 28}%` }}
+            />
           </span>
         )}
       </button>
@@ -112,8 +147,16 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
       <Link
         to="/watch/$source/$id"
         params={{ source: item.source, id: item.id }}
-        search={{}}
-        aria-label={lang === "fr" ? `Lire ${item.title}` : `Play ${item.title}`}
+        search={playSearch}
+        aria-label={
+          last
+            ? lang === "fr"
+              ? `Reprendre ${item.title}`
+              : `Resume ${item.title}`
+            : lang === "fr"
+              ? `Lire ${item.title}`
+              : `Play ${item.title}`
+        }
         className="absolute right-2 top-2 flex size-9 scale-75 items-center justify-center rounded-full bg-foreground text-background opacity-0 shadow-card transition duration-300 group-hover/card:scale-100 group-hover/card:opacity-100 focus-visible:opacity-100"
       >
         <Play className="size-4 translate-x-px fill-current" />

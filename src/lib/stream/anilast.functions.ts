@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   detectAnimeSeasonFromTitles,
   fetchAnimeExternalIds,
+  fetchEnglishOpenSubtitles,
   fetchFrenchOpenSubtitles,
   resolveAnimeSamaEmbeds,
 } from "./anime-fr";
@@ -52,18 +53,6 @@ export function buildAnimeEmbedFallbacks(params: {
 
   if (/^\d+$/.test(params.anilistId)) {
     push(
-      "vidlink.pro",
-      `https://vidlink.pro/anime/${params.anilistId}/${params.episode}/${params.audio}`,
-    );
-    push(
-      "vidnest.fun",
-      `https://vidnest.fun/anime/${params.anilistId}/${params.episode}/${params.audio}`,
-    );
-    push(
-      "vidsrc.su",
-      `https://vidsrc.su/embed/anime/${params.anilistId}/${params.episode}/${params.audio}`,
-    );
-    push(
       "vidcore.io",
       `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}${params.audio === "dub" ? "?dub=true" : ""}`,
     );
@@ -72,6 +61,20 @@ export function buildAnimeEmbedFallbacks(params: {
     push(
       "megaplay.buzz",
       `https://megaplay.buzz/stream/mal/${params.malId}/${params.episode}/${params.audio}`,
+    );
+  }
+  if (/^\d+$/.test(params.anilistId)) {
+    push(
+      "vidsrc.su",
+      `https://vidsrc.su/embed/anime/${params.anilistId}/${params.episode}/${params.audio}`,
+    );
+    push(
+      "vidnest.fun",
+      `https://vidnest.fun/anime/${params.anilistId}/${params.episode}/${params.audio}`,
+    );
+    push(
+      "vidlink.pro",
+      `https://vidlink.pro/anime/${params.anilistId}/${params.episode}/${params.audio}`,
     );
   }
   return out;
@@ -89,6 +92,7 @@ export interface AniLastStreamResult {
   embedFallbacks?: AnimeEmbedFallback[];
   hasFrenchSubtitles?: boolean;
   isFrenchAudio?: boolean;
+  dubFallbackToEnglish?: boolean;
   error?: string;
 }
 
@@ -178,130 +182,43 @@ function dedupeEmbeds(list: AnimeEmbedFallback[]): AnimeEmbedFallback[] {
   return out;
 }
 
-export const getAniLastAnimeStream = createServerFn({ method: "GET" })
-  .inputValidator((input) => StreamInputSchema.parse(input))
-  .handler(async ({ data }): Promise<AniLastStreamResult> => {
-    const candidates: (string | number)[] = [];
-    if (data.malId) candidates.push(data.malId);
-    if (!data.malId || String(data.malId) !== data.anilistId) {
-      candidates.push(data.anilistId);
-    }
+export async function resolveAnimeStream(
+  rawInput: z.input<typeof StreamInputSchema>,
+): Promise<AniLastStreamResult> {
+  const data = StreamInputSchema.parse(rawInput);
+  const candidates: (string | number)[] = [];
+  if (data.malId) candidates.push(data.malId);
+  if (!data.malId || String(data.malId) !== data.anilistId) {
+    candidates.push(data.anilistId);
+  }
 
-    const baseEmbeds = buildAnimeEmbedFallbacks({
-      anilistId: data.anilistId,
-      malId: data.malId,
-      episode: data.episode,
-      audio: data.audio,
-    });
+  const baseEmbeds = buildAnimeEmbedFallbacks({
+    anilistId: data.anilistId,
+    malId: data.malId,
+    episode: data.episode,
+    audio: data.audio,
+  });
 
-    // French mode + DUB (VF): native HLS upstream only carries English dub, so resolve genuine French VF embeds.
-    if (data.lang === "fr" && data.audio === "dub") {
-      try {
-        const ext = await fetchAnimeExternalIds(data.anilistId);
-        const titles = [data.title, data.englishTitle, data.romajiTitle, ext.frTitle];
-        const vfEmbeds = await resolveAnimeSamaEmbeds({
-          titles,
-          episode: data.episode,
-          variant: "vf",
-          isMovie: Boolean(data.isMovie || ext.isMovie),
-        });
+  const isEnglishTrack = (track: SubtitleTrack) => {
+    const s = `${track.lang} ${track.label}`.toLowerCase();
+    return /^(en|eng)\b/i.test(track.lang.trim()) || /\b(english|anglais)\b/i.test(s);
+  };
 
-        if (vfEmbeds.length > 0) {
-          return {
-            ok: false,
-            streamUrl: null,
-            type: "hls",
-            provider: "SHADOW Stream",
-            quality: null,
-            subtitles: [],
-            embedUrl: vfEmbeds[0]!.url,
-            embedFallbacks: vfEmbeds,
-            hasFrenchSubtitles: false,
-            isFrenchAudio: true,
-          };
-        }
+  let dubFallbackToEnglish = false;
 
-        return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
-          provider: "SHADOW Stream",
-          quality: null,
-          subtitles: [],
-          embedUrl: null,
-          embedFallbacks: [],
-          hasFrenchSubtitles: false,
-          isFrenchAudio: false,
-          error: "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
-        };
-      } catch (error) {
-        console.error("French anime VF lookup failed", error);
-        return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
-          provider: "SHADOW Stream",
-          quality: null,
-          subtitles: [],
-          embedUrl: null,
-          embedFallbacks: [],
-          hasFrenchSubtitles: false,
-          isFrenchAudio: false,
-          error: "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
-        };
-      }
-    }
-
+  // French mode + DUB (VF): try genuine French VF first; if unavailable, fall back to English Dub + French subtitles.
+  if (data.lang === "fr" && data.audio === "dub") {
     try {
-      const titles = [data.title, data.englishTitle, data.romajiTitle];
-      const extPromise =
-        data.lang === "fr" ? fetchAnimeExternalIds(data.anilistId) : Promise.resolve(null);
-      const vostfrPromise =
-        data.lang === "fr" && data.audio === "sub"
-          ? extPromise.then((ext) =>
-              resolveAnimeSamaEmbeds({
-                titles: [...titles, ext?.frTitle],
-                episode: data.episode,
-                variant: "vostfr",
-                isMovie: Boolean(data.isMovie || ext?.isMovie),
-              }),
-            )
-          : Promise.resolve([]);
+      const ext = await fetchAnimeExternalIds(data.anilistId);
+      const titles = [data.title, data.englishTitle, data.romajiTitle, ext.frTitle];
+      const vfEmbeds = await resolveAnimeSamaEmbeds({
+        titles,
+        episode: data.episode,
+        variant: "vf",
+        isMovie: Boolean(data.isMovie || ext.isMovie),
+      });
 
-      const [settled, ext, vostfrEmbeds, probedBaseEmbeds] = await Promise.all([
-        Promise.allSettled(candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data))),
-        extPromise,
-        vostfrPromise,
-        filterAvailableEmbeds(baseEmbeds),
-      ]);
-
-      const directHits: AniLastApiResponse[] = [];
-      let upstreamEmbedUrl: string | null = null;
-      for (const r of settled) {
-        if (r.status !== "fulfilled" || !r.value?.url) continue;
-        if (r.value.type === "embed") {
-          upstreamEmbedUrl ??= r.value.url;
-        } else {
-          directHits.push(r.value);
-        }
-      }
-
-      const isSandboxBlockedHost =
-        Boolean(upstreamEmbedUrl) &&
-        /(^|\.)(2embed\.cc|vidsrc\.me|vidsrc\.buzz)\b/i.test(upstreamEmbedUrl!);
-      const mirrorOk =
-        upstreamEmbedUrl && !isSandboxBlockedHost
-          ? await probeSingleEmbed(upstreamEmbedUrl, 2400)
-          : false;
-      const mirrorList: AnimeEmbedFallback[] =
-        upstreamEmbedUrl && mirrorOk
-          ? [{ label: "Mirror Embed", url: upstreamEmbedUrl, available: true }]
-          : [];
-
-      const embedFallbacks = dedupeEmbeds([...vostfrEmbeds, ...mirrorList, ...probedBaseEmbeds]);
-      const primaryEmbed = embedFallbacks[0]?.url ?? null;
-
-      if (directHits.length === 0) {
+      if (vfEmbeds.length > 0) {
         return {
           ok: false,
           streamUrl: null,
@@ -309,91 +226,71 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
           provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
-          embedUrl: primaryEmbed,
-          embedFallbacks,
-          hasFrenchSubtitles: vostfrEmbeds.length > 0,
-          isFrenchAudio: false,
-          error:
-            data.audio === "dub"
-              ? "Dub audio is not available for this episode yet — try Sub or another episode."
-              : "Direct video stream is temporarily unavailable for this episode.",
+          embedUrl: vfEmbeds[0]!.url,
+          embedFallbacks: vfEmbeds,
+          hasFrenchSubtitles: false,
+          isFrenchAudio: true,
+          dubFallbackToEnglish: false,
         };
       }
 
-      const seenUrls = new Set<string>();
-      const sources: StreamSource[] = [];
-      for (const hit of directHits) {
-        if (!hit.url) continue;
-        const rewritten = rewriteAnimeProxyPath(hit.url, "hls");
-        if (seenUrls.has(rewritten)) continue;
-        seenUrls.add(rewritten);
-        sources.push({
-          url: rewritten,
-          type: inferStreamType(rewritten, hit.type),
-          label: `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
-          lang: data.audio,
-        });
-      }
-
-      const primary = directHits[0]!;
-      const primarySource = sources[0]!;
-
-      const mergedSubs = directHits.flatMap((h) => h.subtitles ?? []);
-      const seenSubUrls = new Set<string>();
-      const subtitles: SubtitleTrack[] = [];
-      for (const s of mergedSubs) {
-        if (!s.url) continue;
-        const url = rewriteAnimeProxyPath(s.url, "subtitle");
-        if (seenSubUrls.has(url)) continue;
-        seenSubUrls.add(url);
-        subtitles.push({
-          url,
-          lang: s.lang ?? "en",
-          label: s.label ?? "Subtitles",
-        });
-      }
-
-      // In French + SUB (VOSTFR), fetch French subtitles if upstream didn't provide any.
-      if (
-        data.lang === "fr" &&
-        data.audio === "sub" &&
-        !subtitles.some(isFrenchTrack) &&
-        ext?.imdbId
-      ) {
-        const season = detectAnimeSeasonFromTitles(titles);
-        const frSubs = await fetchFrenchOpenSubtitles({
-          imdbId: ext.imdbId,
-          episode: data.episode,
-          season,
-          isMovie: Boolean(data.isMovie || ext.isMovie),
-        });
-        for (const fs of frSubs) {
-          if (!seenSubUrls.has(fs.url)) {
-            seenSubUrls.add(fs.url);
-            subtitles.push(fs);
-          }
-        }
-      }
-
-      subtitles.sort((a, b) => trackPriority(b, data.lang) - trackPriority(a, data.lang));
-      const hasFrenchSubtitles = subtitles.some(isFrenchTrack);
-
-      return {
-        ok: true,
-        streamUrl: primarySource.url,
-        type: primarySource.type,
-        provider: "SHADOW Stream",
-        quality: primary.quality ?? null,
-        subtitles,
-        sources,
-        embedUrl: primaryEmbed,
-        embedFallbacks,
-        hasFrenchSubtitles,
-        isFrenchAudio: false,
-      };
+      // VF unavailable: continue cleanly with English Dub audio + French subtitles!
+      dubFallbackToEnglish = true;
     } catch (error) {
-      console.error("Anime stream lookup failed", error);
-      const probedBaseEmbeds = await filterAvailableEmbeds(baseEmbeds).catch(() => baseEmbeds);
+      console.error("French anime VF lookup failed — falling back to EN dub + FR subs", error);
+      dubFallbackToEnglish = true;
+    }
+  }
+
+  try {
+    const titles = [data.title, data.englishTitle, data.romajiTitle];
+    const extPromise = fetchAnimeExternalIds(data.anilistId);
+    const vostfrPromise =
+      data.lang === "fr" && data.audio === "sub"
+        ? extPromise.then((ext) =>
+            resolveAnimeSamaEmbeds({
+              titles: [...titles, ext?.frTitle],
+              episode: data.episode,
+              variant: "vostfr",
+              isMovie: Boolean(data.isMovie || ext?.isMovie),
+            }),
+          )
+        : Promise.resolve([]);
+
+    const [settled, ext, vostfrEmbeds, probedBaseEmbeds] = await Promise.all([
+      Promise.allSettled(candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data))),
+      extPromise,
+      vostfrPromise,
+      filterAvailableEmbeds(baseEmbeds),
+    ]);
+
+    const directHits: AniLastApiResponse[] = [];
+    let upstreamEmbedUrl: string | null = null;
+    for (const r of settled) {
+      if (r.status !== "fulfilled" || !r.value?.url) continue;
+      if (r.value.type === "embed") {
+        upstreamEmbedUrl ??= r.value.url;
+      } else {
+        directHits.push(r.value);
+      }
+    }
+
+    const isSandboxBlockedHost =
+      Boolean(upstreamEmbedUrl) &&
+      /(^|\.)(2embed\.cc|vidsrc\.me|vidsrc\.buzz)\b/i.test(upstreamEmbedUrl!);
+    const mirrorOk =
+      upstreamEmbedUrl && !isSandboxBlockedHost
+        ? await probeSingleEmbed(upstreamEmbedUrl, 2400)
+        : false;
+    const mirrorList: AnimeEmbedFallback[] =
+      upstreamEmbedUrl && mirrorOk
+        ? [{ label: "Mirror Embed", url: upstreamEmbedUrl, available: true }]
+        : [];
+
+    const embedFallbacks = dedupeEmbeds([...vostfrEmbeds, ...mirrorList, ...probedBaseEmbeds]);
+    const primaryEmbed = embedFallbacks[0]?.url ?? null;
+
+    if (directHits.length === 0) {
       return {
         ok: false,
         streamUrl: null,
@@ -401,11 +298,127 @@ export const getAniLastAnimeStream = createServerFn({ method: "GET" })
         provider: "SHADOW Stream",
         quality: null,
         subtitles: [],
-        embedUrl: probedBaseEmbeds[0]?.url ?? null,
-        embedFallbacks: probedBaseEmbeds,
-        hasFrenchSubtitles: false,
+        embedUrl: primaryEmbed,
+        embedFallbacks,
+        hasFrenchSubtitles: vostfrEmbeds.length > 0,
         isFrenchAudio: false,
-        error: "Stream server temporarily unavailable.",
+        dubFallbackToEnglish,
+        error:
+          data.audio === "dub"
+            ? "Dub audio is not available for this episode yet — try Sub or another episode."
+            : "Direct video stream is temporarily unavailable for this episode.",
       };
     }
-  });
+
+    const seenUrls = new Set<string>();
+    const sources: StreamSource[] = [];
+    for (const hit of directHits) {
+      if (!hit.url) continue;
+      const rewritten = rewriteAnimeProxyPath(hit.url, "hls");
+      if (seenUrls.has(rewritten)) continue;
+      seenUrls.add(rewritten);
+      sources.push({
+        url: rewritten,
+        type: inferStreamType(rewritten, hit.type),
+        label: `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
+        lang: data.audio,
+      });
+    }
+
+    const primary = directHits[0]!;
+    const primarySource = sources[0]!;
+
+    const mergedSubs = directHits.flatMap((h) => h.subtitles ?? []);
+    const seenSubUrls = new Set<string>();
+    const subtitles: SubtitleTrack[] = [];
+    for (const s of mergedSubs) {
+      if (!s.url) continue;
+      const url = rewriteAnimeProxyPath(s.url, "subtitle");
+      if (seenSubUrls.has(url)) continue;
+      seenSubUrls.add(url);
+      subtitles.push({
+        url,
+        lang: s.lang ?? "en",
+        label: s.label ?? "Subtitles",
+      });
+    }
+
+    // Attach French subtitles for BOTH French SUB (VOSTFR) AND French DUB-to-EN-dub fallback!
+    if (data.lang === "fr" && !subtitles.some(isFrenchTrack) && ext?.imdbId) {
+      const season = detectAnimeSeasonFromTitles([...titles, ext.frTitle]);
+      const frSubs = await fetchFrenchOpenSubtitles({
+        imdbId: ext.imdbId,
+        episode: data.episode,
+        season,
+        isMovie: Boolean(data.isMovie || ext.isMovie),
+      });
+      for (const fs of frSubs) {
+        if (!seenSubUrls.has(fs.url)) {
+          seenSubUrls.add(fs.url);
+          subtitles.push(fs);
+        }
+      }
+    }
+
+    // In English + SUB, ensure English subtitles exist via OpenSubtitles backup if upstream omitted them.
+    if (
+      data.lang === "en" &&
+      data.audio === "sub" &&
+      !subtitles.some(isEnglishTrack) &&
+      ext?.imdbId
+    ) {
+      const season = detectAnimeSeasonFromTitles(titles);
+      const enSubs = await fetchEnglishOpenSubtitles({
+        imdbId: ext.imdbId,
+        episode: data.episode,
+        season,
+        isMovie: Boolean(data.isMovie || ext.isMovie),
+      });
+      for (const es of enSubs) {
+        if (!seenSubUrls.has(es.url)) {
+          seenSubUrls.add(es.url);
+          subtitles.push(es);
+        }
+      }
+    }
+
+    subtitles.sort((a, b) => trackPriority(b, data.lang) - trackPriority(a, data.lang));
+    const hasFrenchSubtitles = subtitles.some(isFrenchTrack);
+
+    return {
+      ok: true,
+      streamUrl: primarySource.url,
+      type: primarySource.type,
+      provider: "SHADOW Stream",
+      quality: primary.quality ?? null,
+      subtitles,
+      sources,
+      embedUrl: primaryEmbed,
+      embedFallbacks,
+      hasFrenchSubtitles,
+      isFrenchAudio: false,
+      dubFallbackToEnglish,
+    };
+  } catch (error) {
+    console.error("Anime stream lookup failed", error);
+    const probedBaseEmbeds = await filterAvailableEmbeds(baseEmbeds).catch(() => baseEmbeds);
+    return {
+      ok: false,
+      streamUrl: null,
+      type: "hls",
+      provider: "SHADOW Stream",
+      quality: null,
+      subtitles: [],
+      embedUrl: probedBaseEmbeds[0]?.url ?? null,
+      embedFallbacks: probedBaseEmbeds,
+      hasFrenchSubtitles: false,
+      isFrenchAudio: false,
+      dubFallbackToEnglish,
+      error: "Stream server temporarily unavailable.",
+    };
+  }
+}
+
+export const getAniLastAnimeStream = createServerFn({ method: "GET" })
+  .inputValidator((input) => StreamInputSchema.parse(input))
+  .handler(async ({ data }): Promise<AniLastStreamResult> => resolveAnimeStream(data));

@@ -27,6 +27,11 @@ interface CuratedEntry {
 }
 
 const PINNED_CARTOONS: CuratedEntry[] = [
+  // Miraculous franchise (EN & FR)
+  { type: "series", imdbId: "tt2580046" }, // Miraculous: Tales of Ladybug & Cat Noir
+  { type: "movie", imdbId: "tt10364034" }, // Miraculous: Ladybug & Cat Noir, the Movie (2023)
+  { type: "movie", imdbId: "tt29259099" }, // Miraculous World: Paris
+  { type: "movie", imdbId: "tt13701202" }, // Miraculous World: London
   // The Bad Guys franchise
   { type: "movie", imdbId: "tt8115900" }, // The Bad Guys (2022)
   { type: "movie", imdbId: "tt30017619" }, // The Bad Guys 2 (2025)
@@ -89,7 +94,6 @@ const CURATED_FRENCH_MOVIES: CuratedEntry[] = [
   { type: "movie", imdbId: "tt17009710" }, // Anatomy of a Fall
   { type: "movie", imdbId: "tt26446278" }, // The Count of Monte Cristo (2024)
   { type: "movie", imdbId: "tt13964390" }, // Under Paris (Sous la Seine)
-  { type: "movie", imdbId: "tt10767052" }, // Lost Bullet (Balle perdue)
   { type: "movie", imdbId: "tt0211915" }, // Amélie
   { type: "movie", imdbId: "tt8613070" }, // Portrait of a Lady on Fire
   { type: "movie", imdbId: "tt10199590" }, // Les Misérables
@@ -100,12 +104,16 @@ const CURATED_FRENCH_MOVIES: CuratedEntry[] = [
 
 const CURATED_FRENCH_CARTOONS: CuratedEntry[] = [
   { type: "series", imdbId: "tt2580046" }, // Miraculous: Tales of Ladybug & Cat Noir
+  { type: "movie", imdbId: "tt10364034" }, // Miraculous: Ladybug & Cat Noir, the Movie
+  { type: "movie", imdbId: "tt29259099" }, // Miraculous World: Paris
+  { type: "movie", imdbId: "tt13701202" }, // Miraculous World: London
   { type: "series", imdbId: "tt11126994" }, // Arcane
   { type: "series", imdbId: "tt1807824" }, // Wakfu
-  { type: "movie", imdbId: "tt13895354" }, // Ladybug & Cat Noir: The Movie
-  { type: "movie", imdbId: "tt22186342" }, // Mars Express
+  { type: "series", imdbId: "tt0417311" }, // Code Lyoko
+  { type: "movie", imdbId: "tt26915336" }, // Mars Express
   { type: "movie", imdbId: "tt1816518" }, // Ernest & Celestine
-  { type: "movie", imdbId: "tt6108262" }, // Asterix: The Secret of the Magic Potion
+  { type: "movie", imdbId: "tt8001346" }, // Asterix: The Secret of the Magic Potion
+  { type: "movie", imdbId: "tt1754656" }, // The Little Prince
 ];
 
 const CURATED_BOLLYWOOD: CuratedEntry[] = [
@@ -319,11 +327,9 @@ function isEnglishOrGlobalHollywood(m: CinemetaMeta): boolean {
 async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> {
   const [pinned, extra, frenchCartoons, animMovies, animSeries, yearMovies, yearSeries, fallback] =
     await Promise.all([
-      hydrateEntries(PINNED_CARTOONS, "cartoons", 20),
+      hydrateEntries(PINNED_CARTOONS, "cartoons", 24),
       hydrateEntries(EXTRA_CARTOONS, "cartoons", 18),
-      lang === "fr"
-        ? hydrateEntries(CURATED_FRENCH_CARTOONS, "cartoons", 10)
-        : Promise.resolve([] as MediaItem[]),
+      hydrateEntries(CURATED_FRENCH_CARTOONS, "cartoons", 12),
       fetchCinemetaCatalog("movie", "top", { genre: "Animation" }).catch(
         () => [] as CinemetaMeta[],
       ),
@@ -405,8 +411,11 @@ async function buildCartoonsCatalog(lang: CatalogLang): Promise<SectionCatalog> 
       : []),
     {
       id: "featured-favorites",
-      title: "Bad Guys, Boss Baby & TMNT",
-      items: dedupe([...pinned, ...extraFallback]).slice(0, 24),
+      title:
+        lang === "fr"
+          ? "Miraculous, Bad Guys, Boss Baby & Tortues Ninja"
+          : "Miraculous, Bad Guys, Boss Baby & TMNT",
+      items: dedupe([...pinned, ...frenchCartoons, ...extraFallback]).slice(0, 24),
     },
     ...(moviesAll.length
       ? [

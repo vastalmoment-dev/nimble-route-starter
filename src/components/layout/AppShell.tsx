@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
+import { ArrowLeft, Menu, PanelLeftClose, PanelLeftOpen, Search, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { ShadowMark, ShadowWordmark } from "@/components/branding/ShadowLogo";
@@ -102,7 +102,13 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   );
 }
 
-function SearchBox() {
+function SearchBox({
+  mobileExpanded,
+  onMobileExpandChange,
+}: {
+  mobileExpanded: boolean;
+  onMobileExpandChange: (expanded: boolean) => void;
+}) {
   const { t } = useT();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -115,6 +121,8 @@ function SearchBox() {
   });
   const [value, setValue] = useState(urlQ);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const lastPushed = useRef<string>(urlQ);
 
   useEffect(() => {
@@ -127,6 +135,7 @@ function SearchBox() {
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
+      if (blurTimer.current) clearTimeout(blurTimer.current);
     },
     [],
   );
@@ -157,17 +166,45 @@ function SearchBox() {
     timer.current = setTimeout(() => commit(q), 220);
   };
 
+  const collapseMobile = () => {
+    if (blurTimer.current) clearTimeout(blurTimer.current);
+    onMobileExpandChange(false);
+    inputRef.current?.blur();
+  };
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (timer.current) clearTimeout(timer.current);
         commit(value);
+        collapseMobile();
       }}
-      className="group/search relative flex h-11 w-full min-w-0 max-w-md items-center rounded-full border border-foreground/10 bg-scrim/60 backdrop-blur-xl transition focus-within:border-cerulean/60 focus-within:shadow-glow sm:h-10"
+      data-mobile-expanded={mobileExpanded ? "true" : "false"}
+      className={cn(
+        "group/search relative flex h-11 min-w-0 items-center rounded-full border border-foreground/10 bg-scrim/60 backdrop-blur-xl transition-all duration-200 focus-within:border-cerulean/60 focus-within:shadow-glow sm:h-10 sm:w-full sm:max-w-md",
+        mobileExpanded ? "w-full max-w-full flex-1 bg-scrim/90" : "w-full max-w-[190px]",
+      )}
     >
-      <Search className="ml-3 size-4 shrink-0 text-muted-foreground sm:ml-3.5" />
+      {mobileExpanded && (
+        <button
+          type="button"
+          aria-label={t("shell.closeSearch")}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={collapseMobile}
+          className="ml-1 flex min-h-[38px] min-w-[38px] shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground sm:hidden"
+        >
+          <ArrowLeft className="size-4" />
+        </button>
+      )}
+      <Search
+        className={cn(
+          "size-4 shrink-0 text-muted-foreground sm:ml-3.5",
+          mobileExpanded ? "hidden sm:block" : "ml-3",
+        )}
+      />
       <input
+        ref={inputRef}
         type="search"
         value={value}
         onChange={(e) => {
@@ -178,23 +215,33 @@ function SearchBox() {
           }
         }}
         onFocus={() => {
+          if (blurTimer.current) clearTimeout(blurTimer.current);
+          onMobileExpandChange(true);
           if (pathname !== "/search" && value.trim().length > 0) {
             commit(value);
           }
         }}
+        onBlur={() => {
+          if (blurTimer.current) clearTimeout(blurTimer.current);
+          blurTimer.current = setTimeout(() => {
+            onMobileExpandChange(false);
+          }, 120);
+        }}
         placeholder={t("shell.searchPlaceholder")}
         aria-label={t("shell.searchAria")}
-        className="h-full min-w-0 w-full bg-transparent px-2.5 text-sm outline-none placeholder:text-muted-foreground sm:px-3 [&::-webkit-search-cancel-button]:hidden"
+        className="h-full min-w-0 w-full bg-transparent px-2.5 text-base outline-none placeholder:text-muted-foreground sm:px-3 sm:text-sm [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button
           type="button"
           aria-label={t("shell.clearSearch")}
-          className="mr-1.5 flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full p-1 text-muted-foreground hover:text-foreground sm:mr-2"
+          onMouseDown={(e) => e.preventDefault()}
+          className="mr-1.5 flex min-h-[36px] min-w-[36px] shrink-0 items-center justify-center rounded-full p-1 text-muted-foreground hover:text-foreground sm:mr-2"
           onClick={() => {
             if (timer.current) clearTimeout(timer.current);
             setValue("");
             if (pathname === "/search") commit("");
+            inputRef.current?.focus();
           }}
         >
           <X className="size-3.5" />
@@ -207,19 +254,22 @@ function SearchBox() {
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { t } = useT();
   const [scrolled, setScrolled] = useState(false);
+  const [mobileSearchExpanded, setMobileSearchExpanded] = useState(false);
+
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
   return (
     <header
       className={cn(
         "fixed right-0 top-0 z-30 flex h-16 items-center gap-2 px-3 transition-colors duration-300 sm:gap-3 sm:px-8 lg:left-[var(--sidebar-w)] lg:px-12",
         "left-0",
-        scrolled
-          ? "border-b border-foreground/5 bg-background/85 backdrop-blur-xl"
+        scrolled || mobileSearchExpanded
+          ? "border-b border-foreground/10 bg-background/95 backdrop-blur-xl"
           : "bg-transparent",
       )}
     >
@@ -227,22 +277,38 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         type="button"
         onClick={onMenu}
         aria-label={t("shell.openMenu")}
-        className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full hover:bg-foreground/10 lg:hidden"
+        className={cn(
+          "min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full hover:bg-foreground/10 lg:hidden",
+          mobileSearchExpanded ? "hidden sm:flex" : "flex",
+        )}
       >
         <Menu className="size-5" />
       </button>
-      <Link to="/" className="shrink-0 lg:hidden" aria-label="Shadow home">
+      <Link
+        to="/"
+        className={cn(
+          "shrink-0 lg:hidden",
+          mobileSearchExpanded ? "hidden sm:inline-flex" : "inline-flex",
+        )}
+        aria-label="Shadow home"
+      >
         <ShadowWordmark className="[&>span:last-child]:hidden sm:[&>span:last-child]:inline" />
       </Link>
       <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:gap-3">
-        <SearchBox />
+        <SearchBox
+          mobileExpanded={mobileSearchExpanded}
+          onMobileExpandChange={setMobileSearchExpanded}
+        />
         <LanguageToggle compact className="hidden sm:inline-flex" />
         <a
           href={DISCORD_URL}
           target="_blank"
           rel="noopener noreferrer"
           aria-label={t("shell.joinDiscord")}
-          className="inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-full border border-[#5865F2]/40 bg-[#5865F2]/15 px-3 text-xs font-semibold text-foreground backdrop-blur-xl transition hover:border-[#5865F2] hover:bg-[#5865F2] hover:text-white sm:h-10 sm:min-h-0 sm:px-4"
+          className={cn(
+            "min-h-[44px] shrink-0 items-center gap-2 rounded-full border border-[#5865F2]/40 bg-[#5865F2]/15 px-3 text-xs font-semibold text-foreground backdrop-blur-xl transition hover:border-[#5865F2] hover:bg-[#5865F2] hover:text-white sm:inline-flex sm:h-10 sm:min-h-0 sm:px-4",
+            mobileSearchExpanded ? "hidden" : "inline-flex",
+          )}
         >
           <DiscordIcon className="text-[#7289DA] group-hover:text-white" />
           <span className="hidden sm:inline">{t("shell.joinDiscord")}</span>
