@@ -1,6 +1,7 @@
+import crypto from "node:crypto";
 import { probeSingleEmbed, type ProbeableEmbed } from "./embed-probe";
 import { signMediaProxyUrl, signSubtitleProxyUrl } from "./media-proxy";
-import type { StreamSource, SubtitleTrack } from "./resolver";
+import { inferStreamType, type StreamSource, type SubtitleTrack } from "./resolver";
 
 const ANIME_SAMA_ORIGIN = "https://anime-sama.to";
 const BROWSER_UA =
@@ -710,28 +711,293 @@ export async function resolveFrenchAnimeSources(params: {
   return merged;
 }
 
-export async function extractDirectStreamsFromEmbeds(
+const MEGAPLAY_SOURCE_ENC_KEY = "i?LMTAx0Q6,:}50U";
+const MEGAPLAY_SOURCE_ENC_IV = "W0;27ToaUpl_P%'c";
+const MEGAPLAY_CDN_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s";
+const MEGAPLAY_ORIGIN = "https://megaplay.buzz";
+const ANILAST_REFERER = "https://anilast.xyz/";
+
+export interface ExtractedDirectMedia {
+  sources: StreamSource[];
+  subtitles: SubtitleTrack[];
+  upstreamUrls: string[];
+}
+
+export interface MegaplayExtractionResult {
+  source: StreamSource | null;
+  subtitles: SubtitleTrack[];
+  rawUpstreamUrl: string | null;
+  embedAlive: boolean;
+}
+
+function padSecretBytes(secret: string, length: number): Buffer {
+  const buf = Buffer.alloc(length, 0);
+  const src = Buffer.from(secret, "utf8");
+  src.copy(buf, 0, 0, Math.min(length, src.length));
+  return buf;
+}
+
+export function decryptMegaplaySourcesEnc(enc: string): { file?: string } | null {
+  try {
+    const key = padSecretBytes(MEGAPLAY_SOURCE_ENC_KEY, 32);
+    const iv = padSecretBytes(MEGAPLAY_SOURCE_ENC_IV, 16);
+    const raw = Buffer.from(enc, "base64url");
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    const decrypted = Buffer.concat([decipher.update(raw), decipher.final()]).toString("utf8");
+    const parsed = JSON.parse(decrypted) as { file?: unknown } | null;
+    if (parsed && typeof parsed.file === "string" && parsed.file.length > 0) {
+      return { file: parsed.file };
+    }
+  } catch {
+    /* ignore malformed encrypted payload */
+  }
+  return null;
+}
+
+export function signMegaplayCdnUrl(fileUrl: string, audioType: string, ttlSeconds = 3600): string {
+  let out = fileUrl;
+  const normalizedType = audioType === "hsub" ? "sub" : audioType;
+  if (
+    (normalizedType === "sub" || normalizedType === "dub") &&
+    /\/master\.m3u8(?:\?|$)/i.test(out) &&
+    !/[?&]t=/.test(out)
+  ) {
+    out += `${out.includes("?") ? "&" : "?"}t=${encodeURIComponent(normalizedType)}`;
+  }
+  if (/[?&]token=/.test(out)) return out;
+  const pathMatch = /\/([a-f0-9]{32})\/([a-f0-9]{32})\//i.exec(out);
+  if (!pathMatch?.[1] || !pathMatch?.[2]) return out;
+  const pathKey = `${pathMatch[1].toLowerCase()}/${pathMatch[2].toLowerCase()}`;
+  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const msg = `${exp}|${pathKey}`;
+  const sig = crypto
+    .createHmac("sha256", MEGAPLAY_CDN_TOKEN_SECRET)
+    .update(msg)
+    .digest("base64url");
+  const token = `${Buffer.from(msg, "utf8").toString("base64url")}.${sig}`;
+  return `${out}${out.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+}
+
+function inferMegaplayTrackLang(
+  labelRaw: string,
+  fileUrl: string,
+): { lang: string; label: string } {
+  const cleanLabel = labelRaw.replace(/\s+/g, " ").trim() || "Subtitles";
+  const lower = `${cleanLabel} ${fileUrl}`.toLowerCase();
+  if (/\b(english|eng)\b/.test(lower)) return { lang: "en", label: cleanLabel };
+  if (/\b(french|fran[cç]ais|fre|fra)\b/.test(lower)) return { lang: "fr", label: cleanLabel };
+  if (/\b(spanish|espa[nñ]ol|spa)\b/.test(lower)) return { lang: "es", label: cleanLabel };
+  if (/\b(portuguese|portugu[eê]s|por)\b/.test(lower)) return { lang: "pt", label: cleanLabel };
+  if (/\b(german|deutsch|ger)\b/.test(lower)) return { lang: "de", label: cleanLabel };
+  if (/\b(italian|italiano|ita)\b/.test(lower)) return { lang: "it", label: cleanLabel };
+  if (/\b(arabic|ara)\b/.test(lower)) return { lang: "ar", label: cleanLabel };
+  if (/\b(russian|rus)\b/.test(lower)) return { lang: "ru", label: cleanLabel };
+  if (/\b(japanese|jpn)\b/.test(lower)) return { lang: "ja", label: cleanLabel };
+  return { lang: "en", label: cleanLabel };
+}
+
+const megaplayInFlight = new Map<string, Promise<MegaplayExtractionResult>>();
+
+export async function extractMegaplayDirectStream(
+  embedUrl: string,
+  opts?: {
+    requestedAudio?: "sub" | "dub";
+    label?: string;
+    langLabel?: string;
+    streamLang?: string;
+  },
+): Promise<MegaplayExtractionResult> {
+  const cacheKey = `${embedUrl}|${opts?.requestedAudio ?? ""}|${opts?.label ?? ""}`;
+  const pending = megaplayInFlight.get(cacheKey);
+  if (pending) return pending;
+
+  const task = (async (): Promise<MegaplayExtractionResult> => {
+    try {
+      const pageRes = await fetch(embedUrl, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          Referer: ANILAST_REFERER,
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(4500),
+      });
+      if (!pageRes.ok) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: false };
+      }
+      const html = await pageRes.text();
+      if (/<title[^>]*>\s*Error\s*[-–|]/i.test(html)) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: false };
+      }
+
+      const dataId =
+        /data-id="(\d+)"/i.exec(html)?.[1] ?? /File\s+(\d+)\s+-/i.exec(html)?.[1] ?? null;
+      if (!dataId) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: false };
+      }
+
+      const rawTypeMatch = /type:\s*["']([^"']+)["']/i.exec(html)?.[1]?.toLowerCase() ?? "";
+      const resolvedType =
+        rawTypeMatch === "hsub" ? "sub" : rawTypeMatch || opts?.requestedAudio || "sub";
+
+      // Guard against MegaPlay silently serving sub HTML on a /dub request.
+      if (opts?.requestedAudio === "dub" && resolvedType !== "dub") {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: false };
+      }
+
+      const srcRes = await fetch(
+        `${MEGAPLAY_ORIGIN}/stream/getSources?id=${encodeURIComponent(dataId)}&platform=OTHER&st=other`,
+        {
+          headers: {
+            "User-Agent": BROWSER_UA,
+            Referer: embedUrl,
+            Origin: MEGAPLAY_ORIGIN,
+            "X-Requested-With": "XMLHttpRequest",
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(4500),
+        },
+      );
+      if (!srcRes.ok) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: true };
+      }
+
+      const payload = (await srcRes.json()) as {
+        enc?: string;
+        sources?: { file?: string } | { file?: string }[];
+        tracks?: { file?: string; label?: string; kind?: string }[];
+      };
+
+      let rawFile: string | undefined;
+      if (payload.enc) {
+        rawFile = decryptMegaplaySourcesEnc(payload.enc)?.file;
+      }
+      if (!rawFile && payload.sources) {
+        rawFile = Array.isArray(payload.sources) ? payload.sources[0]?.file : payload.sources.file;
+      }
+      if (!rawFile || !/^https?:\/\//i.test(rawFile)) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: true };
+      }
+
+      const signedUpstream = signMegaplayCdnUrl(rawFile, resolvedType, 3600);
+      const isMp4 = /\.mp4(\?|$)/i.test(signedUpstream);
+
+      const check = await fetch(signedUpstream, {
+        method: isMp4 ? "HEAD" : "GET",
+        headers: {
+          "User-Agent": BROWSER_UA,
+          Referer: `${MEGAPLAY_ORIGIN}/`,
+          Origin: MEGAPLAY_ORIGIN,
+          Accept: "*/*",
+        },
+        redirect: "follow",
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!check.ok) {
+        return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: true };
+      }
+      if (!isMp4) {
+        const manifest = await check.text();
+        if (!manifest.includes("#EXTM3U")) {
+          return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: true };
+        }
+      } else {
+        const ct = (check.headers.get("content-type") ?? "").toLowerCase();
+        if (ct.includes("text/html")) {
+          return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: true };
+        }
+      }
+
+      const subtitles: SubtitleTrack[] = [];
+      const seenSubUrls = new Set<string>();
+      for (const tr of payload.tracks ?? []) {
+        if (!tr.file || !/^https?:\/\//i.test(tr.file)) continue;
+        if (tr.kind === "thumbnails") continue;
+        if (
+          /\bthumb(nail)?s?\b/i.test(tr.label ?? "") ||
+          /(sprite|thumbnails)\.vtt/i.test(tr.file)
+        ) {
+          continue;
+        }
+        const meta = inferMegaplayTrackLang(tr.label ?? "", tr.file);
+        const signedSub = signSubtitleProxyUrl(tr.file, `${MEGAPLAY_ORIGIN}/`);
+        if (seenSubUrls.has(signedSub)) continue;
+        seenSubUrls.add(signedSub);
+        subtitles.push({ url: signedSub, lang: meta.lang, label: meta.label });
+      }
+
+      const baseLabel = opts?.label ?? "SHADOW Server 1";
+      const source: StreamSource = {
+        url: signMediaProxyUrl(signedUpstream, `${MEGAPLAY_ORIGIN}/`),
+        type: inferStreamType(signedUpstream, isMp4 ? "mp4" : "hls"),
+        label: opts?.langLabel ? `${baseLabel} · ${opts.langLabel}` : baseLabel,
+        lang: opts?.streamLang ?? (resolvedType === "dub" ? "en" : "ja"),
+      };
+
+      return {
+        source,
+        subtitles,
+        rawUpstreamUrl: rawFile,
+        embedAlive: true,
+      };
+    } catch {
+      return { source: null, subtitles: [], rawUpstreamUrl: null, embedAlive: false };
+    } finally {
+      megaplayInFlight.delete(cacheKey);
+    }
+  })();
+
+  megaplayInFlight.set(cacheKey, task);
+  return task;
+}
+
+export async function extractDirectStreamsAndSubsFromEmbeds(
   embeds: ProbeableEmbed[],
-  opts?: { langLabel?: string; streamLang?: string },
-): Promise<StreamSource[]> {
+  opts?: { langLabel?: string; streamLang?: string; requestedAudio?: "sub" | "dub" },
+): Promise<ExtractedDirectMedia> {
   const candidates = embeds
     .filter(
       (e) =>
         e.available !== false &&
-        /(ansembed\.net|uqload\.|iframedream\.|mp4upload\.|vidcore\.io|vidsrc\.su|vidnest\.fun|vidlink\.pro)/i.test(
+        /(ansembed\.net|uqload\.|iframedream\.|mp4upload\.|megaplay\.buzz|vidcore\.io|vidsrc\.su|vidnest\.fun|vidlink\.pro)/i.test(
           e.url,
         ),
     )
-    .slice(0, 4);
+    .slice(0, 5);
 
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) return { sources: [], subtitles: [], upstreamUrls: [] };
 
   const extracted: StreamSource[] = [];
+  const subtitles: SubtitleTrack[] = [];
+  const upstreamUrls: string[] = [];
   const seen = new Set<string>();
+  const seenSubs = new Set<string>();
 
   await Promise.allSettled(
     candidates.map(async (emb) => {
       try {
+        if (/^https?:\/\/(?:www\.)?megaplay\.buzz\//i.test(emb.url)) {
+          const mp = await extractMegaplayDirectStream(emb.url, {
+            requestedAudio: opts?.requestedAudio,
+            label: emb.label,
+            langLabel: opts?.langLabel,
+            streamLang: opts?.streamLang,
+          });
+          if (mp.source && mp.rawUpstreamUrl && !seen.has(mp.rawUpstreamUrl)) {
+            seen.add(mp.rawUpstreamUrl);
+            extracted.push(mp.source);
+            upstreamUrls.push(mp.rawUpstreamUrl);
+            for (const sub of mp.subtitles) {
+              if (!seenSubs.has(sub.url)) {
+                seenSubs.add(sub.url);
+                subtitles.push(sub);
+              }
+            }
+          }
+          return;
+        }
+
         const origin = new URL(emb.url).origin;
         const res = await fetch(emb.url, {
           headers: {
@@ -780,6 +1046,7 @@ export async function extractDirectStreamsFromEmbeds(
             label: `${emb.label}${opts?.langLabel ? ` · ${opts.langLabel}` : ""}`,
             lang: opts?.streamLang ?? null,
           });
+          upstreamUrls.push(clean);
           return;
         }
       } catch {
@@ -788,5 +1055,13 @@ export async function extractDirectStreamsFromEmbeds(
     }),
   );
 
-  return extracted;
+  return { sources: extracted, subtitles, upstreamUrls };
+}
+
+export async function extractDirectStreamsFromEmbeds(
+  embeds: ProbeableEmbed[],
+  opts?: { langLabel?: string; streamLang?: string },
+): Promise<StreamSource[]> {
+  const { sources } = await extractDirectStreamsAndSubsFromEmbeds(embeds, opts);
+  return sources;
 }

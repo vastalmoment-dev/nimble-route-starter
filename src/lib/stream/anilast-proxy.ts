@@ -239,14 +239,15 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
     }
 
     const contentType = upstream.headers.get("content-type") ?? "";
+    const isExplicitPlaylistUrl = /\.m3u8(\?|#|$)|master\.txt(\?|#|$)/i.test(target ?? "");
+    const isDisguisedBinaryExt =
+      /\.(?:jpg|jpeg|png|webp|gif|html?|js|css|ts|m4s|aac|key)(\?|#|$)/i.test(target ?? "");
     const isBinarySegment =
-      /^(video|audio|application\/octet-stream)/i.test(contentType) &&
-      !/\.m3u8(\?|#|$)/i.test(target ?? "");
+      !isExplicitPlaylistUrl &&
+      (/^(video|audio|application\/octet-stream|image\/)/i.test(contentType) ||
+        (isDisguisedBinaryExt && !/mpegurl|m3u8/i.test(contentType)));
     const looksLikePlaylist =
-      isHls &&
-      (!isBinarySegment ||
-        /mpegurl|m3u8|text\/|json/i.test(contentType) ||
-        /\.m3u8(\?|#|$)/i.test(target ?? ""));
+      isHls && (!isBinarySegment || /mpegurl|m3u8/i.test(contentType) || isExplicitPlaylistUrl);
 
     if (looksLikePlaylist) {
       const text = await upstream.text();
@@ -267,19 +268,19 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
       );
     }
 
-    if (/text\/html/i.test(contentType)) {
+    if (/text\/html/i.test(contentType) && !isDisguisedBinaryExt) {
       return proxyJsonError("Upstream returned an HTML error or challenge page", upstream.status, {
         blocked: true,
       });
     }
 
-    const fallbackType = isSub
-      ? "text/vtt; charset=utf-8"
-      : isStream
-        ? "video/mp4"
-        : "application/octet-stream";
+    const fallbackType = isSub ? "text/vtt; charset=utf-8" : isStream ? "video/mp4" : "video/mp2t";
+    const resolvedType =
+      isHls && /(text\/|javascript|ecmascript|css|image\/)/i.test(contentType)
+        ? "video/mp2t"
+        : contentType || fallbackType;
     const respHeaders = new Headers({
-      "content-type": contentType || fallbackType,
+      "content-type": resolvedType,
       "cache-control": isSub ? "public, max-age=3600" : "public, max-age=300",
     });
     const cl = upstream.headers.get("content-length");

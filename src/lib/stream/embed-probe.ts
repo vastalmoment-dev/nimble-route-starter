@@ -69,11 +69,25 @@ function looksLikeUnavailableHtml(text: string): boolean {
   return false;
 }
 
+function getProbeReferer(rawUrl: string): string | undefined {
+  try {
+    const parsed = new URL(rawUrl);
+    if (/(^|\.)megaplay\.buzz$/i.test(parsed.hostname)) {
+      return "https://anilast.xyz/";
+    }
+    return `${parsed.origin}/`;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function probeSingleEmbed(url: string, timeoutMs = 2600): Promise<boolean> {
   try {
+    const referer = getProbeReferer(url);
     const res = await fetch(url, {
       headers: {
         "User-Agent": BROWSER_UA,
+        ...(referer ? { Referer: referer } : {}),
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
       },

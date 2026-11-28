@@ -362,4 +362,136 @@ describe("Anime bridge, dub parity, French backup providers, and offline storage
     expect(downloaded.blob.size).toBe(6);
     expect(downloaded.subtitleVtt).toContain("Bonjour");
   });
+
+  it("decrypts MegaPlay sources, signs CDN URLs, blocks silent sub fallback on dub requests, and rejects stub MP4s", async () => {
+    const crypto = await import("node:crypto");
+    const { decryptMegaplaySourcesEnc, extractMegaplayDirectStream, signMegaplayCdnUrl } =
+      await import("@/lib/stream/anime-fr");
+
+    const encryptEnc = (payload: object) => {
+      const key = Buffer.alloc(32, 0);
+      Buffer.from("i?LMTAx0Q6,:}50U", "utf8").copy(key);
+      const iv = Buffer.alloc(16, 0);
+      Buffer.from("W0;27ToaUpl_P%'c", "utf8").copy(iv);
+      const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+      return Buffer.concat([
+        cipher.update(JSON.stringify(payload), "utf8"),
+        cipher.final(),
+      ]).toString("base64url");
+    };
+
+    const sampleMaster =
+      "https://fetch.nexabloom.top/anime/0123456789abcdef0123456789abcdef/fedcba9876543210fedcba9876543210/master.m3u8";
+    const encPayload = encryptEnc({ file: sampleMaster });
+    expect(decryptMegaplaySourcesEnc(encPayload)).toEqual({ file: sampleMaster });
+
+    const signedCdn = signMegaplayCdnUrl(sampleMaster, "dub", 3600);
+    expect(signedCdn).toContain("?t=dub&token=");
+
+    // Rejects silent sub HTML when dub was requested
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        `<html><div data-id="999111"></div><script>const settings = { type: "sub" };</script></html>`,
+        { status: 200 },
+      ),
+    );
+    const silentSubOnDub = await extractMegaplayDirectStream(
+      "https://megaplay.buzz/stream/mal/34572/3/dub",
+      { requestedAudio: "dub" },
+    );
+    expect(silentSubOnDub.source).toBeNull();
+    vi.restoreAllMocks();
+
+    // End-to-end Black Clover EP 3 SUB: rejects 88KB animeheaven stub MP4, resolves full 1080p MegaPlay HLS on Server 1, drops Thumbnails sprite track
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = requestUrl(input);
+      if (url.includes("api.ani.zip") || url.includes("arm.haglund.dev")) {
+        return new Response(JSON.stringify({ mappings: { mal_id: 34572, imdb_id: "tt7441658" } }), {
+          status: 200,
+        });
+      }
+      if (url.includes("anilast.xyz/api/anime/stream/34572/3")) {
+        return new Response(
+          JSON.stringify({
+            provider: "animeheaven",
+            type: "mp4",
+            url: "/api/proxy/stream?url=https%3A%2F%2Fax.animeheaven.me%2Fvideo.mp4%3Fstub",
+            subtitles: [
+              { url: "https://cdn.example.net/sprite.vtt", lang: "th", label: "Thumbnails" },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("anilast.xyz/api/anime/stream/97940/3")) {
+        return new Response(
+          JSON.stringify({
+            provider: "aniwaves",
+            type: "hls",
+            url: "/api/proxy/hls?url=https%3A%2F%2Fbackup.example.net%2F720p%2Fplaylist.m3u8",
+            subtitles: [
+              { url: "https://cdn.example.net/thumbnails.vtt", lang: "th", label: "Thumbnails" },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("ax.animeheaven.me/video.mp4")) {
+        return new Response(new Uint8Array([0]), {
+          status: 206,
+          headers: {
+            "content-type": "video/mp4",
+            "content-range": "bytes 0-0/88566",
+          },
+        });
+      }
+      if (url === "https://megaplay.buzz/stream/mal/34572/3/sub") {
+        return new Response(
+          `<html><title>File 777222</title><div id="megaplay-player" data-id="777222"></div><script>const settings = { type: "sub" };</script></html>`,
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://megaplay.buzz/stream/getSources?id=777222")) {
+        return new Response(
+          JSON.stringify({
+            enc: encPayload,
+            tracks: [
+              {
+                file: "https://cdn.example.net/sprite.vtt",
+                label: "Thumbnails",
+                kind: "thumbnails",
+              },
+              { file: "https://cdn.example.net/en.vtt", label: "English", kind: "captions" },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://fetch.nexabloom.top/anime/0123456789abcdef0123456789abcdef")) {
+        return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\n1080.m3u8\n", {
+          status: 200,
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    const res = await resolveAnimeStream({
+      anilistId: "97940",
+      malId: 34572,
+      episode: 3,
+      audio: "sub",
+      lang: "en",
+      title: "Black Clover",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.streamUrl).toContain("/api/media/segment?token=");
+    expect(res.sources).toHaveLength(2);
+    expect(res.sources?.[0]?.label).toBe("Server 1 · SUB");
+    expect(res.sources?.[0]?.url).toContain("/api/media/segment?token=");
+    expect(res.sources?.[1]?.label).toBe("Server 2 · SUB");
+    expect(res.sources?.[1]?.url).toContain("/api/anilast/hls");
+    expect(res.subtitles).toHaveLength(1);
+    expect(res.subtitles[0]?.label).toBe("English");
+  });
 });

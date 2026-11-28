@@ -2,11 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
   detectAnimeSeasonFromTitles,
+  extractDirectStreamsAndSubsFromEmbeds,
   extractDirectStreamsFromEmbeds,
+  extractMegaplayDirectStream,
   fetchAnimeExternalIds,
   fetchEnglishOpenSubtitles,
   fetchFrenchOpenSubtitles,
   resolveFrenchAnimeSources,
+  type MegaplayExtractionResult,
 } from "./anime-fr";
 import { filterAvailableEmbeds, probeSingleEmbed } from "./embed-probe";
 import { signMediaProxyUrl } from "./media-proxy";
@@ -229,6 +232,67 @@ function dedupeEmbeds(list: AnimeEmbedFallback[]): AnimeEmbedFallback[] {
   return out;
 }
 
+const MIN_FULL_MP4_BYTES = 2_000_000;
+
+function parseContentRangeTotal(header: string | null): number | null {
+  if (!header) return null;
+  const m = /\/(\d+)\s*$/.exec(header.trim());
+  if (!m?.[1]) return null;
+  const total = Number(m[1]);
+  return Number.isFinite(total) ? total : null;
+}
+
+async function isPlayableMp4DirectHit(rawUrl: string): Promise<boolean> {
+  const probeUrl = rawUrl.startsWith("/api/proxy/") ? `${ANILAST_ORIGIN}${rawUrl}` : rawUrl;
+  if (!/^https?:\/\//i.test(probeUrl)) return false;
+
+  const probeReq = async (method: "HEAD" | "GET", range?: string) =>
+    fetch(probeUrl, {
+      method,
+      headers: {
+        ...ANILAST_HEADERS,
+        Accept: "*/*",
+        ...(range ? { Range: range } : {}),
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(4500),
+    });
+
+  try {
+    let res = await probeReq("GET", "bytes=0-0");
+    if (!res.ok && res.status !== 206) {
+      res = await probeReq("HEAD");
+    }
+    if (!res.ok && res.status !== 206) return false;
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (ct.includes("text/html")) return false;
+    const total =
+      parseContentRangeTotal(res.headers.get("content-range")) ??
+      Number(res.headers.get("content-length") ?? 0);
+    if (Number.isFinite(total) && total > 0 && total < MIN_FULL_MP4_BYTES) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function canonicalUpstreamPathKey(rawUrl: string): string {
+  const decoded = decodeSafe(rawUrl);
+  const hashPair = /\/([a-f0-9]{32}\/[a-f0-9]{32})\//i.exec(decoded)?.[1]?.toLowerCase();
+  if (hashPair) return `hash:${hashPair}`;
+  const nested = /[?&]url=([^&]+)/i.exec(decoded)?.[1];
+  const inner = nested ? decodeSafe(nested) : decoded;
+  return inner.split("?")[0]!.toLowerCase();
+}
+
+function isNonDialogueSubtitle(s: { url?: string; lang?: string; label?: string }): boolean {
+  const label = (s.label ?? "").toLowerCase();
+  const url = (s.url ?? "").toLowerCase();
+  return /\bthumb(nail)?s?\b/.test(label) || /(?:sprite|thumbnails)\.vtt/i.test(url);
+}
+
 export async function resolveAnimeStream(
   rawInput: z.input<typeof StreamInputSchema>,
 ): Promise<AniLastStreamResult> {
@@ -312,18 +376,56 @@ export async function resolveAnimeStream(
           )
         : Promise.resolve([]);
 
-    const [settledInitial, ext, vostfrEmbeds] = await Promise.all([
-      Promise.allSettled(candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data))),
+    const initialMegaplayUrl =
+      effectiveMalId && effectiveMalId > 0
+        ? `https://megaplay.buzz/stream/mal/${effectiveMalId}/${data.episode}/${data.audio}`
+        : null;
+    const megaplayPromise: Promise<MegaplayExtractionResult | null> = initialMegaplayUrl
+      ? extractMegaplayDirectStream(initialMegaplayUrl, {
+          requestedAudio: data.audio,
+          label: "SHADOW Server 1",
+          langLabel: data.audio.toUpperCase(),
+          streamLang: data.audio === "dub" ? "en" : "ja",
+        }).catch(() => null)
+      : Promise.resolve(null);
+
+    const [settledInitial, ext, vostfrEmbeds, initialMp] = await Promise.all([
+      Promise.allSettled(
+        candidates.map(async (lookupId) => ({
+          lookupId,
+          hit: await queryAnimeEndpoint(lookupId, data),
+        })),
+      ),
       extPromise,
       vostfrPromise,
+      megaplayPromise,
     ]);
 
     const settled = [...settledInitial];
+    let megaplayUrl = initialMegaplayUrl;
+    let megaplayResult = initialMp;
+
     if (!effectiveMalId && ext?.malId) {
       effectiveMalId = ext.malId;
-      if (!candidates.includes(effectiveMalId)) {
-        const extraHit = await Promise.allSettled([queryAnimeEndpoint(effectiveMalId, data)]);
-        settled.push(...extraHit);
+      megaplayUrl = `https://megaplay.buzz/stream/mal/${effectiveMalId}/${data.episode}/${data.audio}`;
+      const [extraAnilast, extraMp] = await Promise.all([
+        !candidates.includes(effectiveMalId)
+          ? queryAnimeEndpoint(effectiveMalId, data)
+              .then((hit) => ({ lookupId: effectiveMalId!, hit }))
+              .catch(() => null)
+          : Promise.resolve(null),
+        extractMegaplayDirectStream(megaplayUrl, {
+          requestedAudio: data.audio,
+          label: "SHADOW Server 1",
+          langLabel: data.audio.toUpperCase(),
+          streamLang: data.audio === "dub" ? "en" : "ja",
+        }).catch(() => null),
+      ]);
+      if (extraAnilast) {
+        settled.push({ status: "fulfilled", value: extraAnilast });
+      }
+      if (extraMp) {
+        megaplayResult = extraMp;
       }
       baseEmbeds = buildAnimeEmbedFallbacks({
         anilistId: data.anilistId,
@@ -333,85 +435,177 @@ export async function resolveAnimeStream(
       });
     }
 
-    const probedBaseEmbeds = await filterAvailableEmbeds(baseEmbeds);
-
-    const directHits: AniLastApiResponse[] = [];
+    const rawDirectHits: { lookupId: string | number; hit: AniLastApiResponse }[] = [];
     let upstreamEmbedUrl: string | null = null;
     for (const r of settled) {
-      if (r.status !== "fulfilled" || !r.value?.url) continue;
-      if (r.value.type === "embed") {
+      if (r.status !== "fulfilled" || !r.value?.hit?.url) continue;
+      const hit = r.value.hit;
+      if (hit.type === "embed") {
         // Never allow a sub-only upstream embed when the viewer explicitly chose DUB.
-        if (data.audio === "dub" && looksSubOnlyResponse(r.value)) continue;
-        upstreamEmbedUrl ??= r.value.url;
+        if (data.audio === "dub" && looksSubOnlyResponse(hit)) continue;
+        upstreamEmbedUrl ??= hit.url!;
       } else {
-        // When DUB is requested, reject hits explicitly tagged as Sub-only so we fall through to real Dub embeds.
-        if (data.audio === "dub" && looksSubOnlyResponse(r.value)) continue;
-        directHits.push(r.value);
+        // When DUB is requested, reject hits explicitly tagged as Sub-only so we fall through to real Dub streams.
+        if (data.audio === "dub" && looksSubOnlyResponse(hit)) continue;
+        rawDirectHits.push({ lookupId: r.value.lookupId, hit });
       }
     }
 
+    // Validate MP4 / stream-proxy direct hits so stub/blocked tiny clips (e.g. 88 KB placeholders) never claim Server 1.
+    let directHits = (
+      await Promise.all(
+        rawDirectHits.map(async (entry) => {
+          const isMp4Candidate =
+            entry.hit.type === "mp4" || Boolean(entry.hit.url?.includes("/api/proxy/stream"));
+          if (isMp4Candidate) {
+            const okMp4 = await isPlayableMp4DirectHit(entry.hit.url!);
+            if (!okMp4) return null;
+          }
+          return entry;
+        }),
+      )
+    ).filter((x): x is { lookupId: string | number; hit: AniLastApiResponse } => x !== null);
+
     // Detect silent dub-to-sub fallback (e.g. anilast returning the exact Japanese sub URL for lang=dub).
-    if (
-      data.audio === "dub" &&
-      directHits.length > 0 &&
-      directHits.every(
-        (hit) =>
+    if (data.audio === "dub" && directHits.length > 0) {
+      const suspectEntries = directHits.filter(
+        ({ hit }) =>
           !looksExplicitDubResponse(hit) &&
           hit.type !== "mp4" &&
           !hit.url?.includes("/api/proxy/stream"),
-      )
-    ) {
-      const subCompare = await queryAnimeEndpoint(candidates[0]!, { ...data, audio: "sub" }).catch(
-        () => null,
       );
-      if (subCompare?.url && directHits.every((hit) => hit.url === subCompare.url)) {
-        directHits.length = 0;
+      if (suspectEntries.length > 0) {
+        const subLookupId = suspectEntries[0]!.lookupId ?? candidates[0]!;
+        const subCompare = await queryAnimeEndpoint(subLookupId, { ...data, audio: "sub" }).catch(
+          () => null,
+        );
+        if (subCompare?.url) {
+          directHits = directHits.filter(({ hit }) => hit.url !== subCompare.url);
+        }
       }
     }
 
     if (data.audio === "dub" && directHits.length > 1) {
       directHits.sort(
-        (a, b) => Number(looksExplicitDubResponse(b)) - Number(looksExplicitDubResponse(a)),
+        (a, b) => Number(looksExplicitDubResponse(b.hit)) - Number(looksExplicitDubResponse(a.hit)),
       );
     }
+
+    // If upstream returned a non-MAL MegaPlay embed (or different URL), extract it too if we still lack MegaPlay.
+    if (
+      !megaplayResult?.source &&
+      upstreamEmbedUrl &&
+      /^https?:\/\/(?:www\.)?megaplay\.buzz\//i.test(upstreamEmbedUrl) &&
+      upstreamEmbedUrl !== megaplayUrl
+    ) {
+      megaplayResult = await extractMegaplayDirectStream(upstreamEmbedUrl, {
+        requestedAudio: data.audio,
+        label: "SHADOW Server 1",
+        langLabel: data.audio.toUpperCase(),
+        streamLang: data.audio === "dub" ? "en" : "ja",
+      }).catch(() => null);
+    }
+
+    // Probe embed fallbacks without firing redundant requests to MegaPlay if we already checked it.
+    const embedAlreadyKnown = new Map<string, boolean>();
+    if (megaplayUrl && megaplayResult) {
+      embedAlreadyKnown.set(megaplayUrl, megaplayResult.embedAlive);
+    }
+    const embedsToProbe = baseEmbeds.filter((e) => !embedAlreadyKnown.has(e.url));
+    const probedOtherEmbeds = await filterAvailableEmbeds(embedsToProbe);
+    const probedBaseEmbeds = baseEmbeds
+      .map((e) => {
+        if (embedAlreadyKnown.has(e.url)) {
+          return { ...e, available: embedAlreadyKnown.get(e.url)! };
+        }
+        return (
+          probedOtherEmbeds.find((p) => p.url === e.url) ?? {
+            ...e,
+            available: false,
+          }
+        );
+      })
+      .filter((e) => e.available || probedOtherEmbeds.every((p) => !p.available));
+
+    const workingBaseEmbeds = probedBaseEmbeds.filter((e) => e.available);
+    const resolvedBaseEmbeds = workingBaseEmbeds.length > 0 ? workingBaseEmbeds : probedBaseEmbeds;
 
     const isSandboxBlockedHost =
       Boolean(upstreamEmbedUrl) &&
       /(^|\.)(2embed\.cc|vidsrc\.me|vidsrc\.buzz)\b/i.test(upstreamEmbedUrl!);
     const mirrorOk =
       upstreamEmbedUrl && !isSandboxBlockedHost
-        ? await probeSingleEmbed(upstreamEmbedUrl, 2400)
+        ? embedAlreadyKnown.has(upstreamEmbedUrl)
+          ? embedAlreadyKnown.get(upstreamEmbedUrl)!
+          : await probeSingleEmbed(upstreamEmbedUrl, 2400)
         : false;
     const mirrorList: AnimeEmbedFallback[] =
       upstreamEmbedUrl && mirrorOk
         ? [{ label: "Mirror Embed", url: upstreamEmbedUrl, available: true }]
         : [];
 
-    const embedFallbacks = dedupeEmbeds([...vostfrEmbeds, ...mirrorList, ...probedBaseEmbeds]);
+    const embedFallbacks = dedupeEmbeds([...vostfrEmbeds, ...mirrorList, ...resolvedBaseEmbeds]);
     const primaryEmbed = embedFallbacks[0]?.url ?? null;
 
-    if (directHits.length === 0) {
-      const extractedSources = await extractDirectStreamsFromEmbeds(embedFallbacks, {
+    // Collect combined direct StreamSources (AniLast direct hits + decrypted MegaPlay 1080p stream + other extractable embeds).
+    const canonicalSeen = new Set<string>();
+    const rawSources: { source: StreamSource; quality?: string | null; priority: number }[] = [];
+
+    for (const { hit } of directHits) {
+      if (!hit.url) continue;
+      const canon = canonicalUpstreamPathKey(hit.url);
+      if (canonicalSeen.has(canon)) continue;
+      canonicalSeen.add(canon);
+
+      const kind = hit.url.includes("/api/proxy/stream") || hit.type === "mp4" ? "stream" : "hls";
+      const rewritten = rewriteAnimeProxyPath(hit.url, kind);
+      const streamType =
+        kind === "stream" || rewritten.startsWith("/api/anilast/stream")
+          ? "mp4"
+          : inferStreamType(rewritten, hit.type);
+      const isAnikoto = hit.provider === "anikoto" || hit.url.includes("fetch.nexabloom.top");
+      rawSources.push({
+        source: {
+          url: rewritten,
+          type: streamType,
+          label: `Server ${rawSources.length + 1} · ${data.audio.toUpperCase()}`,
+          lang: data.audio,
+        },
+        quality: hit.quality ?? null,
+        priority: isAnikoto ? 3 : 1,
+      });
+    }
+
+    if (megaplayResult?.source && megaplayResult.rawUpstreamUrl) {
+      const canon = canonicalUpstreamPathKey(megaplayResult.rawUpstreamUrl);
+      if (!canonicalSeen.has(canon)) {
+        canonicalSeen.add(canon);
+        rawSources.push({
+          source: megaplayResult.source,
+          quality: "HD",
+          priority: 2,
+        });
+      }
+    }
+
+    let extraExtractedSubs: SubtitleTrack[] = [];
+    if (rawSources.length === 0) {
+      const fallbackExtracted = await extractDirectStreamsAndSubsFromEmbeds(embedFallbacks, {
         langLabel: data.lang === "fr" && data.audio === "sub" ? "VOSTFR" : data.audio.toUpperCase(),
         streamLang: data.audio === "dub" ? "en" : "ja",
+        requestedAudio: data.audio,
       });
-      if (extractedSources.length > 0) {
-        return {
-          ok: true,
-          streamUrl: extractedSources[0]!.url,
-          type: extractedSources[0]!.type,
-          provider: "SHADOW Stream",
-          quality: null,
-          subtitles: [],
-          sources: extractedSources,
-          embedUrl: primaryEmbed,
-          embedFallbacks,
-          hasFrenchSubtitles: vostfrEmbeds.length > 0,
-          isFrenchAudio: false,
-          dubFallbackToEnglish,
-        };
-      }
+      extraExtractedSubs = fallbackExtracted.subtitles;
+      fallbackExtracted.sources.forEach((src, i) => {
+        const up = fallbackExtracted.upstreamUrls[i] ?? src.url;
+        const canon = canonicalUpstreamPathKey(up);
+        if (canonicalSeen.has(canon)) return;
+        canonicalSeen.add(canon);
+        rawSources.push({ source: src, quality: null, priority: 1 });
+      });
+    }
 
+    if (rawSources.length === 0) {
       return {
         ok: false,
         streamUrl: null,
@@ -431,35 +625,36 @@ export async function resolveAnimeStream(
       };
     }
 
+    // Order higher-quality 1080p multi-sub streams (Anikoto / MegaPlay) first on Server 1, keeping backup CDNs on Server 2.
+    rawSources.sort((a, b) => b.priority - a.priority);
     const seenUrls = new Set<string>();
     const sources: StreamSource[] = [];
-    for (const hit of directHits) {
-      if (!hit.url) continue;
-      const kind = hit.url.includes("/api/proxy/stream") || hit.type === "mp4" ? "stream" : "hls";
-      const rewritten = rewriteAnimeProxyPath(hit.url, kind);
-      if (seenUrls.has(rewritten)) continue;
-      seenUrls.add(rewritten);
-      const streamType =
-        kind === "stream" || rewritten.startsWith("/api/anilast/stream")
-          ? "mp4"
-          : inferStreamType(rewritten, hit.type);
+    for (const entry of rawSources) {
+      if (seenUrls.has(entry.source.url)) continue;
+      seenUrls.add(entry.source.url);
+      const keepVostfr = entry.source.label.includes("VOSTFR");
       sources.push({
-        url: rewritten,
-        type: streamType,
-        label: `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
-        lang: data.audio,
+        ...entry.source,
+        label: keepVostfr
+          ? entry.source.label
+          : `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
       });
     }
 
-    const primary = directHits[0]!;
     const primarySource = sources[0]!;
+    const primaryQuality =
+      rawSources.find((r) => r.source.url === primarySource.url)?.quality ?? null;
 
-    const mergedSubs = directHits.flatMap((h) => h.subtitles ?? []);
+    const mergedRawSubs = [
+      ...directHits.flatMap((h) => h.hit.subtitles ?? []),
+      ...(megaplayResult?.subtitles ?? []),
+      ...extraExtractedSubs,
+    ];
     const seenSubUrls = new Set<string>();
     const subtitles: SubtitleTrack[] = [];
-    for (const s of mergedSubs) {
-      if (!s.url) continue;
-      const url = rewriteAnimeProxyPath(s.url, "subtitle");
+    for (const s of mergedRawSubs) {
+      if (!s.url || isNonDialogueSubtitle(s)) continue;
+      const url = s.url.startsWith("/api/") ? s.url : rewriteAnimeProxyPath(s.url, "subtitle");
       if (seenSubUrls.has(url)) continue;
       seenSubUrls.add(url);
       subtitles.push({
@@ -516,7 +711,7 @@ export async function resolveAnimeStream(
       streamUrl: primarySource.url,
       type: primarySource.type,
       provider: "SHADOW Stream",
-      quality: primary.quality ?? null,
+      quality: primaryQuality,
       subtitles,
       sources,
       embedUrl: primaryEmbed,

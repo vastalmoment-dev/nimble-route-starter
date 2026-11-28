@@ -326,4 +326,120 @@ describe("AniLast anime integration", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("streams disguised MPEG-TS segments (.html/.css/.js and 252-byte PNG prefixed) as video/mp2t while blocking real HTML challenges", async () => {
+    const { handleMediaProxyRequest, signMediaProxyUrl } = await import("@/lib/stream/media-proxy");
+
+    const tsBytes = new Uint8Array(600);
+    tsBytes[0] = 0x47;
+    tsBytes[1] = 0x40;
+    tsBytes[2] = 0x00;
+    tsBytes[3] = 0x11;
+
+    const pngPrefixed = new Uint8Array(600);
+    pngPrefixed[0] = 0x89;
+    pngPrefixed[1] = 0x50;
+    pngPrefixed[2] = 0x4e;
+    pngPrefixed[3] = 0x47;
+    pngPrefixed[252] = 0x47;
+    pngPrefixed[253] = 0x40;
+
+    const segHtmlUrl = signMediaProxyUrl(
+      "https://shadowcdn.lol/hls/seg-2.html",
+      "https://megaplay.buzz/",
+    );
+    const segPngUrl = signMediaProxyUrl(
+      "https://cdn.example.net/seg-3.png",
+      "https://megaplay.buzz/",
+    );
+    const segChallengeUrl = signMediaProxyUrl(
+      "https://shadowcdn.lol/hls/seg-4.html",
+      "https://megaplay.buzz/",
+    );
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(tsBytes, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(pngPrefixed, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<!DOCTYPE html><html><title>Just a moment...</title></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+
+    try {
+      const resHtmlTs = await handleMediaProxyRequest(
+        new Request(`http://localhost:3000${segHtmlUrl}`),
+      );
+      expect(resHtmlTs?.status).toBe(200);
+      expect(resHtmlTs?.headers.get("content-type")).toBe("video/mp2t");
+      const outHtmlTs = new Uint8Array(await resHtmlTs!.arrayBuffer());
+      expect(outHtmlTs.byteLength).toBe(600);
+      expect(outHtmlTs[0]).toBe(0x47);
+
+      const resPngStripped = await handleMediaProxyRequest(
+        new Request(`http://localhost:3000${segPngUrl}`),
+      );
+      expect(resPngStripped?.status).toBe(200);
+      expect(resPngStripped?.headers.get("content-type")).toBe("video/mp2t");
+      const outStripped = new Uint8Array(await resPngStripped!.arrayBuffer());
+      expect(outStripped.byteLength).toBe(600 - 252);
+      expect(outStripped[0]).toBe(0x47);
+
+      const resChallenge = await handleMediaProxyRequest(
+        new Request(`http://localhost:3000${segChallengeUrl}`),
+      );
+      expect(resChallenge?.status).toBe(502);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("proxies disguised /api/anilast/hls binary segments (.jpg/.js/.html) without corrupting binary payloads and probes MegaPlay with anilast Referer", async () => {
+    const rawTs = new Uint8Array([0x47, 0x40, 0x00, 0x10, 0xff, 0xfe]);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(rawTs, {
+          status: 200,
+          headers: { "content-type": "application/javascript" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(`<html><title>Player</title><body>${"x".repeat(200)}</body></html>`, {
+          status: 200,
+        }),
+      );
+
+    try {
+      const segRes = await handleAniLastProxyRequest(
+        new Request(
+          "http://localhost:3000/api/anilast/hls?url=https%3A%2F%2Fcdn.example.com%2Fseg-1.js",
+        ),
+      );
+      expect(segRes?.status).toBe(200);
+      expect(segRes?.headers.get("content-type")).toBe("video/mp2t");
+      const bytes = new Uint8Array(await segRes!.arrayBuffer());
+      expect(Array.from(bytes)).toEqual(Array.from(rawTs));
+
+      const { probeSingleEmbed } = await import("@/lib/stream/embed-probe");
+      const ok = await probeSingleEmbed("https://megaplay.buzz/stream/mal/34572/3/sub");
+      expect(ok).toBe(true);
+      const sentHeaders = fetchSpy.mock.calls[1]?.[1]?.headers as Record<string, string>;
+      expect(sentHeaders["Referer"]).toBe("https://anilast.xyz/");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });

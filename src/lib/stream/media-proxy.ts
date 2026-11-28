@@ -336,6 +336,73 @@ async function handleMediaImageProxy(url: URL): Promise<Response> {
   return new Response("Image unavailable", { status: 404 });
 }
 
+const DISGUISED_SEG_TYPE_RE =
+  /(text\/html|text\/css|text\/plain|javascript|ecmascript|image\/png)/i;
+const STRIP_PREFIX_HOST_RE = /\b(ibyteimg\.com|tiktokcdn\.com|ipstatp\.com|yoot\.akirax\.buzz)\b/i;
+
+function prependChunkStream(
+  firstChunk: Uint8Array,
+  restReader: ReadableStreamDefaultReader<Uint8Array> | null,
+): ReadableStream<Uint8Array> {
+  let sentFirst = false;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (!sentFirst) {
+        sentFirst = true;
+        if (firstChunk.byteLength > 0) {
+          controller.enqueue(firstChunk);
+          return;
+        }
+      }
+      if (!restReader) {
+        controller.close();
+        return;
+      }
+      const { done, value } = await restReader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      if (value) controller.enqueue(value);
+    },
+    cancel() {
+      void restReader?.cancel().catch(() => {});
+    },
+  });
+}
+
+async function readInitialChunk(
+  res: Response,
+  minBytes = 512,
+): Promise<{ first: Uint8Array; reader: ReadableStreamDefaultReader<Uint8Array> | null }> {
+  if (!res.body) {
+    const ab = await res.arrayBuffer();
+    return { first: new Uint8Array(ab), reader: null };
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let readerDone = false;
+  while (total < minBytes) {
+    const { done, value } = await reader.read();
+    if (done) {
+      readerDone = true;
+      break;
+    }
+    if (value && value.byteLength > 0) {
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+  return { first: merged, reader: readerDone ? null : reader };
+}
+
 export async function handleMediaProxyRequest(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
   const isHls = url.pathname === "/api/media/hls";
@@ -463,13 +530,51 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       );
     }
 
-    if (isSeg && /text\/html/i.test(contentType)) {
-      return proxyJsonError(
-        "Upstream segment host returned an HTML challenge instead of media data",
-        upstream.status,
-        502,
-        { blocked: true },
-      );
+    if (
+      isSeg &&
+      (DISGUISED_SEG_TYPE_RE.test(contentType) || STRIP_PREFIX_HOST_RE.test(upstreamUrl))
+    ) {
+      const { first, reader } = await readInitialChunk(upstream);
+      const isTsDirect = first.byteLength > 0 && first[0] === 0x47;
+      const hasStripPrefix =
+        first.byteLength > 252 &&
+        first[0] !== 0x47 &&
+        first[252] === 0x47 &&
+        (STRIP_PREFIX_HOST_RE.test(upstreamUrl) ||
+          (first[0] === 0x89 && first[1] === 0x50 && first[2] === 0x4e && first[3] === 0x47));
+
+      if (!isTsDirect && !hasStripPrefix && /text\/html/i.test(contentType)) {
+        const headText = new TextDecoder().decode(first.subarray(0, 600));
+        if (first.byteLength === 0 || isHtmlOrChallengeBody(headText, "")) {
+          void reader?.cancel().catch(() => {});
+          return proxyJsonError(
+            "Upstream segment host returned an HTML challenge instead of media data",
+            upstream.status,
+            502,
+            { blocked: true },
+          );
+        }
+      }
+
+      const payloadFirst = hasStripPrefix ? first.subarray(252) : first;
+      const isMpegTs = payloadFirst.byteLength > 0 && payloadFirst[0] === 0x47;
+      const headers = new Headers({
+        "content-type": isMpegTs ? "video/mp2t" : "application/octet-stream",
+        "cache-control": "public, max-age=300",
+      });
+      if (!hasStripPrefix) {
+        const cl = upstream.headers.get("content-length");
+        if (cl) headers.set("content-length", cl);
+      }
+      const cr = upstream.headers.get("content-range");
+      if (cr && !hasStripPrefix) headers.set("content-range", cr);
+      const ar = upstream.headers.get("accept-ranges");
+      if (ar && !hasStripPrefix) headers.set("accept-ranges", ar);
+
+      return new Response(prependChunkStream(payloadFirst, reader), {
+        status: upstream.status === 206 && !hasStripPrefix ? 206 : 200,
+        headers,
+      });
     }
 
     if (isSub && url.searchParams.get("token")) {
