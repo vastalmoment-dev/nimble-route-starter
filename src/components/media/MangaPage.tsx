@@ -9,12 +9,17 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cachedAsync } from "@/lib/cache/client-cache";
 import { translateMangaGenre, useT, type TranslationKey } from "@/lib/i18n";
+import {
+  fetchMangaChapterPageUrls,
+  fetchMangaChaptersList,
+  fetchMangaList,
+} from "@/lib/manga/mangadex";
 import {
   getMangaCatalog,
   getMangaChapterPages,
@@ -181,7 +186,7 @@ function MangaReaderImage({
           setFailed(true);
         }
       }}
-      className="w-full rounded bg-surface object-contain"
+      className="w-full rounded bg-surface object-contain [content-visibility:auto] [contain-intrinsic-size:auto_900px]"
     />
   );
 }
@@ -204,6 +209,8 @@ function downloadQuickHref(mangaId: string, title: string, lang: "en" | "fr") {
   return `/api/manga/download?${params.toString()}`;
 }
 
+const READER_PAGE_BATCH = 24;
+
 export function MangaPage() {
   const { lang, t } = useT();
   const [feed, setFeed] = useState<MangaFeedKind>("latest");
@@ -213,6 +220,9 @@ export function MangaPage() {
   const [offset, setOffset] = useState(0);
   const [selectedManga, setSelectedManga] = useState<MangaItem | null>(null);
   const [readingChapter, setReadingChapter] = useState<MangaChapter | null>(null);
+  const [visiblePageCount, setVisiblePageCount] = useState(READER_PAGE_BATCH);
+  const readerScrollRef = useRef<HTMLDivElement>(null);
+  const loadMorePagesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -222,44 +232,83 @@ export function MangaPage() {
     return () => clearTimeout(t);
   }, [q]);
 
+  const isTestEnv = (import.meta.env as Record<string, unknown> | undefined)?.["MODE"] === "test";
+
   const catalog = useQuery({
     queryKey: ["manga-catalog", lang, feed, genre, debouncedQ, offset],
     queryFn: () =>
       cachedAsync(
-        `manga:catalog:v3:${lang}:${feed}:${genre}:${debouncedQ}:${offset}`,
-        1000 * 60 * 5,
-        () =>
-          getMangaCatalog({
-            data: {
+        `manga:catalog:v4:${lang}:${feed}:${genre}:${debouncedQ}:${offset}`,
+        1000 * 60 * 30,
+        async () => {
+          try {
+            return await fetchMangaList({
               feed,
-              genre,
+              genre: genre !== "All" ? genre : undefined,
               q: debouncedQ || undefined,
+              limit: 30,
               offset,
               lang,
-            },
-          }),
+            });
+          } catch (browserError) {
+            if (isTestEnv) throw browserError;
+            return getMangaCatalog({
+              data: {
+                feed,
+                genre,
+                q: debouncedQ || undefined,
+                offset,
+                lang,
+              },
+            });
+          }
+        },
+        { persist: "session" },
       ),
-    staleTime: 1000 * 60 * 3,
+    staleTime: 1000 * 60 * 15,
+    gcTime: 1000 * 60 * 60,
   });
 
   const chaptersQuery = useQuery({
     queryKey: ["manga-chapters", lang, selectedManga?.id],
     queryFn: () =>
-      cachedAsync(`manga:chapters:v2:${lang}:${selectedManga!.id}`, 1000 * 60 * 10, () =>
-        getMangaChapters({ data: { mangaId: selectedManga!.id, lang } }),
+      cachedAsync(
+        `manga:chapters:v3:${lang}:${selectedManga!.id}`,
+        1000 * 60 * 30,
+        async () => {
+          try {
+            return await fetchMangaChaptersList(selectedManga!.id, lang);
+          } catch (browserError) {
+            if (isTestEnv) throw browserError;
+            return getMangaChapters({ data: { mangaId: selectedManga!.id, lang } });
+          }
+        },
+        { persist: "session" },
       ),
     enabled: Boolean(selectedManga),
-    staleTime: 1000 * 60 * 10,
+    staleTime: 1000 * 60 * 15,
+    gcTime: 1000 * 60 * 60,
   });
 
   const pagesQuery = useQuery({
     queryKey: ["manga-pages", readingChapter?.id],
     queryFn: () =>
-      cachedAsync(`manga:pages:v2:${readingChapter!.id}`, 1000 * 60 * 10, () =>
-        getMangaChapterPages({ data: { chapterId: readingChapter!.id } }),
+      cachedAsync(
+        `manga:pages:v3:${readingChapter!.id}`,
+        1000 * 60 * 30,
+        async () => {
+          try {
+            return await fetchMangaChapterPageUrls(readingChapter!.id);
+          } catch (browserError) {
+            if (isTestEnv) throw browserError;
+            return getMangaChapterPages({ data: { chapterId: readingChapter!.id } });
+          }
+        },
+        { persist: "session" },
       ),
     enabled: Boolean(readingChapter),
-    staleTime: 1000 * 60 * 20,
+    staleTime: 1000 * 60 * 15,
+    gcTime: 1000 * 60 * 60,
   });
 
   const chapters = chaptersQuery.data ?? [];
@@ -285,6 +334,32 @@ export function MangaPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [readingChapter, prevChapter, nextChapter]);
+
+  const totalPages = pagesQuery.data?.length ?? 0;
+
+  useEffect(() => {
+    setVisiblePageCount(READER_PAGE_BATCH);
+    if (readerScrollRef.current) {
+      readerScrollRef.current.scrollTop = 0;
+    }
+  }, [readingChapter?.id]);
+
+  useEffect(() => {
+    const sentinel = loadMorePagesRef.current;
+    if (!sentinel || visiblePageCount >= totalPages) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisiblePageCount((prev) => Math.min(totalPages, prev + READER_PAGE_BATCH));
+        }
+      },
+      { root: readerScrollRef.current, rootMargin: "600px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [visiblePageCount, totalPages, readingChapter?.id]);
 
   const items = catalog.data?.items ?? [];
   const total = catalog.data?.total ?? items.length;
@@ -608,7 +683,19 @@ export function MangaPage() {
                     <Loader2 className="size-6 animate-spin text-cerulean" />
                   </div>
                 ) : chaptersQuery.isError ? (
-                  <p className="text-sm text-muted-foreground">{t("manga.chaptersUnavailable")}</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      {t("manga.chaptersUnavailable")}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void chaptersQuery.refetch()}
+                    >
+                      <RefreshCw className="size-3.5" /> {t("common.retry")}
+                    </Button>
+                  </div>
                 ) : chapters.length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("manga.noChapters")}</p>
                 ) : (
@@ -732,7 +819,7 @@ export function MangaPage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-2 py-6 sm:px-6">
+          <div ref={readerScrollRef} className="flex-1 overflow-y-auto px-2 py-6 sm:px-6">
             {pagesQuery.isLoading ? (
               <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3">
                 <Loader2 className="size-10 animate-spin text-cerulean" />
@@ -756,13 +843,29 @@ export function MangaPage() {
               </div>
             ) : (
               <div className="mx-auto flex max-w-3xl flex-col gap-2">
-                {pagesQuery.data.map((entry, idx) => (
+                {pagesQuery.data.slice(0, visiblePageCount).map((entry, idx) => (
                   <MangaReaderImage
                     key={typeof entry === "string" ? entry : entry.url}
                     entry={entry}
                     pageNumber={idx + 1}
                   />
                 ))}
+                {visiblePageCount < pagesQuery.data.length && (
+                  <div ref={loadMorePagesRef} className="flex justify-center py-6">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setVisiblePageCount((prev) =>
+                          Math.min(pagesQuery.data!.length, prev + READER_PAGE_BATCH),
+                        )
+                      }
+                    >
+                      {t("manga.loadMorePages")} ({visiblePageCount}/{pagesQuery.data.length})
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>

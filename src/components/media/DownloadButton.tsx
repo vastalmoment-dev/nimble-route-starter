@@ -65,7 +65,9 @@ export function DownloadButton({
       variant={variant}
       size={compact ? "round" : "xl"}
       className={cn(compact && "size-9", className)}
-      aria-label={compact ? `${label} episode ${episode}` : undefined}
+      aria-label={
+        compact ? (isMovie ? `${label} — ${item.title}` : `${label} episode ${episode}`) : undefined
+      }
       onClick={(e) => {
         e.stopPropagation();
         if (busy) return;

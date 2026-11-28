@@ -18,9 +18,6 @@ import { MediaModalProvider } from "../components/media/MediaModalContext";
 import { WatchNavigationProvider } from "../components/player/WatchNavigation";
 import { LanguageProvider, useT } from "../lib/i18n";
 
-const LazyPromoPopup = lazy(() =>
-  import("../components/ads/PromoPopup").then((m) => ({ default: m.PromoPopup })),
-);
 const LazyFloatingPromo = lazy(() =>
   import("../components/ads/PromoPopup").then((m) => ({ default: m.FloatingPromo })),
 );
@@ -167,7 +164,6 @@ function RootComponent() {
           {/* Polite delayed ads while browsing; never loaded inside the active /watch/* player. */}
           <AdsterraScript enabled={!isPlayer} />
           <Suspense fallback={null}>
-            {!isPlayer && <LazyPromoPopup delay={12000} storageKey="shadow-promo-entry" />}
             {isAnime && !isPlayer && <LazyFloatingPromo />}
             <LazyDownloadsTray />
           </Suspense>

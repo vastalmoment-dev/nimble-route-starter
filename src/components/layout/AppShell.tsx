@@ -6,6 +6,7 @@ import { ShadowMark, ShadowWordmark } from "@/components/branding/ShadowLogo";
 import { LanguageToggle } from "@/components/media/LanguageToggle";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useT } from "@/lib/i18n";
+import { preloadChunk } from "@/lib/preload-chunks";
 import { useWatchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./nav";
@@ -43,6 +44,8 @@ function NavLinks({
             key={to}
             to={to}
             onClick={onNavigate}
+            onMouseEnter={() => preloadChunk(to)}
+            onFocus={() => preloadChunk(to)}
             activeOptions={{ exact: to === "/" }}
             title={collapsed ? label : undefined}
             className={cn(
@@ -338,12 +341,16 @@ function Footer() {
           </Link>
           <Link
             to="/watchlist"
+            onMouseEnter={() => preloadChunk("/watchlist")}
+            onFocus={() => preloadChunk("/watchlist")}
             className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
           >
             {t("nav.watchlist")}
           </Link>
           <Link
             to="/policy"
+            onMouseEnter={() => preloadChunk("/policy")}
+            onFocus={() => preloadChunk("/policy")}
             className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
           >
             {t("shell.policy")}

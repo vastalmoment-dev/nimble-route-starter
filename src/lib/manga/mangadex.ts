@@ -1,5 +1,4 @@
 import type { SiteLanguage } from "@/lib/i18n/language";
-import { buildSignedMangaPageUrl } from "./manga-proxy";
 import {
   MANGA_GENRE_TAGS,
   type MangaChapter,
@@ -12,7 +11,42 @@ export { MANGA_GENRE_TAGS };
 export type { MangaChapter, MangaFeedKind, MangaItem, MangaPageSource };
 
 const MANGADEX_API = "https://api.mangadex.org";
-const USER_AGENT = "ShadowStreamingApp/1.0 (https://shadow.app)";
+const SERVER_USER_AGENT = "ShadowStreamingApp/1.0 (https://shadow.app)";
+
+function buildRequestHeaders(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return { "User-Agent": SERVER_USER_AGENT, Accept: "application/json" };
+  }
+  return { Accept: "application/json" };
+}
+
+async function fetchMangaJson<T>(url: string, timeoutMs = 10000): Promise<T> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(url, {
+        headers: buildRequestHeaders(),
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+      if ((res.status === 429 || res.status >= 500) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (!res.ok) throw new Error(`MangaDex request failed (${res.status})`);
+      return (await res.json()) as T;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 350));
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw lastError ?? new Error("MangaDex request failed");
+}
 
 interface RawManga {
   id: string;
@@ -133,15 +167,12 @@ export async function fetchMangaList(params: {
     sp.set("order[createdAt]", "desc");
   }
 
-  const tagId = params.genre && MANGA_GENRE_TAGS[params.genre];
+  const tagId = params.genre && params.genre !== "All" ? MANGA_GENRE_TAGS[params.genre] : undefined;
   if (tagId) sp.append("includedTags[]", tagId);
 
-  const res = await fetch(`${MANGADEX_API}/manga?${sp.toString()}`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-    signal: AbortSignal.timeout(9000),
-  });
-  if (!res.ok) throw new Error(`Manga catalog failed (${res.status})`);
-  const json = (await res.json()) as { data?: RawManga[]; total?: number };
+  const json = await fetchMangaJson<{ data?: RawManga[]; total?: number }>(
+    `${MANGADEX_API}/manga?${sp.toString()}`,
+  );
   return {
     items: (json.data ?? []).map((row) => mapManga(row, lang)),
     total: json.total ?? 0,
@@ -175,16 +206,9 @@ async function queryMangaFeedByLanguage(
   sp.set("includeExternalUrl", "0");
   sp.set("order[chapter]", "asc");
 
-  const res = await fetch(
+  const json = await fetchMangaJson<{ data?: RawChapterRow[] }>(
     `${MANGADEX_API}/manga/${encodeURIComponent(mangaId)}/feed?${sp.toString()}`,
-    {
-      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-      signal: AbortSignal.timeout(9000),
-    },
   );
-  if (!res.ok) throw new Error(`Manga chapters failed (${res.status})`);
-
-  const json = (await res.json()) as { data?: RawChapterRow[] };
 
   // Deduplicate repeated scanlations per chapter number, preferring hosted chapters with the most pages.
   const byChapter = new Map<string, MangaChapter>();
@@ -224,26 +248,24 @@ export async function fetchMangaChaptersList(
 }
 
 export async function fetchMangaChapterPageUrls(chapterId: string): Promise<MangaPageSource[]> {
-  const res = await fetch(`${MANGADEX_API}/at-home/server/${encodeURIComponent(chapterId)}`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-    signal: AbortSignal.timeout(9000),
-  });
-  if (!res.ok) throw new Error(`Chapter pages failed (${res.status})`);
-  const json = (await res.json()) as {
+  const json = await fetchMangaJson<{
     baseUrl?: string;
     chapter?: { hash?: string; data?: string[]; dataSaver?: string[] };
-  };
+  }>(`${MANGADEX_API}/at-home/server/${encodeURIComponent(chapterId)}`);
+
   const baseUrl = json.baseUrl;
   const hash = json.chapter?.hash;
-  const files = json.chapter?.dataSaver?.length ? json.chapter.dataSaver : json.chapter?.data;
-  const folder = json.chapter?.dataSaver?.length ? "data-saver" : "data";
+  const useSaver = Boolean(json.chapter?.dataSaver?.length);
+  const files = useSaver ? json.chapter?.dataSaver : json.chapter?.data;
+  const folder = useSaver ? "data-saver" : "data";
   if (!baseUrl || !hash || !files?.length) return [];
   const origin = new URL(baseUrl).origin;
   return files.map((file) => {
     const upstreamUrl = `${origin}/${folder}/${hash}/${file}`;
+    const fallbackUrl = `/api/manga/page?chapterId=${encodeURIComponent(chapterId)}&file=${encodeURIComponent(file)}${useSaver ? "&saver=1" : ""}`;
     return {
       url: upstreamUrl,
-      fallbackUrl: buildSignedMangaPageUrl(upstreamUrl),
+      fallbackUrl,
     };
   });
 }

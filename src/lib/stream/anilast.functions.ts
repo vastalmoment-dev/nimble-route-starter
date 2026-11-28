@@ -51,11 +51,28 @@ export function buildAnimeEmbedFallbacks(params: {
     }
   };
 
+  if (params.audio === "dub") {
+    // Dedicated /dub endpoints first so DUB never silently defaults to Japanese Sub audio.
+    if (params.malId && params.malId > 0) {
+      push(
+        "megaplay.buzz",
+        `https://megaplay.buzz/stream/mal/${params.malId}/${params.episode}/dub`,
+      );
+    }
+    if (/^\d+$/.test(params.anilistId)) {
+      push("vidsrc.su", `https://vidsrc.su/embed/anime/${params.anilistId}/${params.episode}/dub`);
+      push("vidlink.pro", `https://vidlink.pro/anime/${params.anilistId}/${params.episode}/dub`);
+      push("vidnest.fun", `https://vidnest.fun/anime/${params.anilistId}/${params.episode}/dub`);
+      push(
+        "vidcore.io",
+        `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}?dub=true`,
+      );
+    }
+    return out;
+  }
+
   if (/^\d+$/.test(params.anilistId)) {
-    push(
-      "vidcore.io",
-      `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}${params.audio === "dub" ? "?dub=true" : ""}`,
-    );
+    push("vidcore.io", `https://vidcore.io/embed/anime/${params.anilistId}/${params.episode}`);
   }
   if (params.malId && params.malId > 0) {
     push(
@@ -144,8 +161,21 @@ interface AniLastApiResponse {
   type?: string;
   url?: string;
   quality?: string;
+  audio?: string;
   subtitles?: { url?: string; lang?: string; label?: string }[];
   error?: string;
+}
+
+function looksSubOnlyResponse(hit: AniLastApiResponse): boolean {
+  const hay = `${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`.toLowerCase();
+  const hasSubTag = /(?:^|[/?&=_.-])sub(?:bed)?(?:$|[/?&=_.-])|\bjapanese\b|\braw\b/.test(hay);
+  const hasDubTag = /(?:^|[/?&=_.-])(?:dub|dubbed|dual|english)(?:$|[/?&=_.-])/.test(hay);
+  return hasSubTag && !hasDubTag;
+}
+
+function looksExplicitDubResponse(hit: AniLastApiResponse): boolean {
+  const hay = `${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`.toLowerCase();
+  return /(?:^|[/?&=_.-])(?:dub|dubbed|dual|english)(?:$|[/?&=_.-])/.test(hay);
 }
 
 async function queryAnimeEndpoint(
@@ -192,9 +222,10 @@ export async function resolveAnimeStream(
     candidates.push(data.anilistId);
   }
 
-  const baseEmbeds = buildAnimeEmbedFallbacks({
+  let effectiveMalId: number | null = data.malId ?? null;
+  let baseEmbeds = buildAnimeEmbedFallbacks({
     anilistId: data.anilistId,
-    malId: data.malId,
+    malId: effectiveMalId,
     episode: data.episode,
     audio: data.audio,
   });
@@ -210,6 +241,7 @@ export async function resolveAnimeStream(
   if (data.lang === "fr" && data.audio === "dub") {
     try {
       const ext = await fetchAnimeExternalIds(data.anilistId);
+      if (!effectiveMalId && ext.malId) effectiveMalId = ext.malId;
       const titles = [data.title, data.englishTitle, data.romajiTitle, ext.frTitle];
       const vfEmbeds = await resolveAnimeSamaEmbeds({
         titles,
@@ -257,22 +289,48 @@ export async function resolveAnimeStream(
           )
         : Promise.resolve([]);
 
-    const [settled, ext, vostfrEmbeds, probedBaseEmbeds] = await Promise.all([
+    const [settledInitial, ext, vostfrEmbeds] = await Promise.all([
       Promise.allSettled(candidates.map((lookupId) => queryAnimeEndpoint(lookupId, data))),
       extPromise,
       vostfrPromise,
-      filterAvailableEmbeds(baseEmbeds),
     ]);
+
+    const settled = [...settledInitial];
+    if (!effectiveMalId && ext?.malId) {
+      effectiveMalId = ext.malId;
+      if (!candidates.includes(effectiveMalId)) {
+        const extraHit = await Promise.allSettled([queryAnimeEndpoint(effectiveMalId, data)]);
+        settled.push(...extraHit);
+      }
+      baseEmbeds = buildAnimeEmbedFallbacks({
+        anilistId: data.anilistId,
+        malId: effectiveMalId,
+        episode: data.episode,
+        audio: data.audio,
+      });
+    }
+
+    const probedBaseEmbeds = await filterAvailableEmbeds(baseEmbeds);
 
     const directHits: AniLastApiResponse[] = [];
     let upstreamEmbedUrl: string | null = null;
     for (const r of settled) {
       if (r.status !== "fulfilled" || !r.value?.url) continue;
       if (r.value.type === "embed") {
+        // Never allow a sub-only upstream embed when the viewer explicitly chose DUB.
+        if (data.audio === "dub" && looksSubOnlyResponse(r.value)) continue;
         upstreamEmbedUrl ??= r.value.url;
       } else {
+        // When DUB is requested, reject hits explicitly tagged as Sub-only so we fall through to real Dub embeds.
+        if (data.audio === "dub" && looksSubOnlyResponse(r.value)) continue;
         directHits.push(r.value);
       }
+    }
+
+    if (data.audio === "dub" && directHits.length > 1) {
+      directHits.sort(
+        (a, b) => Number(looksExplicitDubResponse(b)) - Number(looksExplicitDubResponse(a)),
+      );
     }
 
     const isSandboxBlockedHost =

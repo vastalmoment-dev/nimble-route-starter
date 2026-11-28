@@ -8,10 +8,13 @@ import {
   Layers,
   ListVideo,
   Loader2,
+  Maximize,
+  Minimize,
   MonitorPlay,
   Play,
   RefreshCw,
   Subtitles,
+  Users,
   X,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -21,7 +24,9 @@ import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
 import type { Source } from "@/lib/catalog/types";
 import { useT } from "@/lib/i18n";
+import { useLandscapeFullscreen } from "@/lib/player/fullscreen";
 import { playbackProgress } from "@/lib/player/progress";
+import { useLiveWatchers } from "@/lib/presence/use-live-watchers";
 import { buildAnimeEmbedFallbacks, getAniLastAnimeStream } from "@/lib/stream/anilast.functions";
 import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
 import { buildMediaEmbedFallbacks, getMediaStream } from "@/lib/stream/media.functions";
@@ -30,7 +35,85 @@ import { cn } from "@/lib/utils";
 
 const LazyVideoPlayer = lazy(() => import("@/components/player/VideoPlayer"));
 
+export const EMBED_FAILOVER_TIMEOUT_MS = 16_000;
+
 const DISCORD_URL = "https://discord.gg/uKtF6Efs2";
+
+function LiveWatchingBadge({ count }: { count: number | null }) {
+  const { t } = useT();
+  if (!count || count <= 0) return null;
+  const template = count === 1 ? t("watch.watchingNow") : t("watch.watchingNowPlural");
+  const label = template.replace("{count}", String(count));
+  return (
+    <span
+      data-testid="live-watching-count"
+      aria-live="polite"
+      className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-emerald-400/30 bg-scrim/80 px-3 py-1 text-xs font-semibold tabular-nums text-foreground backdrop-blur-md"
+    >
+      <span className="size-2 animate-pulse rounded-full bg-emerald-400" aria-hidden="true" />
+      <Users className="size-3.5 text-emerald-400" aria-hidden="true" />
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function EmbedPlayerFrame({
+  src,
+  title,
+  onLoad,
+  onError,
+  referrerPolicy = "origin",
+  sandbox = "allow-scripts allow-same-origin allow-forms",
+  className,
+}: {
+  src: string;
+  title: string;
+  onLoad?: () => void;
+  onError?: () => void;
+  referrerPolicy?: React.HTMLAttributeReferrerPolicy;
+  sandbox?: string;
+  className?: string;
+}) {
+  const { t } = useT();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { fullscreen, toggleFullscreen } = useLandscapeFullscreen(containerRef);
+
+  return (
+    <div
+      ref={containerRef}
+      data-testid="embed-player-container"
+      className={cn(
+        "group/embed relative overflow-hidden rounded-xl border border-foreground/10 bg-background",
+        fullscreen ? "fixed inset-0 z-[70] h-full w-full max-w-none rounded-none" : className,
+      )}
+    >
+      <iframe
+        key={src}
+        src={src}
+        title={title}
+        className="size-full border-0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        sandbox={sandbox}
+        allowFullScreen
+        referrerPolicy={referrerPolicy}
+        onLoad={onLoad}
+        onError={onError}
+      />
+      <button
+        type="button"
+        onClick={() => void toggleFullscreen()}
+        aria-label={fullscreen ? t("player.exitFullScreen") : t("watch.expandLandscape")}
+        title={fullscreen ? t("player.exitFullScreen") : t("watch.expandLandscape")}
+        className="absolute bottom-3 right-3 z-20 inline-flex min-h-[44px] items-center gap-1.5 rounded-full border border-foreground/20 bg-scrim/90 px-3.5 py-2 text-xs font-semibold text-foreground shadow-card backdrop-blur-md transition hover:border-cerulean hover:bg-scrim sm:opacity-90 sm:group-hover/embed:opacity-100"
+      >
+        {fullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
+        <span className="sm:hidden">
+          {fullscreen ? t("player.exitFullScreen") : t("watch.expandLandscape")}
+        </span>
+      </button>
+    </div>
+  );
+}
 
 function WatchDiscordPrompt() {
   const { t } = useT();
@@ -124,6 +207,7 @@ export function WatchPage({
 }: WatchPageProps) {
   const isAnime = source === "anilist";
   const { lang, t } = useT();
+  const liveWatchers = useLiveWatchers(`${source}:${id}`);
 
   const lastWatched =
     typeof window !== "undefined" ? playbackProgress.getLastWatched(source, id) : null;
@@ -247,7 +331,15 @@ export function WatchPage({
     : null;
 
   const aniStream = useQuery({
-    queryKey: ["anime-stream", id, ep, audio, lang, detail.data?.mediaType ?? null],
+    queryKey: [
+      "anime-stream",
+      id,
+      detail.data?.malId ?? null,
+      ep,
+      audio,
+      lang,
+      detail.data?.mediaType ?? null,
+    ],
     queryFn: () =>
       getAniLastAnimeStream({
         data: {
@@ -285,6 +377,12 @@ export function WatchPage({
     },
     [t],
   );
+
+  const switchToEmbedMode = useCallback(() => {
+    setEmbedIndex(0);
+    setIframeLoaded(false);
+    setPlayerMode("embed");
+  }, []);
 
   // Anime French audio/subtitle routing:
   // - fr + sub: Japanese audio + French subtitles, switching to VOSTFR embed if native lacks French subtitles.
@@ -386,14 +484,14 @@ export function WatchPage({
     }
   }, [isAnime, lang, mediaStream.data]);
 
-  // Watchdog: if an embed iframe fails to load within 7.5s and another server exists, auto-advance.
+  // Watchdog: give each embed server at least 16s to load before auto-advancing to backup.
   useEffect(() => {
     if (playerMode !== "embed" || iframeLoaded) return;
     const { url, pool } = activeEmbedTargetRef.current;
     if (!url || pool.length <= 1) return;
     const timer = setTimeout(() => {
       advanceEmbedServer(url, pool);
-    }, 7_500);
+    }, EMBED_FAILOVER_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [
     playerMode,
@@ -499,6 +597,14 @@ export function WatchPage({
   };
 
   if (streamUrl && isDirectVideo(streamUrl)) {
+    const directDownloadItem = detail.data ?? {
+      source,
+      id,
+      title: title || "SHADOW Video",
+      mediaType: inferredMediaType,
+      imdbId: rawImdb,
+      tmdbId: rawTmdb,
+    };
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
         <div className="relative min-h-0 flex-1">
@@ -513,8 +619,20 @@ export function WatchPage({
               title={title}
               poster={detail.data?.backdrop ?? detail.data?.poster ?? null}
               initialTime={resumeTime}
+              preferredAudioLang={lang}
               onTimeProgress={handleTimeProgress}
               onBack={goBack}
+              topRight={
+                <>
+                  <LiveWatchingBadge count={liveWatchers} />
+                  <DownloadButton
+                    item={directDownloadItem}
+                    season={inferredMediaType === "movie" ? 1 : season}
+                    episode={inferredMediaType === "movie" ? 1 : ep}
+                    className="min-h-[44px] rounded-full px-3 text-xs sm:h-9 sm:min-h-0 [&_svg]:size-3.5"
+                  />
+                </>
+              }
             />
           </Suspense>
         </div>
@@ -651,6 +769,7 @@ export function WatchPage({
 
     const animeControls = (
       <>
+        <LiveWatchingBadge count={liveWatchers} />
         {animeServerSwitcher}
         <LanguageToggle compact />
         <AudioToggle value={audio} onChange={switchAudio} />
@@ -841,11 +960,12 @@ export function WatchPage({
                 onPrev={hasPrev ? () => switchEpisode(ep - 1) : null}
                 onNext={nextAction}
                 nextLabel={nextLabel}
-                onSwitchEmbed={aniEmbedUrl ? () => setPlayerMode("embed") : undefined}
+                onSwitchEmbed={aniEmbedUrl ? switchToEmbedMode : undefined}
                 selectedSourceIndex={selectedSourceIndex}
                 onSelectSourceIndex={setSelectedSourceIndex}
                 skipIntroSeconds={85}
                 preferSubtitles={!(lang === "en" && audio === "dub")}
+                preferredAudioLang={audio === "dub" ? (lang === "fr" ? "fr" : "en") : "ja"}
                 topRight={animeControls}
               />
             </Suspense>
@@ -936,20 +1056,13 @@ export function WatchPage({
               </p>
             </div>
           ) : aniEmbedUrl ? (
-            <div className="h-full w-full max-w-7xl overflow-hidden rounded-xl border border-foreground/10 bg-background">
-              <iframe
-                key={aniEmbedUrl}
-                src={aniEmbedUrl}
-                title={`${title || "Anime"} — ${t("detail.episode")} ${ep}`}
-                className="size-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                sandbox="allow-scripts allow-same-origin allow-forms"
-                allowFullScreen
-                referrerPolicy="origin"
-                onLoad={() => setIframeLoaded(true)}
-                onError={() => advanceEmbedServer(aniEmbedUrl, aniEmbedFallbacks)}
-              />
-            </div>
+            <EmbedPlayerFrame
+              src={aniEmbedUrl}
+              title={`${title || "Anime"} — ${t("detail.episode")} ${ep}`}
+              className="h-full w-full max-w-7xl"
+              onLoad={() => setIframeLoaded(true)}
+              onError={() => advanceEmbedServer(aniEmbedUrl, aniEmbedFallbacks)}
+            />
           ) : (
             <div className="flex max-w-md flex-col items-center gap-4 text-center">
               <p className="font-display text-xl font-semibold">
@@ -1133,6 +1246,7 @@ export function WatchPage({
 
     const mediaControls = (
       <>
+        <LiveWatchingBadge count={liveWatchers} />
         {mediaServerSwitcher}
         <LanguageToggle compact />
         {!isMovie && (
@@ -1326,10 +1440,11 @@ export function WatchPage({
                       : `${t("detail.episode")} ${nextTarget.ep}`
                     : null
                 }
-                onSwitchEmbed={mediaEmbedUrl ? () => setPlayerMode("embed") : undefined}
+                onSwitchEmbed={mediaEmbedUrl ? switchToEmbedMode : undefined}
                 selectedSourceIndex={selectedSourceIndex}
                 onSelectSourceIndex={setSelectedSourceIndex}
                 skipIntroSeconds={isMovie ? 90 : 60}
+                preferredAudioLang={lang}
                 topRight={mediaControls}
               />
             </Suspense>
@@ -1426,20 +1541,13 @@ export function WatchPage({
               </p>
             </div>
           ) : mediaEmbedUrl ? (
-            <div className="h-full w-full max-w-7xl overflow-hidden rounded-xl border border-foreground/10 bg-background">
-              <iframe
-                key={mediaEmbedUrl}
-                src={mediaEmbedUrl}
-                title={isMovie ? `${title || "Movie"}` : `${title || "Series"} — S${season} E${ep}`}
-                className="size-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                sandbox="allow-scripts allow-same-origin allow-forms"
-                allowFullScreen
-                referrerPolicy="origin"
-                onLoad={() => setIframeLoaded(true)}
-                onError={() => advanceEmbedServer(mediaEmbedUrl, embedFallbacks)}
-              />
-            </div>
+            <EmbedPlayerFrame
+              src={mediaEmbedUrl}
+              title={isMovie ? `${title || "Movie"}` : `${title || "Series"} — S${season} E${ep}`}
+              className="h-full w-full max-w-7xl"
+              onLoad={() => setIframeLoaded(true)}
+              onError={() => advanceEmbedServer(mediaEmbedUrl, embedFallbacks)}
+            />
           ) : (
             <div className="flex max-w-md flex-col items-center gap-4 text-center">
               <p className="font-display text-xl font-semibold">
@@ -1468,39 +1576,36 @@ export function WatchPage({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
-      <div className="flex items-center gap-3 p-3 sm:p-4">
-        <Button
-          variant="glass"
-          size="round"
-          className="min-h-[44px] min-w-[44px] sm:size-10 sm:min-h-0 sm:min-w-0"
-          aria-label={t("common.back")}
-          onClick={goBack}
-        >
-          <ArrowLeft className="size-5" />
-        </Button>
-        <div className="min-w-0">
-          <p className="truncate font-display text-base font-semibold sm:text-lg">
-            {title || t("common.loading")}
-          </p>
-          <p className="text-xs text-muted-foreground">{t("watch.nowPlaying")}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Button
+            variant="glass"
+            size="round"
+            className="min-h-[44px] min-w-[44px] sm:size-10 sm:min-h-0 sm:min-w-0"
+            aria-label={t("common.back")}
+            onClick={goBack}
+          >
+            <ArrowLeft className="size-5" />
+          </Button>
+          <div className="min-w-0">
+            <p className="truncate font-display text-base font-semibold sm:text-lg">
+              {title || t("common.loading")}
+            </p>
+            <p className="text-xs text-muted-foreground">{t("watch.nowPlaying")}</p>
+          </div>
         </div>
+        <LiveWatchingBadge count={liveWatchers} />
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center px-4 pb-6">
         {detail.isLoading ? (
           <Loader2 className="size-12 animate-spin text-cerulean" />
         ) : streamUrl ? (
-          <div className="aspect-video w-full max-w-6xl overflow-hidden rounded-xl">
-            <iframe
-              key={streamUrl}
-              src={streamUrl}
-              title={title}
-              className="size-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              sandbox="allow-scripts allow-same-origin allow-forms"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
-          </div>
+          <EmbedPlayerFrame
+            src={streamUrl}
+            title={title}
+            className="aspect-video w-full max-w-6xl"
+            referrerPolicy="strict-origin-when-cross-origin"
+          />
         ) : (
           <div className="flex flex-col items-center gap-4 text-center">
             <p className="font-display text-xl font-semibold">{t("watch.streamUnavailable")}</p>

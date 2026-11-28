@@ -55,15 +55,41 @@ export const downloads = {
       const stream = await resolveStream({ ...req, lang });
       update(id, { status: "downloading" });
       const filePart = isMovie ? "Movie" : `${seasonTag ? `${seasonTag}_` : ""}E${req.episode}`;
-      await downloadStream(stream, {
-        filename: safeFilename(
-          `${req.title}_${filePart}${req.source === "anilist" ? `_${audio.toUpperCase()}${includeSubs ? "" : "_NoSub"}` : lang === "fr" ? "_FR" : ""}`,
-        ),
-        includeSubtitles: includeSubs,
-        lang,
-        signal: controller.signal,
-        onProgress: (p) => update(id, { progress: p }),
-      });
+      const filename = safeFilename(
+        `${req.title}_${filePart}${req.source === "anilist" ? `_${audio.toUpperCase()}${includeSubs ? "" : "_NoSub"}` : lang === "fr" ? "_FR" : ""}`,
+      );
+      const candidates =
+        stream.sources && stream.sources.length > 0
+          ? stream.sources.map((src) => ({
+              ...stream,
+              url: src.url,
+              type: src.type,
+            }))
+          : [stream];
+
+      let lastErr: unknown = null;
+      let succeeded = false;
+      for (const candidate of candidates) {
+        if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        try {
+          update(id, { progress: 0 });
+          await downloadStream(candidate, {
+            filename,
+            includeSubtitles: includeSubs,
+            lang,
+            signal: controller.signal,
+            onProgress: (p) => update(id, { progress: p }),
+          });
+          succeeded = true;
+          break;
+        } catch (err) {
+          if (controller.signal.aborted) throw err;
+          lastErr = err;
+        }
+      }
+      if (!succeeded) {
+        throw lastErr instanceof Error ? lastErr : new Error("Download failed");
+      }
       update(id, { status: "done", progress: 1 });
     } catch (error) {
       if (controller.signal.aborted) update(id, { status: "cancelled" });

@@ -2,9 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { Bookmark, BookmarkCheck, Play, Star } from "lucide-react";
 import type { MediaItem } from "@/lib/catalog/types";
 import { useT } from "@/lib/i18n";
+import { preloadChunk } from "@/lib/preload-chunks";
 import { useShowProgress } from "@/lib/player/progress";
 import { useIsInWatchlist, watchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
+import { DownloadButton } from "./DownloadButton";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
 
@@ -76,7 +78,7 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
             ) : null}
             {resumeBadge ? (
               <span className="font-semibold text-cerulean">{resumeBadge}</span>
-            ) : item.latestEpisode && item.source === "anilist" ? (
+            ) : item.latestEpisode ? (
               <span className="text-cerulean">
                 {lang === "fr" ? "Ép." : "Ep"} {item.latestEpisode}
               </span>
@@ -93,7 +95,6 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
             {resumeBadge}
           </span>
         ) : (
-          item.source === "anilist" &&
           item.latestEpisode && (
             <span className="absolute bottom-2 left-2 rounded bg-scrim/85 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-foreground backdrop-blur-sm transition-opacity group-hover/card:opacity-0">
               {lang === "fr" ? "ÉP" : "EP"} {item.latestEpisode}
@@ -148,6 +149,8 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         to="/watch/$source/$id"
         params={{ source: item.source, id: item.id }}
         search={playSearch}
+        onMouseEnter={() => preloadChunk("/watch")}
+        onFocus={() => preloadChunk("/watch")}
         aria-label={
           last
             ? lang === "fr"
@@ -161,6 +164,14 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
       >
         <Play className="size-4 translate-x-px fill-current" />
       </Link>
+      {item.mediaType === "movie" && (
+        <DownloadButton
+          item={item}
+          variant="icon"
+          compact
+          className="absolute left-2 top-2 scale-75 rounded-full border border-foreground/15 bg-scrim/80 text-foreground opacity-0 backdrop-blur-md transition duration-300 group-hover/card:scale-100 group-hover/card:opacity-100 focus-visible:opacity-100"
+        />
+      )}
     </div>
   );
 }

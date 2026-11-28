@@ -234,6 +234,27 @@ async function resolveImdbByTitle(
   }
 }
 
+function isFrenchServer(name: string | undefined, lang: string | null | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  const l = (lang ?? "").toLowerCase();
+  return (
+    l === "fr" ||
+    l === "fre" ||
+    l === "fra" ||
+    l.includes("french") ||
+    l.includes("fran") ||
+    l.includes("vf") ||
+    /\b(french|fr|vf|vff|vfq|truefrench|subfrench|vostfr|multi-fr|multi-vf)\b/.test(n) ||
+    /(?:^|[-_\s])fr(?:$|[-_\s])/i.test(n)
+  );
+}
+
+function isEnglishServer(name: string | undefined, lang: string | null | undefined): boolean {
+  const n = (name ?? "").toLowerCase();
+  const l = (lang ?? "").toLowerCase();
+  return l === "en" || l.includes("english") || /\b(english|eng|vo|usa|us)\b/.test(n);
+}
+
 function scoreServer(
   name: string | undefined,
   lang: string | null | undefined,
@@ -243,16 +264,17 @@ function scoreServer(
   const l = (lang ?? "").toLowerCase();
   let score = 0;
 
-  const isFrench = l.includes("french") || l === "fr" || n.includes("french");
-  const isEnglish = l.includes("english") || l === "en" || n.includes("english");
+  const isFrench = isFrenchServer(name, lang);
+  const isEnglish = isEnglishServer(name, lang);
   const isMkvOrMp4 = n.includes("mp4") || n.includes("vnz");
 
   if (prefLang === "fr") {
-    if (isFrench) score += 200;
+    if (isFrench) score += 260;
     else if (isEnglish || l === "") score += 40;
   } else {
-    if (isEnglish) score += 120;
-    else if (l === "") score += 50;
+    if (isEnglish) score += 300;
+    else if (isFrench) score -= 500;
+    else if (l === "") score += 80;
   }
 
   // Prefer HLS streams (VRH1, VRS2, VRS1, XPK) over MP4/MKV so hls.js and offline downloader succeed everywhere.
@@ -429,7 +451,11 @@ async function resolveFromLookupId(
     (a, b) => scoreServer(b.name, b.lang, data.lang) - scoreServer(a.name, a.lang, data.lang),
   );
 
-  const candidates = servers.slice(0, 4);
+  // In English mode, keep non-French servers ahead and omit French-dubbed servers if non-French candidates exist.
+  const nonFrench =
+    data.lang === "en" ? servers.filter((s) => !isFrenchServer(s.name, s.lang)) : servers;
+  const candidatePool = nonFrench.length > 0 ? nonFrench : servers;
+  const candidates = candidatePool.slice(0, 8);
   const settled = await Promise.allSettled(
     candidates.map(async (srv) => {
       const playRes = await fetch(
@@ -599,6 +625,109 @@ async function resolveFromTvmaze(
   }
 }
 
+async function resolveImdbFromTmdb(
+  tmdbId: string,
+  mediaType: "movie" | "tv",
+): Promise<string | null> {
+  const key = process.env["TMDB_API_KEY"]?.trim();
+  if (key) {
+    try {
+      const isBearer = key.startsWith("eyJ");
+      const url = isBearer
+        ? `https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(tmdbId)}/external_ids`
+        : `https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(tmdbId)}/external_ids?api_key=${encodeURIComponent(key)}`;
+      const res = await fetch(url, {
+        headers: isBearer
+          ? { Authorization: `Bearer ${key}`, Accept: "application/json" }
+          : { Accept: "application/json" },
+        signal: AbortSignal.timeout(2500),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { imdb_id?: string | null };
+        if (json.imdb_id && /^tt\d{5,10}$/.test(json.imdb_id)) return json.imdb_id;
+      }
+    } catch {
+      /* fall through to Wikidata */
+    }
+  }
+
+  try {
+    const prop = mediaType === "movie" ? "wdt:P4947" : "wdt:P4983";
+    const sparql = `SELECT ?imdb WHERE { ?item ${prop} "${tmdbId}"; wdt:P345 ?imdb. } LIMIT 1`;
+    const wdRes = await fetch(
+      `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(sparql)}`,
+      {
+        headers: {
+          "User-Agent": "ShadowStreamingCatalog/1.0 (https://shadow.app)",
+          Accept: "application/sparql-results+json",
+        },
+        signal: AbortSignal.timeout(2500),
+      },
+    );
+    if (wdRes.ok) {
+      const wdJson = (await wdRes.json()) as {
+        results?: { bindings?: { imdb?: { value?: string } }[] };
+      };
+      const imdbVal = wdJson.results?.bindings?.[0]?.imdb?.value;
+      if (imdbVal && /^tt\d{5,10}$/.test(imdbVal)) return imdbVal;
+    }
+  } catch {
+    /* IMDb lookup optional */
+  }
+  return null;
+}
+
+async function extractDirectMediaFromEmbeds(embeds: EmbedFallback[]): Promise<StreamSource[]> {
+  const candidates = embeds
+    .filter(
+      (e) =>
+        e.available !== false &&
+        /(vidcore\.io|bingeapi\.st|primesrc\.me|vidsrc\.pm|vidsrc\.su|vidnest\.fun|vidlink\.pro)/i.test(
+          e.url,
+        ),
+    )
+    .slice(0, 4);
+  if (!candidates.length) return [];
+
+  const extracted: StreamSource[] = [];
+  const seen = new Set<string>();
+
+  await Promise.allSettled(
+    candidates.map(async (emb) => {
+      try {
+        const res = await fetch(emb.url, {
+          headers: { ...STREAM_HEADERS, Referer: new URL(emb.url).origin + "/" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!res.ok) return;
+        const body = await res.text();
+        const matches =
+          body.match(/https?:\/\/[^"'\\\s<>]+?\.(?:m3u8|mp4)(?:\?[^"'\\\s<>]*)?/gi) ?? [];
+        for (const rawUrl of matches.slice(0, 3)) {
+          const clean = rawUrl.replace(/\\u002F/g, "/").replace(/\\\//g, "/");
+          if (seen.has(clean)) continue;
+          seen.add(clean);
+          const verified = await verifyPlayableStream(clean);
+          if (verified) {
+            extracted.push({
+              url: verified.proxiedUrl,
+              type: verified.streamType,
+              label: `Server ${extracted.length + 1} · ${emb.label}`,
+              lang: "en",
+            });
+            return;
+          }
+        }
+      } catch {
+        /* ignore blocked embed extraction */
+      }
+    }),
+  );
+
+  return extracted;
+}
+
 export const getMediaStream = createServerFn({ method: "GET" })
   .inputValidator((input) => MediaStreamInputSchema.parse(input))
   .handler(async ({ data }): Promise<MediaStreamResult> => {
@@ -611,6 +740,10 @@ export const getMediaStream = createServerFn({ method: "GET" })
       resolvedImdb = tvm.imdbId;
       lookupTitle ??= tvm.title;
       lookupYear ??= tvm.year;
+    }
+
+    if (!resolvedImdb && data.tmdbId) {
+      resolvedImdb = await resolveImdbFromTmdb(data.tmdbId, data.mediaType);
     }
 
     if (!resolvedImdb && !data.tmdbId && lookupTitle) {
@@ -658,8 +791,19 @@ export const getMediaStream = createServerFn({ method: "GET" })
     })();
 
     try {
-      const [embedFallbacks, nativeHit] = await Promise.all([embedProbePromise, nativePromise]);
+      const [embedFallbacks, initialNativeHit] = await Promise.all([
+        embedProbePromise,
+        nativePromise,
+      ]);
       const embedUrl = embedFallbacks[0]?.url ?? null;
+
+      let nativeHit = initialNativeHit;
+      if (!nativeHit && embedFallbacks.length > 0) {
+        const directFromEmbeds = await extractDirectMediaFromEmbeds(embedFallbacks);
+        if (directFromEmbeds.length > 0) {
+          nativeHit = { sources: directFromEmbeds, subtitles: [] };
+        }
+      }
 
       if (nativeHit) {
         let subtitles = [...nativeHit.subtitles];

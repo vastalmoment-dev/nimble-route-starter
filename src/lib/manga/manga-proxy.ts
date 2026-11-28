@@ -229,8 +229,45 @@ export async function handleMangaProxyRequest(request: Request): Promise<Respons
   }
 
   if (url.pathname === "/api/manga/page") {
-    const targetUrl = verifyPageToken(url.searchParams.get("token"));
-    if (!targetUrl) return new Response("Invalid or expired page token", { status: 403 });
+    const token = url.searchParams.get("token");
+    let targetUrl: string | null = null;
+
+    if (token !== null) {
+      targetUrl = verifyPageToken(token);
+      if (!targetUrl) return new Response("Invalid or expired page token", { status: 403 });
+    } else {
+      const chapterId = url.searchParams.get("chapterId") ?? "";
+      const file = url.searchParams.get("file") ?? "";
+      const useSaver = url.searchParams.get("saver") === "1";
+      if (!UUID_RE.test(chapterId) || !COVER_FILE_RE.test(file) || file.includes("..")) {
+        return new Response("Invalid page parameters", { status: 400 });
+      }
+      try {
+        const atHomeRes = await fetch(`${MANGADEX_API}/at-home/server/${chapterId}`, {
+          headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+          signal: AbortSignal.timeout(9000),
+        });
+        if (!atHomeRes.ok) {
+          return new Response("Page source unavailable", { status: atHomeRes.status });
+        }
+        const atHome = (await atHomeRes.json()) as {
+          baseUrl?: string;
+          chapter?: { hash?: string };
+        };
+        if (!atHome.baseUrl || !atHome.chapter?.hash) {
+          return new Response("Page source incomplete", { status: 404 });
+        }
+        const parsedBase = new URL(atHome.baseUrl);
+        if (parsedBase.protocol !== "https:" || !isAllowedMangaImageHost(parsedBase.hostname)) {
+          return new Response("Disallowed image host", { status: 403 });
+        }
+        const folder = useSaver ? "data-saver" : "data";
+        targetUrl = `${parsedBase.origin}/${folder}/${atHome.chapter.hash}/${encodeURIComponent(file)}`;
+      } catch {
+        return new Response("Page resolution failed", { status: 502 });
+      }
+    }
+
     try {
       const up = await fetch(targetUrl, {
         headers: { "User-Agent": USER_AGENT, Referer: "https://mangadex.org/" },

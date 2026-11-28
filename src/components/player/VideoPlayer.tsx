@@ -26,9 +26,16 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT, type SiteLanguage } from "@/lib/i18n";
+import {
+  exitLandscapeFullscreen,
+  getFullscreenElement,
+  useLandscapeFullscreen,
+} from "@/lib/player/fullscreen";
 import { activeCueText, parseVtt, type SubtitleCue } from "@/lib/player/subtitles";
 import type { ResolvedStream, StreamSource, SubtitleTrack } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
+
+export const PRIMARY_SERVER_TIMEOUT_MS = 16_000;
 
 export interface VideoPlayerProps {
   stream: ResolvedStream;
@@ -52,6 +59,8 @@ export interface VideoPlayerProps {
   pausedOverlay?: ReactNode | undefined;
   /** Whether to auto-enable preferred subtitles initially (defaults true). */
   preferSubtitles?: boolean | undefined;
+  /** Preferred spoken audio track language inside multi-audio HLS/video streams. */
+  preferredAudioLang?: "en" | "fr" | "ja" | undefined;
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -90,29 +99,39 @@ function fitAspectBox(
   return { width: Math.round(containerW), height: Math.round(containerW / aspect) };
 }
 
-type FullscreenDocument = Document & {
-  webkitFullscreenElement?: Element | null;
-  webkitExitFullscreen?: () => Promise<void> | void;
+export interface AudioTrackOption {
+  id: number;
+  name: string;
+  lang: string;
+}
+
+type NativeAudioTrackList = {
+  length: number;
+  [index: number]: { id?: string; label?: string; language?: string; enabled: boolean };
 };
 
-type FullscreenElement = HTMLElement & {
-  webkitRequestFullscreen?: () => Promise<void> | void;
-};
-
-type WebkitVideoElement = HTMLVideoElement & {
-  webkitEnterFullscreen?: () => void;
-  webkitExitFullscreen?: () => void;
-};
-
-type LockableOrientation = ScreenOrientation & {
-  lock?: (orientation: "landscape" | "portrait" | "any") => Promise<void>;
-  unlock?: () => void;
-};
-
-function getFullscreenElement(): Element | null {
-  if (typeof document === "undefined") return null;
-  const doc = document as FullscreenDocument;
-  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+export function pickPreferredAudioTrack(
+  tracks: AudioTrackOption[],
+  preferred?: "en" | "fr" | "ja",
+): number {
+  if (tracks.length <= 1 || !preferred) return tracks[0]?.id ?? -1;
+  const matchers: Record<"en" | "fr" | "ja", RegExp> = {
+    en: /\b(en|eng|english|anglais|dub|us)\b/i,
+    fr: /\b(fr|fre|fra|french|fran[cç]ais|vf|vff|vfq)\b/i,
+    ja: /\b(ja|jp|jpn|japanese|japonais|orig|original)\b/i,
+  };
+  const re = matchers[preferred];
+  const exact = tracks.find((tr) => re.test(tr.lang.trim()) || re.test(tr.name.trim()));
+  if (exact) return exact.id;
+  if (preferred === "en") {
+    // If looking for English on a Japanese/French dual-audio track with an untagged alt track, prefer non-FR/non-JA track.
+    const nonForeign = tracks.find(
+      (tr) =>
+        !matchers.fr.test(`${tr.lang} ${tr.name}`) && !matchers.ja.test(`${tr.lang} ${tr.name}`),
+    );
+    if (nonForeign) return nonForeign.id;
+  }
+  return tracks[0]?.id ?? -1;
 }
 
 function pickPreferredSubTrack(
@@ -138,6 +157,65 @@ function pickPreferredSubTrack(
   return 0;
 }
 
+export async function raceSecondarySources(
+  candidates: StreamSource[],
+  timeoutMs = 2500,
+  externalSignal?: AbortSignal,
+): Promise<number | null> {
+  if (candidates.length === 0 || typeof fetch === "undefined") return null;
+  if (externalSignal?.aborted) return null;
+
+  const ctrl = new AbortController();
+  const onExternalAbort = () => ctrl.abort();
+  externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
+
+  return new Promise<number | null>((resolve) => {
+    let done = false;
+    let settled = 0;
+    const finish = (winner: number | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      externalSignal?.removeEventListener("abort", onExternalAbort);
+      ctrl.abort();
+      resolve(winner);
+    };
+
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    candidates.forEach((candidate, idx) => {
+      void (async () => {
+        try {
+          if (candidate.type === "hls" || /\.m3u8(\?|$)/i.test(candidate.url)) {
+            const res = await fetch(candidate.url, { method: "GET", signal: ctrl.signal });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = (await res.text()).trim();
+            if (!text || text.startsWith("<") || !text.includes("#EXTM3U")) {
+              throw new Error("Invalid HLS manifest");
+            }
+          } else {
+            let res = await fetch(candidate.url, { method: "HEAD", signal: ctrl.signal });
+            if (res.status === 405 || res.status === 501) {
+              res = await fetch(candidate.url, {
+                method: "GET",
+                headers: { Range: "bytes=0-1" },
+                signal: ctrl.signal,
+              });
+            }
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          }
+          finish(idx);
+        } catch {
+          settled += 1;
+          if (settled >= candidates.length) {
+            finish(null);
+          }
+        }
+      })();
+    });
+  });
+}
+
 export default function VideoPlayer({
   stream,
   title,
@@ -156,6 +234,7 @@ export default function VideoPlayer({
   topRight,
   pausedOverlay,
   preferSubtitles = true,
+  preferredAudioLang,
 }: VideoPlayerProps) {
   const { lang, t } = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -204,8 +283,13 @@ export default function VideoPlayer({
   const [levels, setLevels] = useState<Level[]>([]);
   const [level, setLevel] = useState(-1);
   const [activeLevel, setActiveLevel] = useState(-1);
+  const [audioTracks, setAudioTracks] = useState<AudioTrackOption[]>([]);
+  const [audioTrackIndex, setAudioTrackIndex] = useState(-1);
   const [rate, setRate] = useState(1);
-  const [fullscreen, setFullscreen] = useState(false);
+  const { fullscreen, toggleFullscreen: runLandscapeFullscreen } = useLandscapeFullscreen(
+    containerRef,
+    videoRef,
+  );
   const [controlsVisible, setControlsVisible] = useState(true);
   const [menu, setMenu] = useState<null | "settings" | "servers">(null);
   const [error, setError] = useState<string | null>(null);
@@ -233,6 +317,16 @@ export default function VideoPlayer({
   );
 
   useEffect(() => {
+    setReloadNonce(0);
+    setSwitchingMessage(null);
+    resumeOverrideRef.current = null;
+    setIntroDismissed(false);
+    setUpNextIn(null);
+    setEndedManual(false);
+    appliedSeekUrlRef.current = null;
+  }, [stream.url, stream.sources]);
+
+  useEffect(() => {
     const nextIdx =
       typeof selectedSourceIndex === "number" &&
       selectedSourceIndex >= 0 &&
@@ -240,12 +334,6 @@ export default function VideoPlayer({
         ? selectedSourceIndex
         : 0;
     setSourceIndex(nextIdx);
-    setReloadNonce(0);
-    setSwitchingMessage(null);
-    resumeOverrideRef.current = null;
-    setIntroDismissed(false);
-    setUpNextIn(null);
-    setEndedManual(false);
     appliedSeekUrlRef.current = null;
   }, [stream.url, stream.sources, selectedSourceIndex, activeSources.length]);
 
@@ -273,21 +361,53 @@ export default function VideoPlayer({
     [activeSources, t],
   );
 
+  const raceSeqRef = useRef(0);
+  const preRacedOffsetRef = useRef<number | null>(null);
+  const fallbackAttemptKeyRef = useRef<string | null>(null);
+
   const triggerFallback = useCallback(() => {
-    if (sourceIndex + 1 < activeSources.length) {
+    const attemptKey = `${sourceIndex}:${activeUrl}:${reloadNonce}`;
+    if (fallbackAttemptKeyRef.current === attemptKey) return;
+    fallbackAttemptKeyRef.current = attemptKey;
+
+    const remaining = activeSources.slice(sourceIndex + 1);
+    if (remaining.length === 0) {
+      if (onSwitchEmbed) {
+        setSwitchingMessage(t("player.switchingAlternate"));
+        onSwitchEmbed();
+        return;
+      }
+      setSwitchingMessage(null);
+      setWaiting(false);
+      setError(t("player.errorTitle"));
+      return;
+    }
+
+    const preRaced = preRacedOffsetRef.current;
+    if (preRaced !== null && preRaced >= 0 && preRaced < remaining.length) {
+      const nextIdx = sourceIndex + 1 + preRaced;
+      preRacedOffsetRef.current = null;
+      switchToSource(nextIdx, `${t("player.switchingBackup")} (${activeSources[nextIdx]!.label})…`);
+      return;
+    }
+
+    if (remaining.length === 1) {
       const nextIdx = sourceIndex + 1;
       switchToSource(nextIdx, `${t("player.switchingBackup")} (${activeSources[nextIdx]!.label})…`);
       return;
     }
-    if (onSwitchEmbed) {
-      setSwitchingMessage(t("player.switchingAlternate"));
-      onSwitchEmbed();
-      return;
-    }
-    setSwitchingMessage(null);
-    setWaiting(false);
-    setError(t("player.errorTitle"));
-  }, [sourceIndex, activeSources, switchToSource, onSwitchEmbed, t]);
+
+    const seq = ++raceSeqRef.current;
+    setError(null);
+    setWaiting(true);
+    setSwitchingMessage(t("player.racingBackups"));
+    void raceSecondarySources(remaining, 2500).then((winnerOffset) => {
+      if (raceSeqRef.current !== seq) return;
+      const chosenOffset = winnerOffset !== null ? winnerOffset : 0;
+      const nextIdx = sourceIndex + 1 + chosenOffset;
+      switchToSource(nextIdx, `${t("player.switchingBackup")} (${activeSources[nextIdx]!.label})…`);
+    });
+  }, [sourceIndex, activeUrl, reloadNonce, activeSources, switchToSource, onSwitchEmbed, t]);
 
   const triggerFallbackRef = useRef(triggerFallback);
   triggerFallbackRef.current = triggerFallback;
@@ -392,7 +512,7 @@ export default function VideoPlayer({
   }, []);
 
   // Attach the source: hls.js where MSE exists, native HLS on Safari/iOS, plain src for MP4.
-  // Automatically retries once then fails over to backup servers or alternate embed on fatal/timeout errors.
+  // Gives the primary/current server 16 seconds to initialize AND become playable before racing backup providers.
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -400,30 +520,80 @@ export default function VideoPlayer({
     setWaiting(true);
     setLevels([]);
     setLevel(-1);
+    setAudioTracks([]);
+    setAudioTrackIndex(-1);
+    preRacedOffsetRef.current = null;
+    fallbackAttemptKeyRef.current = null;
+    const myRaceSeq = ++raceSeqRef.current;
 
     let disposed = false;
     let hasStarted = false;
     let networkRetries = 0;
     let mediaRetries = 0;
+    const preRaceCtrl = new AbortController();
+
+    const remainingSources = activeSources.slice(sourceIndex + 1);
+    const preRaceTimer =
+      remainingSources.length > 1
+        ? setTimeout(
+            () => {
+              if (disposed || hasStarted) return;
+              void raceSecondarySources(remainingSources, 3200, preRaceCtrl.signal).then(
+                (winnerOffset) => {
+                  if (!disposed && !hasStarted && raceSeqRef.current === myRaceSeq) {
+                    preRacedOffsetRef.current = winnerOffset;
+                  }
+                },
+              );
+            },
+            Math.max(1000, PRIMARY_SERVER_TIMEOUT_MS - 3500),
+          )
+        : null;
 
     const startupTimeout = setTimeout(() => {
       if (!disposed && !hasStarted) {
         triggerFallbackRef.current();
       }
-    }, 7_500);
+    }, PRIMARY_SERVER_TIMEOUT_MS);
 
-    const markReady = () => {
+    const markPlayable = () => {
       if (hasStarted) return;
       hasStarted = true;
       clearTimeout(startupTimeout);
+      if (preRaceTimer) clearTimeout(preRaceTimer);
+      preRaceCtrl.abort();
       setSwitchingMessage(null);
     };
 
-    video.addEventListener("loadedmetadata", markReady);
-    video.addEventListener("canplay", markReady);
-    video.addEventListener("playing", markReady);
+    const onLoadedMetadata = () => {
+      if (video.readyState >= 3) {
+        markPlayable();
+      }
+    };
+
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    video.addEventListener("canplay", markPlayable);
+    video.addEventListener("playing", markPlayable);
 
     const startTarget = resumeOverrideRef.current ?? initialTimeRef.current;
+
+    const syncHlsAudioTracks = (hls: Hls) => {
+      const tracks: AudioTrackOption[] = (hls.audioTracks ?? []).map((tr, idx) => ({
+        id: idx,
+        name: tr.name || tr.lang || `${t("player.audioTrack")} ${idx + 1}`,
+        lang: tr.lang || "",
+      }));
+      setAudioTracks(tracks);
+      if (tracks.length > 1) {
+        const chosen = pickPreferredAudioTrack(tracks, preferredAudioLang);
+        if (chosen >= 0 && hls.audioTrack !== chosen) {
+          hls.audioTrack = chosen;
+        }
+        setAudioTrackIndex(chosen >= 0 ? chosen : hls.audioTrack);
+      } else if (tracks.length === 1) {
+        setAudioTrackIndex(0);
+      }
+    };
 
     if (activeType === "hls" && Hls.isSupported()) {
       const hls = new Hls({
@@ -433,8 +603,8 @@ export default function VideoPlayer({
       });
       hlsRef.current = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
-        markReady();
         setLevels(data.levels);
+        syncHlsAudioTracks(hls);
         applyInitialSeek(video);
         const playPromise = video.play?.();
         if (playPromise && typeof playPromise.catch === "function") {
@@ -445,6 +615,15 @@ export default function VideoPlayer({
         } else {
           setWaiting(false);
         }
+        if (video.readyState >= 3) {
+          markPlayable();
+        }
+      });
+      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+        syncHlsAudioTracks(hls);
+      });
+      hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_e, data) => {
+        setAudioTrackIndex(data.id);
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setActiveLevel(data.level));
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -467,9 +646,11 @@ export default function VideoPlayer({
       return () => {
         disposed = true;
         clearTimeout(startupTimeout);
-        video.removeEventListener("loadedmetadata", markReady);
-        video.removeEventListener("canplay", markReady);
-        video.removeEventListener("playing", markReady);
+        if (preRaceTimer) clearTimeout(preRaceTimer);
+        preRaceCtrl.abort();
+        video.removeEventListener("loadedmetadata", onLoadedMetadata);
+        video.removeEventListener("canplay", markPlayable);
+        video.removeEventListener("playing", markPlayable);
         if (video.currentTime > 0) {
           onProgressRef.current?.(video.currentTime, video.duration || 0);
         }
@@ -480,9 +661,11 @@ export default function VideoPlayer({
 
     if (activeType === "hls" && !video.canPlayType("application/vnd.apple.mpegurl")) {
       clearTimeout(startupTimeout);
-      video.removeEventListener("loadedmetadata", markReady);
-      video.removeEventListener("canplay", markReady);
-      video.removeEventListener("playing", markReady);
+      if (preRaceTimer) clearTimeout(preRaceTimer);
+      preRaceCtrl.abort();
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("canplay", markPlayable);
+      video.removeEventListener("playing", markPlayable);
       triggerFallbackRef.current();
       return;
     }
@@ -499,9 +682,11 @@ export default function VideoPlayer({
     return () => {
       disposed = true;
       clearTimeout(startupTimeout);
-      video.removeEventListener("loadedmetadata", markReady);
-      video.removeEventListener("canplay", markReady);
-      video.removeEventListener("playing", markReady);
+      if (preRaceTimer) clearTimeout(preRaceTimer);
+      preRaceCtrl.abort();
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("canplay", markPlayable);
+      video.removeEventListener("playing", markPlayable);
       if (video.currentTime > 0) {
         onProgressRef.current?.(video.currentTime, video.duration || 0);
       }
@@ -512,9 +697,9 @@ export default function VideoPlayer({
         /* ignore */
       }
     };
-  }, [activeUrl, activeType, reloadNonce, applyInitialSeek]);
+  }, [activeUrl, activeType, reloadNonce, applyInitialSeek, activeSources, sourceIndex]);
 
-  // Stall watchdog: if buffering stays stuck for > 10s mid-playback without user pausing, fail over cleanly.
+  // Stall watchdog: if buffering stays stuck for > 16s mid-playback without user pausing, fail over cleanly.
   useEffect(() => {
     if (!waiting || error) return;
     const stallTimer = setTimeout(() => {
@@ -522,9 +707,27 @@ export default function VideoPlayer({
       if (v && !v.paused && v.readyState < 3) {
         triggerFallbackRef.current();
       }
-    }, 10_000);
+    }, PRIMARY_SERVER_TIMEOUT_MS);
     return () => clearTimeout(stallTimer);
   }, [waiting, error, activeUrl, reloadNonce]);
+
+  useEffect(() => {
+    if (audioTracks.length <= 1) return;
+    const chosen = pickPreferredAudioTrack(audioTracks, preferredAudioLang);
+    if (chosen < 0) return;
+    if (hlsRef.current && hlsRef.current.audioTrack !== chosen) {
+      hlsRef.current.audioTrack = chosen;
+    }
+    const nativeList = (
+      videoRef.current as (HTMLVideoElement & { audioTracks?: NativeAudioTrackList }) | null
+    )?.audioTracks;
+    if (nativeList && nativeList.length > 1) {
+      for (let i = 0; i < nativeList.length; i++) {
+        if (nativeList[i]) nativeList[i]!.enabled = i === chosen;
+      }
+    }
+    setAudioTrackIndex(chosen);
+  }, [preferredAudioLang, audioTracks]);
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
@@ -551,76 +754,15 @@ export default function VideoPlayer({
     [announce],
   );
 
-  const unlockOrientation = useCallback(() => {
-    try {
-      const orientation = (typeof screen !== "undefined" ? screen.orientation : undefined) as
-        LockableOrientation | undefined;
-      orientation?.unlock?.();
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const lockLandscapeOrientation = useCallback(async () => {
-    try {
-      const orientation = (typeof screen !== "undefined" ? screen.orientation : undefined) as
-        LockableOrientation | undefined;
-      if (orientation?.lock) {
-        await orientation.lock("landscape");
-      }
-    } catch {
-      /* desktop or iOS Safari restricts orientation.lock — safely ignored */
-    }
-  }, []);
-
   const toggleFullscreen = useCallback(async () => {
-    const el = containerRef.current as FullscreenElement | null;
-    const video = videoRef.current as WebkitVideoElement | null;
-    if (!el) return;
-
-    const doc = document as FullscreenDocument;
     if (getFullscreenElement()) {
       announce(t("player.exitFullScreen"));
-      unlockOrientation();
-      try {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if (doc.webkitExitFullscreen) {
-          await doc.webkitExitFullscreen();
-        }
-      } catch {
-        /* ignore */
-      }
+      await exitLandscapeFullscreen();
       return;
     }
-
     announce(t("player.fullScreen"));
-    let entered = false;
-    try {
-      if (el.requestFullscreen) {
-        await el.requestFullscreen();
-        entered = true;
-      } else if (el.webkitRequestFullscreen) {
-        await el.webkitRequestFullscreen();
-        entered = true;
-      }
-    } catch {
-      /* fallback to iOS native video fullscreen below */
-    }
-
-    if (!entered && video?.webkitEnterFullscreen) {
-      try {
-        video.webkitEnterFullscreen();
-        entered = true;
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if (entered) {
-      await lockLandscapeOrientation();
-    }
-  }, [announce, lockLandscapeOrientation, unlockOrientation, t]);
+    await runLandscapeFullscreen();
+  }, [announce, runLandscapeFullscreen, t]);
 
   const toggleMute = useCallback(() => {
     const v = videoRef.current;
@@ -682,33 +824,7 @@ export default function VideoPlayer({
     return () => clearTimeout(timer);
   }, [upNextIn, onNext]);
 
-  useEffect(() => {
-    const v = videoRef.current;
-    const onFs = () => {
-      const fs = Boolean(getFullscreenElement());
-      setFullscreen(fs);
-      if (!fs) unlockOrientation();
-    };
-    const onWebkitBegin = () => {
-      setFullscreen(true);
-      void lockLandscapeOrientation();
-    };
-    const onWebkitEnd = () => {
-      setFullscreen(false);
-      unlockOrientation();
-    };
-    document.addEventListener("fullscreenchange", onFs);
-    document.addEventListener("webkitfullscreenchange", onFs);
-    v?.addEventListener("webkitbeginfullscreen", onWebkitBegin);
-    v?.addEventListener("webkitendfullscreen", onWebkitEnd);
-    return () => {
-      document.removeEventListener("fullscreenchange", onFs);
-      document.removeEventListener("webkitfullscreenchange", onFs);
-      v?.removeEventListener("webkitbeginfullscreen", onWebkitBegin);
-      v?.removeEventListener("webkitendfullscreen", onWebkitEnd);
-      unlockOrientation();
-    };
-  }, [lockLandscapeOrientation, unlockOrientation]);
+  // Fullscreen & screen orientation lifecycle is managed by useLandscapeFullscreen.
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -860,6 +976,20 @@ export default function VideoPlayer({
     setLevel(i);
     if (hlsRef.current) hlsRef.current.currentLevel = i;
   };
+  const chooseAudioTrack = (idx: number) => {
+    setAudioTrackIndex(idx);
+    if (hlsRef.current) {
+      hlsRef.current.audioTrack = idx;
+    }
+    const nativeList = (
+      videoRef.current as (HTMLVideoElement & { audioTracks?: NativeAudioTrackList }) | null
+    )?.audioTracks;
+    if (nativeList && nativeList.length > 1) {
+      for (let i = 0; i < nativeList.length; i++) {
+        if (nativeList[i]) nativeList[i]!.enabled = i === idx;
+      }
+    }
+  };
   const chooseRate = (r: number) => {
     setRate(r);
     if (videoRef.current) videoRef.current.playbackRate = r;
@@ -923,6 +1053,27 @@ export default function VideoPlayer({
             const v = e.currentTarget;
             if (v.videoWidth > 0 && v.videoHeight > 0) {
               setVideoAspect(v.videoWidth / v.videoHeight);
+            }
+            const nativeList = (v as HTMLVideoElement & { audioTracks?: NativeAudioTrackList })
+              .audioTracks;
+            if (nativeList && nativeList.length > 1 && !hlsRef.current) {
+              const opts: AudioTrackOption[] = [];
+              for (let i = 0; i < nativeList.length; i++) {
+                const tr = nativeList[i]!;
+                opts.push({
+                  id: i,
+                  name: tr.label || tr.language || `${t("player.audioTrack")} ${i + 1}`,
+                  lang: tr.language || "",
+                });
+              }
+              setAudioTracks(opts);
+              const chosen = pickPreferredAudioTrack(opts, preferredAudioLang);
+              if (chosen >= 0) {
+                for (let i = 0; i < nativeList.length; i++) {
+                  if (nativeList[i]) nativeList[i]!.enabled = i === chosen;
+                }
+                setAudioTrackIndex(chosen);
+              }
             }
             applyInitialSeek(v);
           }}
@@ -1470,6 +1621,23 @@ export default function VideoPlayer({
                           <span>{t("watch.server3Embed")}</span>
                         </MenuItem>
                       )}
+                      <div className="my-1.5 h-px bg-foreground/10" />
+                    </>
+                  )}
+                  {audioTracks.length > 1 && (
+                    <>
+                      <p className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        {t("player.audioTrack")}
+                      </p>
+                      {audioTracks.map((tr) => (
+                        <MenuItem
+                          key={`audio-${tr.id}`}
+                          active={audioTrackIndex === tr.id}
+                          onClick={() => chooseAudioTrack(tr.id)}
+                        >
+                          <span className="truncate">{tr.name}</span>
+                        </MenuItem>
+                      ))}
                       <div className="my-1.5 h-px bg-foreground/10" />
                     </>
                   )}

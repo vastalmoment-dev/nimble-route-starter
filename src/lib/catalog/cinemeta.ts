@@ -178,12 +178,18 @@ export function mapCinemetaItem(m: CinemetaMeta, sectionOverride?: SectionId): M
 }
 
 async function fetchJson<T>(url: string, timeoutMs = 6000): Promise<T> {
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  if (!res.ok) throw new Error(`Catalog request failed (${res.status})`);
-  return (await res.json()) as T;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!res.ok) throw new Error(`Catalog request failed (${res.status})`);
+    return (await res.json()) as T;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function fetchCinemetaCatalog(
@@ -197,10 +203,15 @@ export async function fetchCinemetaCatalog(
   if (extra?.skip && extra.skip > 0) parts.push(`skip=${extra.skip}`);
   const suffix = parts.length ? `/${parts.join("&")}` : "";
   const url = `${CINEMETA_ORIGIN}/catalog/${type}/${catalogId}${suffix}.json`;
-  return cachedAsync(`cinemeta:cat:${url}`, 1000 * 60 * 5, async () => {
-    const json = await fetchJson<{ metas?: CinemetaMeta[] }>(url);
-    return json.metas ?? [];
-  });
+  return cachedAsync(
+    `cinemeta:cat:${url}`,
+    1000 * 60 * 10,
+    async () => {
+      const json = await fetchJson<{ metas?: CinemetaMeta[] }>(url);
+      return json.metas ?? [];
+    },
+    { persist: "session" },
+  );
 }
 
 export async function fetchCinemetaMeta(
@@ -208,17 +219,22 @@ export async function fetchCinemetaMeta(
   imdbId: string,
 ): Promise<CinemetaMeta | null> {
   if (!IMDB_ID_RE.test(imdbId)) return null;
-  return cachedAsync(`cinemeta:meta:${type}:${imdbId}`, 1000 * 60 * 10, async () => {
-    try {
-      const json = await fetchJson<{ meta?: CinemetaMeta | null }>(
-        `${CINEMETA_ORIGIN}/meta/${type}/${imdbId}.json`,
-        5500,
-      );
-      return json.meta ?? null;
-    } catch {
-      return null;
-    }
-  });
+  return cachedAsync(
+    `cinemeta:meta:${type}:${imdbId}`,
+    1000 * 60 * 10,
+    async () => {
+      try {
+        const json = await fetchJson<{ meta?: CinemetaMeta | null }>(
+          `${CINEMETA_ORIGIN}/meta/${type}/${imdbId}.json`,
+          5500,
+        );
+        return json.meta ?? null;
+      } catch {
+        return null;
+      }
+    },
+    { persist: "session" },
+  );
 }
 
 export function parseCinemetaId(
@@ -332,8 +348,32 @@ export async function fetchCinemetaDetail(
   }
   if (!meta) throw new Error("Title details are unavailable right now.");
 
-  const base = mapCinemetaItem(meta, sectionOverride);
-  if (!base) throw new Error("Title metadata is incomplete.");
+  const rawBase = mapCinemetaItem(meta, sectionOverride);
+  if (!rawBase) throw new Error("Title metadata is incomplete.");
+
+  const miraculousFrTitles: Record<string, string> = {
+    tt2580046: "Miraculous : Les Aventures de Ladybug et Chat Noir",
+    tt10364034: "Miraculous, le film",
+    tt29259099: "Miraculous World : Paris, les aventures de Toxinelle et Griffe Noire",
+    tt13701202: "Miraculous World : Londres, la course contre le temps",
+  };
+  const miraculousEnTitles: Record<string, string> = {
+    tt2580046: "Miraculous: Tales of Ladybug & Cat Noir",
+    tt10364034: "Miraculous: Ladybug & Cat Noir, the Movie",
+    tt29259099: "Miraculous World: Paris, Tales of Shadybug and Claw Noir",
+    tt13701202: "Miraculous World: London, at the Edge of Time",
+  };
+  const base =
+    parsed.imdbId in miraculousEnTitles
+      ? {
+          ...rawBase,
+          title:
+            lang === "fr"
+              ? (miraculousFrTitles[parsed.imdbId] ?? rawBase.title)
+              : (miraculousEnTitles[parsed.imdbId] ?? rawBase.title),
+          language: lang === "fr" ? "Français" : "English",
+        }
+      : rawBase;
 
   const relationsPromise = findFranchiseRelations(base);
 

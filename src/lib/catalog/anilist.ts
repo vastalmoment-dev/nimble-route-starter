@@ -92,12 +92,14 @@ function localizeAniStatus(raw: string | null, lang: SiteLanguage): string | nul
 async function gql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 8000) : null;
     try {
       const res = await fetch(ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ query, variables }),
-        signal: AbortSignal.timeout(8000),
+        ...(controller ? { signal: controller.signal } : {}),
       });
       if ((res.status === 429 || res.status >= 500) && attempt === 0) {
         await new Promise((r) => setTimeout(r, 450));
@@ -112,6 +114,8 @@ async function gql<T>(query: string, variables: Record<string, unknown> = {}): P
       if (attempt === 0) {
         await new Promise((r) => setTimeout(r, 350));
       }
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   throw lastError ?? new Error("AniList request failed");
@@ -162,9 +166,12 @@ const shelfQuery = (alias: string, args: string) =>
 
 /** One round-trip for live releasing episodes + every anime shelf. */
 export async function fetchAnimeShelves(lang: SiteLanguage = "en") {
-  return cachedAsync(`anilist:shelves:${lang}`, 1000 * 60 * 5, async () => {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const query = `query {
+  return cachedAsync(
+    `anilist:shelves:${lang}`,
+    1000 * 60 * 10,
+    async () => {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const query = `query {
       latest: Page(perPage: 40) {
         airingSchedules(airingAt_lesser: ${nowSec}, sort: TIME_DESC) {
           episode
@@ -182,53 +189,55 @@ export async function fetchAnimeShelves(lang: SiteLanguage = "en") {
       ${shelfQuery("comedy", 'sort: POPULARITY_DESC, genre: "Comedy"')}
       ${shelfQuery("top", "sort: SCORE_DESC")}
     }`;
-    type R = {
-      latest: {
-        airingSchedules: {
-          episode: number;
-          airingAt: number;
-          media: AniMedia | null;
-        }[];
+      type R = {
+        latest: {
+          airingSchedules: {
+            episode: number;
+            airingAt: number;
+            media: AniMedia | null;
+          }[];
+        };
+      } & Record<
+        | "airing"
+        | "trending"
+        | "popular"
+        | "action"
+        | "horror"
+        | "scifi"
+        | "drama"
+        | "comedy"
+        | "top",
+        { media: AniMedia[] }
+      >;
+
+      const data = await gql<R>(query);
+      const map = (k: Exclude<keyof R, "latest">) =>
+        data[k].media.map((m) => mapAniMedia(m, undefined, lang));
+
+      const seenLatest = new Set<number>();
+      const latest: MediaItem[] = [];
+      for (const entry of data.latest.airingSchedules) {
+        const m = entry.media;
+        if (!m || m.isAdult || seenLatest.has(m.id)) continue;
+        seenLatest.add(m.id);
+        latest.push(mapAniMedia(m, entry.episode, lang));
+      }
+
+      return {
+        latest,
+        airing: map("airing"),
+        trending: map("trending"),
+        popular: map("popular"),
+        action: map("action"),
+        horror: map("horror"),
+        scifi: map("scifi"),
+        drama: map("drama"),
+        comedy: map("comedy"),
+        top: map("top"),
       };
-    } & Record<
-      | "airing"
-      | "trending"
-      | "popular"
-      | "action"
-      | "horror"
-      | "scifi"
-      | "drama"
-      | "comedy"
-      | "top",
-      { media: AniMedia[] }
-    >;
-
-    const data = await gql<R>(query);
-    const map = (k: Exclude<keyof R, "latest">) =>
-      data[k].media.map((m) => mapAniMedia(m, undefined, lang));
-
-    const seenLatest = new Set<number>();
-    const latest: MediaItem[] = [];
-    for (const entry of data.latest.airingSchedules) {
-      const m = entry.media;
-      if (!m || m.isAdult || seenLatest.has(m.id)) continue;
-      seenLatest.add(m.id);
-      latest.push(mapAniMedia(m, entry.episode, lang));
-    }
-
-    return {
-      latest,
-      airing: map("airing"),
-      trending: map("trending"),
-      popular: map("popular"),
-      action: map("action"),
-      horror: map("horror"),
-      scifi: map("scifi"),
-      drama: map("drama"),
-      comedy: map("comedy"),
-      top: map("top"),
-    };
-  });
+    },
+    { persist: "local" },
+  );
 }
 
 export type AnimeBrowseSort =
@@ -257,7 +266,7 @@ export async function fetchAllAnimePage({
   const q = search?.trim() ?? "";
   return cachedAsync(
     `anilist:page:${lang}:${sort}:${page}:${perPage}:${q.toLowerCase()}`,
-    1000 * 60 * 5,
+    1000 * 60 * 15,
     async () => {
       const data = await gql<{
         Page: {
@@ -287,13 +296,14 @@ export async function fetchAllAnimePage({
         total: data.Page.pageInfo.total,
       };
     },
+    { persist: "local" },
   );
 }
 
 export async function searchAnime(search: string, lang: SiteLanguage = "en"): Promise<MediaItem[]> {
   return cachedAsync(
     `anilist:search:${lang}:${search.trim().toLowerCase()}`,
-    1000 * 60 * 3,
+    1000 * 60 * 15,
     async () => {
       const data = await gql<{ Page: { media: AniMedia[] } }>(
         `query ($search: String) { Page(perPage: 36) { media(type: ANIME, isAdult: false, search: $search, sort: SEARCH_MATCH) { ${MEDIA_FIELDS} } } }`,
@@ -301,6 +311,7 @@ export async function searchAnime(search: string, lang: SiteLanguage = "en"): Pr
       );
       return data.Page.media.map((m) => mapAniMedia(m, undefined, lang));
     },
+    { persist: "local" },
   );
 }
 
@@ -460,22 +471,25 @@ export async function fetchAnimeDetail(
   id: string,
   lang: SiteLanguage = "en",
 ): Promise<MediaDetail> {
-  return cachedAsync(`anilist:detail:${lang}:${id}`, 1000 * 60 * 10, async () => {
-    type R = {
-      Media: AniMedia & {
-        streamingEpisodes: { title: string | null; thumbnail: string | null }[];
-        externalLinks: { site: string; url: string; type: string | null }[] | null;
-        relations: { edges: AniRelationEdge[] };
-        characters: {
-          edges: {
-            role: string;
-            node: { name: { full: string }; image: { medium: string | null } };
-          }[];
+  return cachedAsync(
+    `anilist:detail:${lang}:${id}`,
+    1000 * 60 * 30,
+    async () => {
+      type R = {
+        Media: AniMedia & {
+          streamingEpisodes: { title: string | null; thumbnail: string | null }[];
+          externalLinks: { site: string; url: string; type: string | null }[] | null;
+          relations: { edges: AniRelationEdge[] };
+          characters: {
+            edges: {
+              role: string;
+              node: { name: { full: string }; image: { medium: string | null } };
+            }[];
+          };
         };
       };
-    };
-    const data = await gql<R>(
-      `query ($id: Int) { Media(id: $id, type: ANIME) {
+      const data = await gql<R>(
+        `query ($id: Int) { Media(id: $id, type: ANIME) {
         ${MEDIA_FIELDS}
         streamingEpisodes { title thumbnail }
         externalLinks { site url type }
@@ -494,53 +508,55 @@ export async function fetchAnimeDetail(
         }
         characters(perPage: 12, sort: [ROLE, RELEVANCE]) { edges { role node { name { full } image { medium } } } }
       } }`,
-      { id: Number(id) },
-    );
-    const m = data.Media;
-    const base = mapAniMedia(m, undefined, lang);
-    const streaming = m.streamingEpisodes ?? [];
-    const airedFromSchedule = m.nextAiringEpisode?.episode
-      ? Math.max(1, m.nextAiringEpisode.episode - 1)
-      : 0;
-    const total =
-      Math.max(
-        m.episodes ?? 0,
-        airedFromSchedule,
-        streaming.length,
-        base.mediaType === "movie" ? 1 : 0,
-      ) || 12;
-
-    const epWord = lang === "fr" ? "Épisode" : "Episode";
-    const episodes = Array.from({ length: Math.min(total, 5000) }, (_, i) => {
-      const se = streaming.find(
-        (s) => s.title && new RegExp(`^Episode ${i + 1}\\b`, "i").test(s.title),
+        { id: Number(id) },
       );
-      const title = se?.title?.replace(/^Episode \d+\s*-\s*/i, "") || `${epWord} ${i + 1}`;
+      const m = data.Media;
+      const base = mapAniMedia(m, undefined, lang);
+      const streaming = m.streamingEpisodes ?? [];
+      const airedFromSchedule = m.nextAiringEpisode?.episode
+        ? Math.max(1, m.nextAiringEpisode.episode - 1)
+        : 0;
+      const total =
+        Math.max(
+          m.episodes ?? 0,
+          airedFromSchedule,
+          streaming.length,
+          base.mediaType === "movie" ? 1 : 0,
+        ) || 12;
+
+      const epWord = lang === "fr" ? "Épisode" : "Episode";
+      const episodes = Array.from({ length: Math.min(total, 5000) }, (_, i) => {
+        const se = streaming.find(
+          (s) => s.title && new RegExp(`^Episode ${i + 1}\\b`, "i").test(s.title),
+        );
+        const title = se?.title?.replace(/^Episode \d+\s*-\s*/i, "") || `${epWord} ${i + 1}`;
+        return {
+          id: `${id}-${i + 1}`,
+          number: i + 1,
+          season: 1,
+          title,
+          thumbnail: se?.thumbnail ?? null,
+          runtime: m.duration,
+        };
+      });
+
+      const relations = await collectSeasonRelations(m.id, m.relations?.edges ?? [], lang);
+
       return {
-        id: `${id}-${i + 1}`,
-        number: i + 1,
-        season: 1,
-        title,
-        thumbnail: se?.thumbnail ?? null,
-        runtime: m.duration,
+        ...base,
+        episodesCount: episodes.length,
+        episodes,
+        ...(relations?.length ? { relations } : {}),
+        watchLinks: (m.externalLinks ?? [])
+          .filter((l) => l.type === "STREAMING")
+          .map((l) => ({ site: l.site, url: l.url })),
+        cast: m.characters.edges.map((e) => ({
+          name: e.node.name.full,
+          role: e.role.toLowerCase(),
+          image: e.node.image.medium,
+        })),
       };
-    });
-
-    const relations = await collectSeasonRelations(m.id, m.relations?.edges ?? [], lang);
-
-    return {
-      ...base,
-      episodesCount: episodes.length,
-      episodes,
-      ...(relations?.length ? { relations } : {}),
-      watchLinks: (m.externalLinks ?? [])
-        .filter((l) => l.type === "STREAMING")
-        .map((l) => ({ site: l.site, url: l.url })),
-      cast: m.characters.edges.map((e) => ({
-        name: e.node.name.full,
-        role: e.role.toLowerCase(),
-        image: e.node.image.medium,
-      })),
-    };
-  });
+    },
+    { persist: "local" },
+  );
 }

@@ -311,7 +311,7 @@ const STATIC_SEEDS: Record<Exclude<FallbackSection, "k-dramas">, StaticCinemetaS
       year: 2015,
       rating: 7.5,
       genres: ["Animation", "Action", "Adventure"],
-      language: "French / English",
+      language: "English",
       description:
         "Marinette and Adrien transform into superheroes Ladybug and Cat Noir to protect Paris from the mysterious Hawk Moth.",
     },
@@ -322,7 +322,7 @@ const STATIC_SEEDS: Record<Exclude<FallbackSection, "k-dramas">, StaticCinemetaS
       year: 2023,
       rating: 6.1,
       genres: ["Animation", "Action", "Adventure"],
-      language: "French / English",
+      language: "English",
       description:
         "An ordinary teenager in Paris discovers magical powers as Ladybug and teams up with Cat Noir to save the city.",
     },

@@ -244,6 +244,9 @@ const EN = {
   "watch.vfUnavailable":
     "French dub (VF) is not available for this episode yet — try Sub (VOSTFR).",
   "watch.dubEnFrSubs": "DUB EN · FR Subs (VF unavailable)",
+  "watch.watchingNow": "{count} watching now",
+  "watch.watchingNowPlural": "{count} watching now",
+  "watch.expandLandscape": "Expand landscape",
 
   // VideoPlayer Controls
   "player.play": "Play",
@@ -279,6 +282,8 @@ const EN = {
   "player.fullScreen": "Full screen",
   "player.exitFullScreen": "Exit full screen",
   "player.shortcuts": "Keyboard shortcuts",
+  "player.audioTrack": "Audio Track",
+  "player.original": "Original",
   "player.shortcutsTitle": "Keyboard Shortcuts",
   "player.closeShortcuts": "Close shortcuts",
   "player.shortcutPlayPause": "Play / Pause",
@@ -302,6 +307,7 @@ const EN = {
   "player.tryNextServer": "Try Next Server",
   "player.switchingTo": "Switching to",
   "player.switchingBackup": "Switching to backup server",
+  "player.racingBackups": "Primary server unresponsive — testing backup servers…",
   "player.switchingAlternate": "Switching to alternate player…",
 
   // Manga
@@ -344,6 +350,7 @@ const EN = {
   "manga.pageFailed": "failed to load.",
   "manga.page": "Page",
   "manga.chapter": "Chapter",
+  "manga.loadMorePages": "Load more pages",
 
   // Mood Page
   "mood.title": "Mood Match",
@@ -567,6 +574,9 @@ const FR: Record<TranslationKey, string> = {
   "watch.vfUnavailable":
     "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
   "watch.dubEnFrSubs": "DUB EN · ST FR (VF indisponible)",
+  "watch.watchingNow": "{count} spectateur en ligne",
+  "watch.watchingNowPlural": "{count} spectateurs en ligne",
+  "watch.expandLandscape": "Agrandir en paysage",
 
   // VideoPlayer Controls
   "player.play": "Lecture",
@@ -602,6 +612,8 @@ const FR: Record<TranslationKey, string> = {
   "player.fullScreen": "Plein écran",
   "player.exitFullScreen": "Quitter le plein écran",
   "player.shortcuts": "Raccourcis clavier",
+  "player.audioTrack": "Piste audio",
+  "player.original": "Originale",
   "player.shortcutsTitle": "Raccourcis clavier",
   "player.closeShortcuts": "Fermer les raccourcis",
   "player.shortcutPlayPause": "Lecture / Pause",
@@ -625,6 +637,7 @@ const FR: Record<TranslationKey, string> = {
   "player.tryNextServer": "Serveur suivant",
   "player.switchingTo": "Passage à",
   "player.switchingBackup": "Passage au serveur de secours",
+  "player.racingBackups": "Serveur principal inactif — test des serveurs de secours…",
   "player.switchingAlternate": "Passage au lecteur alternatif…",
 
   // Manga
@@ -668,6 +681,7 @@ const FR: Record<TranslationKey, string> = {
   "manga.pageFailed": "n'a pas pu être chargée.",
   "manga.page": "Page",
   "manga.chapter": "Chapitre",
+  "manga.loadMorePages": "Charger plus de pages",
 
   // Mood Page
   "mood.title": "Accord d'Humeur",

@@ -6,6 +6,7 @@ import { SECTION_META, type MediaItem } from "@/lib/catalog/types";
 import { getSectionMeta, useT } from "@/lib/i18n";
 import { useShowProgress } from "@/lib/player/progress";
 import { cn } from "@/lib/utils";
+import { DownloadButton } from "./DownloadButton";
 import { MediaImage } from "./MediaImage";
 import { useMediaModal } from "./MediaModalContext";
 import { WatchlistButton } from "./WatchlistButton";
@@ -120,6 +121,7 @@ export function HeroCarousel({ items }: { items: MediaItem[] }) {
               </p>
               <div className="flex flex-wrap gap-2.5 pt-2 sm:gap-3">
                 <HeroWatchLink item={item} />
+                {item.mediaType === "movie" && <DownloadButton item={item} />}
                 <WatchlistButton item={item} />
                 <Button variant="glass" size="xl" onClick={() => open(item)}>
                   <Info /> {t("common.moreInfo")}

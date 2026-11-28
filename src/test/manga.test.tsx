@@ -10,6 +10,7 @@ import {
   verifyPageToken,
 } from "@/lib/manga/manga-proxy";
 import * as mangaFunctions from "@/lib/manga/manga.functions";
+import * as mangadex from "@/lib/manga/mangadex";
 import type { MangaChapter, MangaItem } from "@/lib/manga/mangadex";
 import serverEntry from "@/server";
 
@@ -61,19 +62,27 @@ const SAMPLE_CHAPTERS: MangaChapter[] = [
   },
 ];
 
-vi.mock("@/lib/manga/manga.functions", () => ({
-  getMangaCatalog: vi.fn(async () => ({ items: SAMPLE_MANGA, total: 2 })),
-  getMangaChapters: vi.fn(async () => SAMPLE_CHAPTERS),
-  getMangaChapterPages: vi.fn(async () => [
+vi.mock("@/lib/manga/mangadex", () => ({
+  MANGA_GENRES: ["All", "Action", "Adventure", "Comedy", "Drama", "Fantasy"],
+  fetchMangaList: vi.fn(async () => ({ items: SAMPLE_MANGA, total: 2 })),
+  fetchMangaChaptersList: vi.fn(async () => SAMPLE_CHAPTERS),
+  fetchMangaChapterPageUrls: vi.fn(async () => [
     "/api/manga/page?token=mock-1",
     "/api/manga/page?token=mock-2",
   ]),
+}));
+
+vi.mock("@/lib/manga/manga.functions", () => ({
+  getMangaCatalog: vi.fn(async () => ({ items: SAMPLE_MANGA, total: 2 })),
+  getMangaChapters: vi.fn(async () => SAMPLE_CHAPTERS),
+  getMangaChapterPages: vi.fn(async () => []),
 }));
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe("CBZ archive builder & SSRF proxy security", () => {
@@ -154,6 +163,47 @@ describe("CBZ archive builder & SSRF proxy security", () => {
     expect(mediaRes.status).toBe(200);
     expect(mediaRes.headers.get("Cache-Control")).toBe("public, max-age=86400, s-maxage=86400");
   });
+
+  it("supports safe chapterId+file fallback on /api/manga/page with edge caching and strict validation", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+      if (url.includes("/at-home/server/")) {
+        return new Response(
+          JSON.stringify({
+            baseUrl: "https://cmdxd98sb0x3yprd.mangadex.network",
+            chapter: { hash: "abc123", data: ["01.jpg"], dataSaver: ["01-low.jpg"] },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), {
+        status: 200,
+        headers: { "Content-Type": "image/jpeg" },
+      });
+    });
+
+    const badChap = await handleMangaProxyRequest(
+      new Request("http://localhost/api/manga/page?chapterId=bad-id&file=01.jpg"),
+    );
+    expect(badChap?.status).toBe(400);
+
+    const badFile = await handleMangaProxyRequest(
+      new Request(
+        "http://localhost/api/manga/page?chapterId=33333333-3333-4333-8333-333333333333&file=../secret.txt",
+      ),
+    );
+    expect(badFile?.status).toBe(400);
+
+    const okFallback = await serverEntry.fetch(
+      new Request(
+        "http://localhost/api/manga/page?chapterId=33333333-3333-4333-8333-333333333333&file=01.jpg",
+      ),
+      {},
+      {},
+    );
+    expect(okFallback.status).toBe(200);
+    expect(okFallback.headers.get("Cache-Control")).toBe("public, max-age=86400, s-maxage=86400");
+  });
 });
 
 describe("Free Manga library UI", () => {
@@ -192,8 +242,8 @@ describe("Free Manga library UI", () => {
     });
   });
 
-  it("loads MangaDex covers and chapter pages directly first, falling back to /api/manga/* on error", async () => {
-    vi.mocked(mangaFunctions.getMangaCatalog).mockResolvedValueOnce({
+  it("loads MangaDex covers and chapter pages directly in browser first, falling back to /api/manga/* on error", async () => {
+    vi.mocked(mangadex.fetchMangaList).mockResolvedValueOnce({
       items: [
         {
           ...SAMPLE_MANGA[0]!,
@@ -205,10 +255,10 @@ describe("Free Manga library UI", () => {
       ],
       total: 1,
     });
-    vi.mocked(mangaFunctions.getMangaChapterPages).mockResolvedValueOnce([
+    vi.mocked(mangadex.fetchMangaChapterPageUrls).mockResolvedValueOnce([
       {
         url: "https://cmdxd98sb0x3yprd.mangadex.network/data/hash/1.jpg",
-        fallbackUrl: "/api/manga/page?token=proxy-fallback-1",
+        fallbackUrl: "/api/manga/page?chapterId=33333333-3333-4333-8333-333333333333&file=1.jpg",
       },
     ]);
 
@@ -244,12 +294,15 @@ describe("Free Manga library UI", () => {
     );
 
     fireEvent.error(pageImg);
-    expect(pageImg.getAttribute("src")).toBe("/api/manga/page?token=proxy-fallback-1");
+    expect(pageImg.getAttribute("src")).toBe(
+      "/api/manga/page?chapterId=33333333-3333-4333-8333-333333333333&file=1.jpg",
+    );
+    expect(mangaFunctions.getMangaCatalog).not.toHaveBeenCalled();
   });
 
-  it("supports keyword search submission, displays result summary, and clears search cleanly", async () => {
-    const getCatalogMock = vi.mocked(mangaFunctions.getMangaCatalog);
-    getCatalogMock.mockClear();
+  it("supports keyword search submission via direct browser fetch, displays result summary, and clears search cleanly", async () => {
+    const fetchListMock = vi.mocked(mangadex.fetchMangaList);
+    fetchListMock.mockClear();
 
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -265,17 +318,17 @@ describe("Free Manga library UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
-      expect(getCatalogMock).toHaveBeenLastCalledWith({
-        data: {
-          feed: "latest",
-          genre: "All",
-          q: "sakamoto",
-          offset: 0,
-          lang: "en",
-        },
+      expect(fetchListMock).toHaveBeenLastCalledWith({
+        feed: "latest",
+        genre: undefined,
+        q: "sakamoto",
+        limit: 30,
+        offset: 0,
+        lang: "en",
       });
     });
 
+    expect(mangaFunctions.getMangaCatalog).not.toHaveBeenCalled();
     expect(await screen.findByText("“sakamoto”")).toBeTruthy();
 
     fireEvent.click(screen.getAllByRole("button", { name: "Clear search" })[0]!);

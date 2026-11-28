@@ -9,6 +9,7 @@ const BROWSER_UA =
 export interface AnimeExternalIds {
   imdbId: string | null;
   tmdbId: string | null;
+  malId: number | null;
   frTitle: string | null;
   isMovie: boolean;
 }
@@ -28,6 +29,7 @@ export async function fetchAnimeExternalIds(anilistId: string): Promise<AnimeExt
         mappings?: {
           imdb_id?: string | null;
           themoviedb_id?: string | number | null;
+          mal_id?: string | number | null;
           type?: string | null;
         };
       };
@@ -37,10 +39,12 @@ export async function fetchAnimeExternalIds(anilistId: string): Promise<AnimeExt
           : null;
       const tmdbRaw = json.mappings?.themoviedb_id ? String(json.mappings.themoviedb_id) : null;
       const tmdbId = tmdbRaw && /^\d+$/.test(tmdbRaw) ? tmdbRaw : null;
+      const malNum = json.mappings?.mal_id ? Number(json.mappings.mal_id) : NaN;
+      const malId = Number.isInteger(malNum) && malNum > 0 ? malNum : null;
       const frTitle = json.titles?.fr?.trim() || null;
       const isMovie = json.mappings?.type?.toUpperCase() === "MOVIE";
-      if (imdbId || tmdbId || frTitle) {
-        return { imdbId, tmdbId, frTitle, isMovie };
+      if (imdbId || tmdbId || malId || frTitle) {
+        return { imdbId, tmdbId, malId, frTitle, isMovie };
       }
     }
   } catch {
@@ -59,13 +63,17 @@ export async function fetchAnimeExternalIds(anilistId: string): Promise<AnimeExt
       const json = (await res.json()) as {
         imdb?: string | null;
         themoviedb?: number | null;
+        myanimelist?: number | null;
         media?: string | null;
       };
       const imdbId = json.imdb && /^tt\d{5,10}$/.test(json.imdb) ? json.imdb : null;
       const tmdbId = json.themoviedb ? String(json.themoviedb) : null;
+      const malId =
+        typeof json.myanimelist === "number" && json.myanimelist > 0 ? json.myanimelist : null;
       return {
         imdbId,
         tmdbId,
+        malId,
         frTitle: null,
         isMovie: json.media?.toUpperCase() === "MOVIE",
       };
@@ -74,7 +82,7 @@ export async function fetchAnimeExternalIds(anilistId: string): Promise<AnimeExt
     /* ignore */
   }
 
-  return { imdbId: null, tmdbId: null, frTitle: null, isMovie: false };
+  return { imdbId: null, tmdbId: null, malId: null, frTitle: null, isMovie: false };
 }
 
 async function fetchOpenSubtitlesByLang(params: {
