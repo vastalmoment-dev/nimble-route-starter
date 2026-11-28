@@ -112,10 +112,25 @@ export async function resolveAniListIdForItem(params: {
           );
           if (res.ok) {
             const json = (await res.json()) as {
-              mappings?: { anilist_id?: string | number | null };
+              titles?: Record<string, string | null | undefined>;
+              mappings?: { anilist_id?: string | number | null; type?: string | null };
             };
             const mapped = json.mappings?.anilist_id ? String(json.mappings.anilist_id) : null;
-            if (mapped && /^\d+$/.test(mapped)) return mapped;
+            const mappedType = (json.mappings?.type ?? "").toUpperCase();
+            const mappedTitles = Object.values(json.titles ?? {}).filter(
+              (t): t is string => typeof t === "string" && t.trim().length > 0,
+            );
+            const titleMatches =
+              cleanTitle.length < 2 ||
+              mappedTitles.length === 0 ||
+              mappedTitles.some((mt) => titleSimilarity(cleanTitle, mt) >= 0.75);
+            const isMismatchedOva =
+              cleanTitle.length >= 2 &&
+              (mappedType === "OVA" || mappedType === "SPECIAL") &&
+              !titleMatches;
+            if (mapped && /^\d+$/.test(mapped) && !isMismatchedOva && titleMatches) {
+              return mapped;
+            }
           }
         } catch {
           /* fall through to AniList title search */

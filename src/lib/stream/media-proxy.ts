@@ -69,7 +69,15 @@ function proxyJsonError(
   upstreamStatus: number,
   status = 502,
   extra?: Record<string, unknown>,
+  retryAfter?: string | null,
 ): Response {
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  };
+  if (retryAfter) {
+    headers["retry-after"] = retryAfter;
+  }
   return new Response(
     JSON.stringify({
       ok: false,
@@ -80,10 +88,7 @@ function proxyJsonError(
     }),
     {
       status,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      },
+      headers,
     },
   );
 }
@@ -336,8 +341,7 @@ async function handleMediaImageProxy(url: URL): Promise<Response> {
   return new Response("Image unavailable", { status: 404 });
 }
 
-const DISGUISED_SEG_TYPE_RE =
-  /(text\/html|text\/css|text\/plain|javascript|ecmascript|image\/png)/i;
+const DISGUISED_SEG_TYPE_RE = /(text\/html|text\/css|text\/plain|javascript|ecmascript|image\/)/i;
 const STRIP_PREFIX_HOST_RE = /\b(ibyteimg\.com|tiktokcdn\.com|ipstatp\.com|yoot\.akirax\.buzz)\b/i;
 
 function prependChunkStream(
@@ -492,7 +496,9 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       return proxyJsonError(
         `Upstream stream host returned HTTP ${upstream.status}`,
         upstream.status,
-        502,
+        upstream.status === 429 ? 429 : 502,
+        undefined,
+        upstream.headers.get("retry-after"),
       );
     }
 

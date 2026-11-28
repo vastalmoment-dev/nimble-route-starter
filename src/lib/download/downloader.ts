@@ -31,14 +31,65 @@ export function safeFilename(name: string) {
   );
 }
 
-async function fetchWithRetry(url: string, signal?: AbortSignal, attempts = 3): Promise<Response> {
+interface RateCooldown {
+  until: number;
+}
+
+function parseRetryAfterMs(headerVal: string | null): number {
+  if (!headerVal) return 5500;
+  const secs = Number(headerVal);
+  if (Number.isFinite(secs) && secs >= 0) {
+    return Math.min(20_000, Math.max(1500, Math.round(secs * 1000) + 450));
+  }
+  const dateMs = Date.parse(headerVal);
+  if (Number.isFinite(dateMs)) {
+    return Math.min(20_000, Math.max(1500, dateMs - Date.now() + 450));
+  }
+  return 5500;
+}
+
+async function waitAbortable(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return;
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function fetchWithRetry(
+  url: string,
+  signal?: AbortSignal,
+  attempts = 3,
+  cooldown?: RateCooldown,
+): Promise<Response> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    if (cooldown && cooldown.until > Date.now()) {
+      await waitAbortable(cooldown.until - Date.now(), signal);
+    }
     try {
       const res = await fetch(url, signal ? { signal } : {});
       if (res.ok) return res;
-      if (res.status < 500 && res.status !== 429) {
+      if (res.status === 429) {
+        const waitMs = parseRetryAfterMs(res.headers.get("retry-after"));
+        if (cooldown) cooldown.until = Math.max(cooldown.until, Date.now() + waitMs);
+        lastError = new Error(`Request rate-limited (${res.status})`);
+        if (i + 1 < attempts) {
+          await waitAbortable(waitMs, signal);
+          continue;
+        }
+        throw lastError;
+      }
+      if (res.status < 500) {
         throw new Error(`Request failed (${res.status})`);
       }
       lastError = new Error(`Request failed (${res.status})`);
@@ -47,7 +98,7 @@ async function fetchWithRetry(url: string, signal?: AbortSignal, attempts = 3): 
       lastError = err;
     }
     if (i + 1 < attempts) {
-      await new Promise((r) => setTimeout(r, 350 * (i + 1)));
+      await waitAbortable(350 * (i + 1), signal);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Download failed");
@@ -105,6 +156,7 @@ async function downloadHls(
   const hasInit = Boolean(playlist.initSegment);
   const urls = [...(playlist.initSegment ? [playlist.initSegment] : []), ...playlist.segments];
   const parts: ArrayBuffer[] = new Array(urls.length);
+  const cooldown: RateCooldown = { until: 0 };
   let done = 0;
   let cursor = 0;
   const seqBase = playlist.mediaSequence ?? 0;
@@ -112,7 +164,7 @@ async function downloadHls(
   const worker = async () => {
     while (cursor < urls.length) {
       const index = cursor++;
-      const res = await fetchWithRetry(urls[index]!, opts.signal, 3);
+      const res = await fetchWithRetry(urls[index]!, opts.signal, 6, cooldown);
       let buf = await res.arrayBuffer();
       if (cryptoKey && (!hasInit || index > 0)) {
         const segSeq = seqBase + (hasInit ? index - 1 : index);
@@ -173,24 +225,28 @@ async function maybeDownloadSubtitle(
 ): Promise<string | null> {
   if (!opts.includeSubtitles || !stream.subtitles?.length) return null;
   const targetLang = opts.lang ?? "en";
-  const preferred =
-    stream.subtitles.find((s) =>
-      targetLang === "fr"
-        ? s.lang.toLowerCase().startsWith("fr") || /french|français/i.test(s.label)
-        : s.lang.toLowerCase().startsWith("en") || /english/i.test(s.label),
-    ) ?? stream.subtitles[0];
-  if (!preferred) return null;
-  try {
-    const res = await fetchWithRetry(preferred.url, opts.signal, 2);
-    const vtt = await res.text();
-    if (!vtt.trim()) return null;
-    if (!opts.skipSaveFile) {
-      saveBlob(new Blob([vtt], { type: "text/vtt; charset=utf-8" }), `${opts.filename}.vtt`);
+  const matchesTarget = (s: { lang: string; label: string }) =>
+    targetLang === "fr"
+      ? s.lang.toLowerCase().startsWith("fr") || /french|français/i.test(s.label)
+      : s.lang.toLowerCase().startsWith("en") || /english/i.test(s.label);
+  const ordered = [
+    ...stream.subtitles.filter(matchesTarget),
+    ...stream.subtitles.filter((s) => !matchesTarget(s)),
+  ];
+  for (const candidate of ordered) {
+    try {
+      const res = await fetchWithRetry(candidate.url, opts.signal, 2);
+      const vtt = await res.text();
+      if (!vtt.trim() || /^\s*(<!doctype|<html\b)/i.test(vtt)) continue;
+      if (!opts.skipSaveFile) {
+        saveBlob(new Blob([vtt], { type: "text/vtt; charset=utf-8" }), `${opts.filename}.vtt`);
+      }
+      return vtt;
+    } catch {
+      /* try next subtitle candidate */
     }
-    return vtt;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 export async function downloadStream(

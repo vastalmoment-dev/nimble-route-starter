@@ -547,9 +547,21 @@ export async function resolveAnimeStream(
     const embedFallbacks = dedupeEmbeds([...vostfrEmbeds, ...mirrorList, ...resolvedBaseEmbeds]);
     const primaryEmbed = embedFallbacks[0]?.url ?? null;
 
-    // Collect combined direct StreamSources (AniLast direct hits + decrypted MegaPlay 1080p stream + other extractable embeds).
+    // Collect combined direct StreamSources (direct MegaPlay 1080p stream + AniLast direct hits + other extractable embeds).
     const canonicalSeen = new Set<string>();
     const rawSources: { source: StreamSource; quality?: string | null; priority: number }[] = [];
+
+    if (megaplayResult?.source && megaplayResult.rawUpstreamUrl) {
+      const canon = canonicalUpstreamPathKey(megaplayResult.rawUpstreamUrl);
+      if (!canonicalSeen.has(canon)) {
+        canonicalSeen.add(canon);
+        rawSources.push({
+          source: megaplayResult.source,
+          quality: "HD",
+          priority: 4,
+        });
+      }
+    }
 
     for (const { hit } of directHits) {
       if (!hit.url) continue;
@@ -574,18 +586,6 @@ export async function resolveAnimeStream(
         quality: hit.quality ?? null,
         priority: isAnikoto ? 3 : 1,
       });
-    }
-
-    if (megaplayResult?.source && megaplayResult.rawUpstreamUrl) {
-      const canon = canonicalUpstreamPathKey(megaplayResult.rawUpstreamUrl);
-      if (!canonicalSeen.has(canon)) {
-        canonicalSeen.add(canon);
-        rawSources.push({
-          source: megaplayResult.source,
-          quality: "HD",
-          priority: 2,
-        });
-      }
     }
 
     let extraExtractedSubs: SubtitleTrack[] = [];
@@ -645,18 +645,40 @@ export async function resolveAnimeStream(
     const primaryQuality =
       rawSources.find((r) => r.source.url === primarySource.url)?.quality ?? null;
 
+    const canonicalSubtitleKey = (rawUrl: string): string => {
+      if (rawUrl.startsWith("/api/media/sub?token=")) {
+        try {
+          const tok = new URL(rawUrl, "http://localhost").searchParams.get("token");
+          const body = tok?.split(".")[0];
+          if (body) {
+            const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as {
+              u?: string;
+            };
+            if (parsed.u) return canonicalUpstreamPathKey(parsed.u);
+          }
+        } catch {
+          /* fall back to URL key */
+        }
+      }
+      return canonicalUpstreamPathKey(rawUrl);
+    };
+
     const mergedRawSubs = [
-      ...directHits.flatMap((h) => h.hit.subtitles ?? []),
       ...(megaplayResult?.subtitles ?? []),
+      ...directHits.flatMap((h) => h.hit.subtitles ?? []),
       ...extraExtractedSubs,
     ];
-    const seenSubUrls = new Set<string>();
+    const seenSubKeys = new Set<string>();
     const subtitles: SubtitleTrack[] = [];
     for (const s of mergedRawSubs) {
       if (!s.url || isNonDialogueSubtitle(s)) continue;
-      const url = s.url.startsWith("/api/") ? s.url : rewriteAnimeProxyPath(s.url, "subtitle");
-      if (seenSubUrls.has(url)) continue;
-      seenSubUrls.add(url);
+      const url =
+        s.url.startsWith("/api/media/") || s.url.startsWith("/api/anilast/")
+          ? s.url
+          : rewriteAnimeProxyPath(s.url, "subtitle");
+      const subKey = canonicalSubtitleKey(url);
+      if (seenSubKeys.has(subKey)) continue;
+      seenSubKeys.add(subKey);
       subtitles.push({
         url,
         lang: s.lang ?? "en",
@@ -674,8 +696,9 @@ export async function resolveAnimeStream(
         isMovie: Boolean(data.isMovie || ext.isMovie),
       });
       for (const fs of frSubs) {
-        if (!seenSubUrls.has(fs.url)) {
-          seenSubUrls.add(fs.url);
+        const subKey = canonicalSubtitleKey(fs.url);
+        if (!seenSubKeys.has(subKey)) {
+          seenSubKeys.add(subKey);
           subtitles.push(fs);
         }
       }
@@ -696,8 +719,9 @@ export async function resolveAnimeStream(
         isMovie: Boolean(data.isMovie || ext.isMovie),
       });
       for (const es of enSubs) {
-        if (!seenSubUrls.has(es.url)) {
-          seenSubUrls.add(es.url);
+        const subKey = canonicalSubtitleKey(es.url);
+        if (!seenSubKeys.has(subKey)) {
+          seenSubKeys.add(subKey);
           subtitles.push(es);
         }
       }

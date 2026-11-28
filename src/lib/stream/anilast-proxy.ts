@@ -69,10 +69,22 @@ export function rewriteHlsPlaylist(body: string, playlistBaseUrl?: string): stri
     if (uri.startsWith("/api/anilast/hls") || uri.startsWith("/api/media/segment")) {
       return uri;
     }
-    if (uri.startsWith(`${ANILAST_ORIGIN}/api/proxy/hls`)) {
-      return uri.replace(`${ANILAST_ORIGIN}/api/proxy/hls`, "/api/anilast/hls");
-    }
-    if (uri.startsWith("/api/proxy/hls")) {
+    if (uri.startsWith(`${ANILAST_ORIGIN}/api/proxy/hls`) || uri.startsWith("/api/proxy/hls")) {
+      try {
+        const parsed = new URL(uri, ANILAST_ORIGIN);
+        const innerUrl = parsed.searchParams.get("url");
+        const innerRef = parsed.searchParams.get("ref");
+        const isInnerPlaylist =
+          innerUrl && (/\.m3u8(\?|#|$)/i.test(innerUrl) || /master\.txt(\?|#|$)/i.test(innerUrl));
+        if (innerUrl && innerRef && !isInnerPlaylist) {
+          return signMediaProxyUrl(innerUrl, innerRef);
+        }
+      } catch {
+        /* fall through to standard path rewrite */
+      }
+      if (uri.startsWith(`${ANILAST_ORIGIN}/api/proxy/hls`)) {
+        return uri.replace(`${ANILAST_ORIGIN}/api/proxy/hls`, "/api/anilast/hls");
+      }
       return uri.replace("/api/proxy/hls", "/api/anilast/hls");
     }
     if (playlistBaseUrl) {
@@ -127,7 +139,15 @@ function proxyJsonError(
   message: string,
   upstreamStatus: number,
   extra?: Record<string, unknown>,
+  retryAfter?: string | null,
 ): Response {
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  };
+  if (retryAfter) {
+    headers["retry-after"] = retryAfter;
+  }
   return new Response(
     JSON.stringify({
       ok: false,
@@ -137,11 +157,8 @@ function proxyJsonError(
       ...extra,
     }),
     {
-      status: 502,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      },
+      status: upstreamStatus === 429 ? 429 : 502,
+      headers,
     },
   );
 }
@@ -235,6 +252,8 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
       return proxyJsonError(
         `Upstream anime host returned HTTP ${upstream.status}`,
         upstream.status,
+        undefined,
+        upstream.headers.get("retry-after"),
       );
     }
 

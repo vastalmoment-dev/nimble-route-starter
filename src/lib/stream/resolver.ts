@@ -89,6 +89,24 @@ export function endpointResolver(base: string): StreamResolver {
   };
 }
 
+export async function resolveContinuousAnimeEpisode(
+  req: Pick<StreamRequest, "source" | "id" | "season" | "episode" | "mediaType">,
+): Promise<number> {
+  if (req.source !== "anilist" && (req.season ?? 1) > 1 && req.mediaType !== "movie") {
+    try {
+      const { loadDetail } = await import("@/lib/catalog");
+      const srcDetail = await loadDetail(req.source, req.id);
+      const earlierCount = (srcDetail.episodes ?? []).filter(
+        (e) => (e.season ?? 1) < req.season!,
+      ).length;
+      if (earlierCount > 0) return earlierCount + req.episode;
+    } catch {
+      /* use raw episode if detail lookup fails */
+    }
+  }
+  return req.episode;
+}
+
 /** Internal anime stream resolver (supports sub and dub). */
 export const aniLastResolver: StreamResolver = {
   name: "anime-stream",
@@ -122,12 +140,14 @@ export const aniLastResolver: StreamResolver = {
       }
     }
 
-    const { getAniLastAnimeStream } = await import("./anilast.functions");
+    const mappedEpisode = await resolveContinuousAnimeEpisode(req);
+
+    const { getAniLastAnimeStream } = await import("@/lib/stream/anilast.functions");
     const result = await getAniLastAnimeStream({
       data: {
         anilistId: targetAnilistId,
         malId,
-        episode: req.episode,
+        episode: mappedEpisode,
         audio: req.audio ?? "sub",
         lang: req.lang ?? siteLanguage.get(),
         isMovie: req.mediaType === "movie",

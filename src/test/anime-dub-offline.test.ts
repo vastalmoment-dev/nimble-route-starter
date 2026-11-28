@@ -106,6 +106,60 @@ describe("Anime bridge, dub parity, French backup providers, and offline storage
     expect(fetchSpy.mock.calls[0]?.[0]).toContain("api.ani.zip/mappings?imdb_id=tt7441658");
   });
 
+  it("ignores api.ani.zip OVA title mismatches (tt7441658 -> Jump Festa 2016 Special) and falls back to AniList TV search", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = requestUrl(input);
+      if (url.includes("api.ani.zip/mappings?imdb_id=tt7441658")) {
+        return new Response(
+          JSON.stringify({
+            titles: { en: "Black Clover: Jump Festa 2016 Special" },
+            mappings: { anilist_id: 87528, type: "OVA" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.startsWith("https://graphql.anilist.co")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              Page: {
+                media: [
+                  {
+                    id: 97940,
+                    idMal: 34572,
+                    isAdult: false,
+                    title: { english: "Black Clover", romaji: "Black Clover" },
+                    coverImage: { extraLarge: null, large: null, medium: null },
+                    bannerImage: null,
+                    seasonYear: 2017,
+                    averageScore: 80,
+                    popularity: 500000,
+                    genres: ["Action", "Fantasy"],
+                    description: null,
+                    episodes: 170,
+                    duration: 24,
+                    status: "FINISHED",
+                    format: "TV",
+                  },
+                ],
+              },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    const bridgedId = await resolveAniListIdForItem({
+      source: "tvmaze",
+      id: "31396",
+      title: "Black Clover",
+      imdbId: "tt7441658",
+    });
+    expect(bridgedId).toBe("97940");
+  });
+
   it("filters out HTTP 200 restricted, deleted, and 410 embed shells", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = requestUrl(input);
@@ -493,5 +547,115 @@ describe("Anime bridge, dub parity, French backup providers, and offline storage
     expect(res.sources?.[1]?.url).toContain("/api/anilast/hls");
     expect(res.subtitles).toHaveLength(1);
     expect(res.subtitles[0]?.label).toBe("English");
+  });
+
+  it("skips 404/HTML subtitle tracks to download a working WEBVTT track and maps multi-season TVmaze anime episodes continuously", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = requestUrl(input);
+      if (url === "https://cdn.example.net/ep1.mp4") {
+        return new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { "content-type": "video/mp4" },
+        });
+      }
+      if (url === "https://cdn.example.net/broken-en.vtt") {
+        return new Response("<!DOCTYPE html><html>404 Not Found</html>", { status: 404 });
+      }
+      if (url === "https://cdn.example.net/working-en.vtt") {
+        return new Response("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nAsta!\n", { status: 200 });
+      }
+      if (url.startsWith("https://api.tvmaze.com/shows/31467")) {
+        return new Response(
+          JSON.stringify({
+            id: 31467,
+            name: "Black Clover",
+            language: "Japanese",
+            genres: ["Animation", "Anime", "Fantasy"],
+            externals: { imdb: "tt7441658" },
+            _embedded: {
+              episodes: [
+                ...Array.from({ length: 170 }, (_, idx) => ({
+                  id: 1000 + idx,
+                  season: 1,
+                  number: idx + 1,
+                  name: `Episode ${idx + 1}`,
+                })),
+                { id: 2001, season: 2, number: 1, name: "Season 2 Ep 1" },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.includes("api.ani.zip/mappings")) {
+        return new Response(
+          JSON.stringify({ mappings: { anilist_id: 97940, mal_id: 34572, imdb_id: "tt7441658" } }),
+          {
+            status: 200,
+          },
+        );
+      }
+      if (url.includes("arm.haglund.dev")) {
+        return new Response("Not Found", { status: 404 });
+      }
+      if (url.includes("anilast.xyz/api/anime/stream/34572/171")) {
+        return new Response(
+          JSON.stringify({
+            provider: "aniwaves",
+            type: "hls",
+            url: "/api/proxy/hls?url=https%3A%2F%2Fcdn.example.net%2Fs2e1%2Fplaylist.m3u8",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    const downloaded = await downloadStream(
+      {
+        url: "https://cdn.example.net/ep1.mp4",
+        type: "mp4",
+        provider: "SHADOW Stream",
+        isDemo: false,
+        subtitles: [
+          { url: "https://cdn.example.net/broken-en.vtt", lang: "en", label: "English (Broken)" },
+          {
+            url: "https://cdn.example.net/working-en.vtt",
+            lang: "en",
+            label: "English (Working)",
+          },
+        ],
+      },
+      {
+        filename: "Black_Clover_E1_SUB",
+        includeSubtitles: true,
+        lang: "en",
+        skipSaveFile: true,
+      },
+    );
+    expect(downloaded.subtitleVtt).toContain("Asta!");
+
+    const { resolveContinuousAnimeEpisode } = await import("@/lib/stream/resolver");
+    const mappedEp = await resolveContinuousAnimeEpisode({
+      source: "tvmaze",
+      id: "31467",
+      mediaType: "tv",
+      season: 2,
+      episode: 1,
+    });
+    expect(mappedEp).toBe(171);
+
+    const resolved = await resolveAnimeStream({
+      anilistId: "97940",
+      malId: 34572,
+      episode: mappedEp,
+      audio: "sub",
+      lang: "en",
+      title: "Black Clover",
+    });
+    expect(resolved.ok).toBe(true);
+    expect(resolved.streamUrl).toBe(
+      "/api/anilast/hls?url=https%3A%2F%2Fcdn.example.net%2Fs2e1%2Fplaylist.m3u8",
+    );
   });
 });

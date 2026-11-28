@@ -442,4 +442,185 @@ describe("AniLast anime integration", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("rewrites /api/proxy/subtitle URLs to /api/anilast/subtitle, deduplicates identical upstream tracks, and normalizes image/jpeg TS segments", async () => {
+    const crypto = await import("node:crypto");
+    const { resolveAnimeStream } = await import("@/lib/stream/anilast.functions");
+    const { handleMediaProxyRequest, signMediaProxyUrl } = await import("@/lib/stream/media-proxy");
+
+    const key = Buffer.alloc(32, 0);
+    Buffer.from("i?LMTAx0Q6,:}50U", "utf8").copy(key);
+    const iv = Buffer.alloc(16, 0);
+    Buffer.from("W0;27ToaUpl_P%'c", "utf8").copy(iv);
+    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+    const encPayload = Buffer.concat([
+      cipher.update(JSON.stringify({ file: "https://cdn.example.net/bc/ep3/master.m3u8" }), "utf8"),
+      cipher.final(),
+    ]).toString("base64url");
+
+    const jpegTsBytes = new Uint8Array(600);
+    jpegTsBytes[0] = 0x47;
+    jpegTsBytes[1] = 0x40;
+    jpegTsBytes[2] = 0x00;
+    jpegTsBytes[3] = 0x11;
+    const segJpegUrl = signMediaProxyUrl(
+      "https://cdn.example.net/seg-3.jpg",
+      "https://megaplay.buzz/",
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("api.ani.zip") || url.includes("arm.haglund.dev")) {
+        return new Response(JSON.stringify({ mappings: { mal_id: 34572, imdb_id: "tt7441658" } }), {
+          status: 200,
+        });
+      }
+      if (url.includes("anilast.xyz/api/anime/stream/34572/3")) {
+        return new Response(
+          JSON.stringify({
+            provider: "aniwaves",
+            type: "hls",
+            url: "/api/proxy/hls?url=https%3A%2F%2Fbackup.example.net%2F720p%2Fplaylist.m3u8",
+            subtitles: [
+              {
+                url: "/api/proxy/subtitle?url=https%3A%2F%2Fsubs.example.net%2Fshared-en.vtt",
+                lang: "en",
+                label: "English (AniLast)",
+              },
+              {
+                url: "/api/proxy/subtitle?url=https%3A%2F%2Fsubs.example.net%2Fes-only.vtt",
+                lang: "es",
+                label: "Spanish",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://megaplay.buzz/stream/mal/34572/3/sub") {
+        return new Response(
+          `<html><title>File 777333</title><div id="megaplay-player" data-id="777333"></div><script>const settings = { type: "sub" };</script></html>`,
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://megaplay.buzz/stream/getSources?id=777333")) {
+        return new Response(
+          JSON.stringify({
+            enc: encPayload,
+            tracks: [
+              {
+                file: "https://subs.example.net/shared-en.vtt",
+                label: "English",
+                kind: "captions",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://cdn.example.net/bc/ep3/master.m3u8")) {
+        return new Response("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=3000000\n1080.m3u8\n", {
+          status: 200,
+        });
+      }
+      if (url === "https://cdn.example.net/seg-3.jpg") {
+        return new Response(jpegTsBytes, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    try {
+      const resolved = await resolveAnimeStream({
+        anilistId: "97940",
+        malId: 34572,
+        episode: 3,
+        audio: "sub",
+        lang: "en",
+        title: "Black Clover",
+      });
+      expect(resolved.ok).toBe(true);
+      expect(resolved.subtitles.some((s) => s.url.startsWith("/api/proxy/subtitle"))).toBe(false);
+      // MegaPlay /api/media/sub track is kept and deduplicated with AniLast's identical upstream URL
+      const englishTracks = resolved.subtitles.filter((s) => s.lang === "en");
+      expect(englishTracks).toHaveLength(1);
+      expect(englishTracks[0]?.url).toContain("/api/media/sub?token=");
+      // AniLast's Spanish track is rewritten to /api/anilast/subtitle
+      const spanishTrack = resolved.subtitles.find((s) => s.lang === "es");
+      expect(spanishTrack?.url).toBe(
+        "/api/anilast/subtitle?url=https%3A%2F%2Fsubs.example.net%2Fes-only.vtt",
+      );
+
+      const segRes = await handleMediaProxyRequest(
+        new Request(`http://localhost:3000${segJpegUrl}`),
+      );
+      expect(segRes?.status).toBe(200);
+      expect(segRes?.headers.get("content-type")).toBe("video/mp2t");
+      const outBytes = new Uint8Array(await segRes!.arrayBuffer());
+      expect(outBytes[0]).toBe(0x47);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("preserves HTTP 429 + Retry-After in proxies and recovers cleanly across rate-limited HLS segment downloads", async () => {
+    const { handleMediaProxyRequest, signMediaProxyUrl } = await import("@/lib/stream/media-proxy");
+    const { downloadStream } = await import("@/lib/download/downloader");
+
+    const signedSeg = signMediaProxyUrl(
+      "https://cdn.example.net/seg-1.jpg",
+      "https://megaplay.buzz/",
+    );
+    const tsBytes = new Uint8Array([0x47, 0x40, 0x00, 0x11]);
+    let segCalls = 0;
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url === "https://cdn.example.net/seg-1.jpg") {
+        return new Response("Rate Limited", { status: 429, headers: { "retry-after": "2" } });
+      }
+      if (url === "https://dl.example.net/master.m3u8") {
+        return new Response("#EXTM3U\n#EXTINF:4.0,\nseg1.ts\n#EXT-X-ENDLIST\n", { status: 200 });
+      }
+      if (url === "https://dl.example.net/seg1.ts") {
+        segCalls++;
+        if (segCalls === 1) {
+          return new Response("Too Many Requests", {
+            status: 429,
+            headers: { "retry-after": "0" },
+          });
+        }
+        return new Response(tsBytes, { status: 200, headers: { "content-type": "video/mp2t" } });
+      }
+      return new Response("Not Found", { status: 404 });
+    });
+
+    try {
+      const proxyRes = await handleMediaProxyRequest(
+        new Request(`http://localhost:3000${signedSeg}`),
+      );
+      expect(proxyRes?.status).toBe(429);
+      expect(proxyRes?.headers.get("retry-after")).toBe("2");
+
+      const downloaded = await downloadStream(
+        {
+          url: "https://dl.example.net/master.m3u8",
+          type: "hls",
+          provider: "SHADOW Stream",
+          isDemo: false,
+        },
+        {
+          filename: "Black_Clover_E3_SUB",
+          skipSaveFile: true,
+        },
+      );
+      expect(segCalls).toBe(2);
+      expect(downloaded.ext).toBe("ts");
+      expect(downloaded.blob.size).toBe(4);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
