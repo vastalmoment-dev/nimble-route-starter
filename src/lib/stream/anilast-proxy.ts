@@ -194,8 +194,9 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
   const url = new URL(request.url);
   const isHls = url.pathname === "/api/anilast/hls";
   const isSub = url.pathname === "/api/anilast/subtitle";
+  const isStream = url.pathname === "/api/anilast/stream";
   const isImage = url.pathname === "/api/anilast/image";
-  if (!isHls && !isSub && !isImage) return null;
+  if (!isHls && !isSub && !isStream && !isImage) return null;
 
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405 });
@@ -211,16 +212,26 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
   }
 
   // Pin outbound requests strictly to https://anilast.xyz/api/proxy/* to avoid open-proxy SSRF.
-  const upstreamPath = isHls ? "/api/proxy/hls" : "/api/proxy/subtitle";
+  const upstreamPath = isHls
+    ? "/api/proxy/hls"
+    : isStream
+      ? "/api/proxy/stream"
+      : "/api/proxy/subtitle";
   const upstreamUrl = `${ANILAST_ORIGIN}${upstreamPath}${url.search}`;
+  const reqHeaders: Record<string, string> = { ...ANILAST_HEADERS };
+  if (isStream) {
+    reqHeaders["Accept"] = "*/*";
+    const range = request.headers.get("range");
+    if (range) reqHeaders["Range"] = range;
+  }
 
   try {
     const upstream = await fetchWithRetry(upstreamUrl, {
-      headers: { ...ANILAST_HEADERS },
+      headers: reqHeaders,
       redirect: "follow",
     });
 
-    if (!upstream.ok) {
+    if (!upstream.ok && upstream.status !== 206) {
       return proxyJsonError(
         `Upstream anime host returned HTTP ${upstream.status}`,
         upstream.status,
@@ -262,13 +273,25 @@ export async function handleAniLastProxyRequest(request: Request): Promise<Respo
       });
     }
 
-    const fallbackType = isSub ? "text/vtt; charset=utf-8" : "application/octet-stream";
+    const fallbackType = isSub
+      ? "text/vtt; charset=utf-8"
+      : isStream
+        ? "video/mp4"
+        : "application/octet-stream";
+    const respHeaders = new Headers({
+      "content-type": contentType || fallbackType,
+      "cache-control": isSub ? "public, max-age=3600" : "public, max-age=300",
+    });
+    const cl = upstream.headers.get("content-length");
+    if (cl) respHeaders.set("content-length", cl);
+    const cr = upstream.headers.get("content-range");
+    if (cr) respHeaders.set("content-range", cr);
+    const ar = upstream.headers.get("accept-ranges");
+    if (ar) respHeaders.set("accept-ranges", ar);
+
     return new Response(upstream.body, {
-      status: 200,
-      headers: {
-        "content-type": contentType || fallbackType,
-        "cache-control": isSub ? "public, max-age=3600" : "public, max-age=300",
-      },
+      status: upstream.status === 206 ? 206 : 200,
+      headers: respHeaders,
     });
   } catch (error) {
     console.error("AniLast proxy error", error);

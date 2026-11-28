@@ -1,24 +1,56 @@
 import { useEffect, useRef, useState } from "react";
-import { AD_SLOTS, type AdSlotId } from "@/lib/ads/config";
+import { AD_SLOTS, adsterraDocument, BAUVAL_SIDEBAR_BANNER, type AdSlotId } from "@/lib/ads/config";
 import { PROMO_BANNERS } from "@/lib/promo/banners";
 import { cn } from "@/lib/utils";
 
 /**
- * Every ad space shows the 1xBet partner promo (image + promo code + affiliate link).
+ * Renders the isolated 160x300 Bauval banner script inside `sidebar` vertical slots,
+ * and the partner promo card for wide leaderboard / rectangle slots.
  */
 export function AdSlot({ slot, className }: { slot: AdSlotId; className?: string }) {
   const cfg = AD_SLOTS[slot];
   const promo = PROMO_BANNERS[0]!;
   const [copied, setCopied] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wide = cfg.width > cfg.height * 2;
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    setMounted(true);
+    return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
+
+  if (slot === "sidebar") {
+    return (
+      <aside
+        data-ad-slot={slot}
+        aria-label="Advertisement"
+        className={cn(
+          "shrink-0 overflow-hidden rounded-xl border border-foreground/10 bg-surface/60",
+          className,
+        )}
+        style={{ width: cfg.width, height: cfg.height }}
+      >
+        {mounted && (
+          <iframe
+            title={cfg.label}
+            srcDoc={adsterraDocument(
+              BAUVAL_SIDEBAR_BANNER.key,
+              cfg.width,
+              cfg.height,
+              BAUVAL_SIDEBAR_BANNER.scriptSrc,
+            )}
+            width={cfg.width}
+            height={cfg.height}
+            scrolling="no"
+            className="block size-full border-0 bg-transparent"
+          />
+        )}
+      </aside>
+    );
+  }
 
   const copy = async () => {
     if (!promo.code) return;

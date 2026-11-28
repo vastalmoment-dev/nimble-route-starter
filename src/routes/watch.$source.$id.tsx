@@ -27,6 +27,7 @@ function WatchRoutePage() {
         ep={search.ep}
         season={search.season}
         audio={search.audio}
+        offlineId={search.offline}
       />
     </Suspense>
   );
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/watch/$source/$id")({
     ep: z.coerce.number().int().min(1).catch(1).optional(),
     season: z.coerce.number().int().min(1).catch(1).optional(),
     audio: z.enum(["sub", "dub"]).catch("sub").optional(),
+    offline: z.string().optional(),
   }),
   beforeLoad: ({ params }) => {
     if (!SOURCES.includes(params.source as Source)) throw notFound();

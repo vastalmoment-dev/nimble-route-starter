@@ -1,6 +1,6 @@
 import { probeSingleEmbed, type ProbeableEmbed } from "./embed-probe";
-import { signSubtitleProxyUrl } from "./media-proxy";
-import type { SubtitleTrack } from "./resolver";
+import { signMediaProxyUrl, signSubtitleProxyUrl } from "./media-proxy";
+import type { StreamSource, SubtitleTrack } from "./resolver";
 
 const ANIME_SAMA_ORIGIN = "https://anime-sama.to";
 const BROWSER_UA =
@@ -227,6 +227,11 @@ interface SearchHit {
   title: string;
 }
 
+interface PanelSelection {
+  path: string;
+  localEpisode: number;
+}
+
 async function searchAnimeSamaCatalog(queries: string[]): Promise<SearchHit | null> {
   const seenQueries = new Set<string>();
   const searchTerms: string[] = [];
@@ -285,30 +290,54 @@ async function searchAnimeSamaCatalog(queries: string[]): Promise<SearchHit | nu
   return scored[0] && scored[0].score >= 150 ? scored[0].hit : null;
 }
 
-interface PanelSelection {
-  path: string;
-  localEpisode: number;
+const HOST_PRIORITY_PATTERNS: RegExp[] = [
+  /ansembed\.net/i,
+  /ok\.ru/i,
+  /uqload\./i,
+  /iframedream\./i,
+  /mp4upload\./i,
+  /myvi\./i,
+];
+
+function scoreEmbedHost(url: string): number {
+  for (let i = 0; i < HOST_PRIORITY_PATTERNS.length; i++) {
+    if (HOST_PRIORITY_PATTERNS[i]!.test(url)) return HOST_PRIORITY_PATTERNS.length - i;
+  }
+  if (/(sibnet|sendvid|vidmoly)/i.test(url)) return -1;
+  return 0;
 }
 
-function selectAnimeSamaPanel(
+function listCandidatePanels(
   catalogueHtml: string,
   seasonHint: number,
   episode: number,
   variant: "vf" | "vostfr",
   isMovie: boolean,
-): PanelSelection | null {
+): PanelSelection[] {
   const panels = [...catalogueHtml.matchAll(/panneauAnime\("([^"]+)",\s*"([^"]+)"\)/g)]
     .map((m) => ({ label: m[1]!, path: m[2]! }))
     .filter((p) => p.path !== "url" && p.label.toLowerCase() !== "nom");
 
-  if (panels.length === 0) return null;
+  if (panels.length === 0) return [];
 
   const withVariant = (rawPath: string) =>
     rawPath.replace(/\/(vostfr|vf)\/?$/i, `/${variant}`).replace(/^\/+|\/+$/g, "");
 
+  const ordered: PanelSelection[] = [];
+  const seen = new Set<string>();
+  const push = (path: string, localEpisode: number) => {
+    const clean = withVariant(path);
+    const k = `${clean}:${localEpisode}`;
+    if (!seen.has(k)) {
+      seen.add(k);
+      ordered.push({ path: clean, localEpisode });
+    }
+  };
+
   if (isMovie) {
-    const film = panels.find((p) => /\bfilm\b/i.test(p.label) || /^film\//i.test(p.path));
-    if (film) return { path: withVariant(film.path), localEpisode: episode };
+    for (const p of panels) {
+      if (/\bfilm\b/i.test(p.label) || /^film\//i.test(p.path)) push(p.path, episode);
+    }
   }
 
   // Handle long-running series split by episode ranges like "[Episode 62 à 143]"
@@ -318,24 +347,95 @@ function selectAnimeSamaPanel(
       const start = Number(rangeMatch[1]);
       const end = Number(rangeMatch[2]);
       if (episode >= start && episode <= end) {
-        return { path: withVariant(p.path), localEpisode: episode - start + 1 };
+        push(p.path, episode - start + 1);
       }
     }
   }
 
-  const seasonMatch = panels.find(
-    (p) =>
+  for (const p of panels) {
+    if (
       new RegExp(`^saison${seasonHint}(?:/|$)`, "i").test(p.path) ||
-      new RegExp(`\\bsaison\\s*${seasonHint}\\b`, "i").test(p.label),
-  );
-  if (seasonMatch) {
-    return { path: withVariant(seasonMatch.path), localEpisode: episode };
+      new RegExp(`\\bsaison\\s*${seasonHint}\\b`, "i").test(p.label)
+    ) {
+      push(p.path, episode);
+    }
   }
 
-  const s1 = panels.find((p) => /^saison1(?:\/|$)/i.test(p.path));
-  if (s1) return { path: withVariant(s1.path), localEpisode: episode };
+  for (const p of panels) {
+    if (/^saison1(?:hs)?(?:\/|$)/i.test(p.path)) {
+      push(p.path, episode);
+    }
+  }
 
-  return { path: withVariant(panels[0]!.path), localEpisode: episode };
+  for (const p of panels) {
+    if (!/\b(film|oav|ova|special|kai)\b/i.test(p.label)) {
+      push(p.path, episode);
+    }
+  }
+
+  for (const p of panels) {
+    push(p.path, episode);
+  }
+
+  return ordered;
+}
+
+async function resolveAnimeSamaPanelUrls(hitUrl: string, panel: PanelSelection): Promise<string[]> {
+  const epPageUrl = `${hitUrl}/${panel.path}/`;
+  const epRes = await fetch(epPageUrl, {
+    headers: { "User-Agent": BROWSER_UA, Referer: `${hitUrl}/` },
+    signal: AbortSignal.timeout(3500),
+  });
+  if (!epRes.ok) return [];
+  const cookie = epRes.headers.get("set-cookie");
+  const epHtml = await epRes.text();
+
+  const jeton = /var epsJeton = "([^"]+)"/.exec(epHtml)?.[1];
+  if (!jeton) return [];
+
+  const epIdx = Math.max(0, panel.localEpisode - 1);
+  const lienIds: string[] = [];
+  for (let srv = 1; srv <= 8; srv++) {
+    const arrMatch = new RegExp(`var eps${srv}\\s*=\\s*\\[([^\\]]+)\\]`).exec(epHtml);
+    if (!arrMatch?.[1]) continue;
+    const items = [...arrMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+    const entry = items[epIdx];
+    if (!entry) continue;
+    const lienMatch = /^lien:(\d+)$/.exec(entry);
+    if (lienMatch?.[1]) {
+      lienIds.push(lienMatch[1]);
+    } else if (/^https?:\/\//i.test(entry)) {
+      lienIds.push(entry);
+    }
+  }
+
+  if (lienIds.length === 0) return [];
+
+  const resolvedUrls = await Promise.all(
+    lienIds.map(async (item) => {
+      if (/^https?:\/\//i.test(item)) return item;
+      try {
+        const lr = await fetch(
+          `${ANIME_SAMA_ORIGIN}/api/lien.php?j=${encodeURIComponent(jeton)}&l=${encodeURIComponent(item)}`,
+          {
+            headers: {
+              "User-Agent": BROWSER_UA,
+              Referer: epPageUrl,
+              ...(cookie ? { Cookie: cookie } : {}),
+            },
+            signal: AbortSignal.timeout(3200),
+          },
+        );
+        if (!lr.ok) return null;
+        const json = (await lr.json()) as { u?: string };
+        return json.u && /^https?:\/\//i.test(json.u) ? json.u : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return [...new Set(resolvedUrls.filter((u): u is string => Boolean(u)))];
 }
 
 export async function resolveAnimeSamaEmbeds(params: {
@@ -359,88 +459,334 @@ export async function resolveAnimeSamaEmbeds(params: {
     const catHtml = await catRes.text();
 
     const seasonHint = detectAnimeSeasonFromTitles(cleanTitles);
-    const panel = selectAnimeSamaPanel(
+    const panels = listCandidatePanels(
       catHtml,
       seasonHint,
       params.episode,
       params.variant,
       Boolean(params.isMovie),
     );
-    if (!panel) return [];
+    if (panels.length === 0) return [];
 
-    const epPageUrl = `${hit.url}/${panel.path}/`;
-    const epRes = await fetch(epPageUrl, {
-      headers: { "User-Agent": BROWSER_UA, Referer: `${hit.url}/` },
-      signal: AbortSignal.timeout(3500),
-    });
-    if (!epRes.ok) return [];
-    const cookie = epRes.headers.get("set-cookie");
-    const epHtml = await epRes.text();
+    const prefix = params.variant === "vf" ? "VF" : "VOSTFR";
+    let fallbackUrls: string[] = [];
 
-    const jeton = /var epsJeton = "([^"]+)"/.exec(epHtml)?.[1];
-    if (!jeton) return [];
+    for (const panel of panels.slice(0, 3)) {
+      const uniqueUrls = await resolveAnimeSamaPanelUrls(hit.url, panel);
+      if (uniqueUrls.length === 0) continue;
+      if (fallbackUrls.length === 0) fallbackUrls = uniqueUrls;
 
-    const epIdx = Math.max(0, panel.localEpisode - 1);
-    const lienIds: string[] = [];
-    for (let srv = 1; srv <= 4; srv++) {
-      const arrMatch = new RegExp(`var eps${srv}\\s*=\\s*\\[([^\\]]+)\\]`).exec(epHtml);
-      if (!arrMatch?.[1]) continue;
-      const items = [...arrMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
-      const entry = items[epIdx];
-      if (!entry) continue;
-      const lienMatch = /^lien:(\d+)$/.exec(entry);
-      if (lienMatch?.[1]) {
-        lienIds.push(lienMatch[1]);
-      } else if (/^https?:\/\//i.test(entry)) {
-        lienIds.push(entry);
+      const sortedCandidates = [...uniqueUrls].sort(
+        (a, b) => scoreEmbedHost(b) - scoreEmbedHost(a),
+      );
+
+      const verified = await Promise.all(
+        sortedCandidates.map(async (u) => ({
+          url: u,
+          ok: await probeSingleEmbed(u, 2500),
+        })),
+      );
+      const workingUrls = verified.filter((v) => v.ok).map((v) => v.url);
+      if (workingUrls.length > 0) {
+        return workingUrls.map((u, idx) => ({
+          label: `${prefix} · Lecteur ${idx + 1}`,
+          url: u,
+          available: true,
+        }));
       }
     }
 
-    if (lienIds.length === 0) return [];
+    return fallbackUrls.map((u, idx) => ({
+      label: `${prefix} · Lecteur ${idx + 1}`,
+      url: u,
+      available: false,
+    }));
+  } catch {
+    return [];
+  }
+}
 
-    const resolvedUrls = await Promise.all(
-      lienIds.map(async (item) => {
-        if (/^https?:\/\//i.test(item)) return item;
-        try {
-          const lr = await fetch(
-            `${ANIME_SAMA_ORIGIN}/api/lien.php?j=${encodeURIComponent(jeton)}&l=${encodeURIComponent(item)}`,
-            {
-              headers: {
-                "User-Agent": BROWSER_UA,
-                Referer: epPageUrl,
-                ...(cookie ? { Cookie: cookie } : {}),
-              },
-              signal: AbortSignal.timeout(3200),
-            },
-          );
-          if (!lr.ok) return null;
-          const json = (await lr.json()) as { u?: string };
-          return json.u && /^https?:\/\//i.test(json.u) ? json.u : null;
-        } catch {
-          return null;
-        }
+const VOSTFREE_ORIGIN = "https://ipv4.vostfree.ws";
+
+function buildVostfreePlayerUrl(playerClass: string, contentId: string): string | null {
+  const id = contentId.trim();
+  if (!id) return null;
+  if (playerClass.includes("new_player_ok")) {
+    return /^https?:\/\//i.test(id) ? id : `https://www.ok.ru/videoembed/${id}`;
+  }
+  if (playerClass.includes("new_player_uqload")) {
+    return /^https?:\/\//i.test(id) ? id : `https://uqload.vc/embed-${id}.html`;
+  }
+  if (playerClass.includes("new_player_gtv")) {
+    return /^https?:\/\//i.test(id) ? id : `https://iframedream.com/embed/${id}.html`;
+  }
+  if (playerClass.includes("new_player_mp4")) {
+    return /^https?:\/\//i.test(id) ? id : `https://www.mp4upload.com/embed-${id}.html`;
+  }
+  if (playerClass.includes("new_player_vip")) {
+    return /^https?:\/\//i.test(id) ? id : null;
+  }
+  if (playerClass.includes("new_player_sibnet")) {
+    return /^https?:\/\//i.test(id) ? id : `https://video.sibnet.ru/shell.php?videoid=${id}`;
+  }
+  // Skip legacy new_player_myvi because myvi embeds rely on blocked HTTP/Flash players.
+  return null;
+}
+
+export async function resolveVostfreeEmbeds(params: {
+  titles: (string | null | undefined)[];
+  episode: number;
+  variant: "vf" | "vostfr";
+  isMovie?: boolean;
+}): Promise<ProbeableEmbed[]> {
+  const cleanTitles = params.titles.map((t) => t?.trim() ?? "").filter((t) => t.length >= 2);
+  if (cleanTitles.length === 0) return [];
+
+  const searchTerms: string[] = [];
+  const seenTerms = new Set<string>();
+  for (const raw of cleanTitles) {
+    const clean = stripSeasonSuffix(raw);
+    for (const cand of [clean, raw]) {
+      const k = normalizeTitle(cand);
+      if (k.length >= 2 && !seenTerms.has(k)) {
+        seenTerms.add(k);
+        searchTerms.push(cand.trim());
+      }
+    }
+  }
+  if (searchTerms.length === 0) return [];
+
+  try {
+    const candidates: { url: string; title: string; isVf: boolean; score: number }[] = [];
+    const seenPageUrls = new Set<string>();
+
+    const searchSettled = await Promise.allSettled(
+      searchTerms.slice(0, 2).map(async (term) => {
+        const res = await fetch(`${VOSTFREE_ORIGIN}/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": BROWSER_UA,
+            Origin: VOSTFREE_ORIGIN,
+            Referer: `${VOSTFREE_ORIGIN}/`,
+          },
+          body: new URLSearchParams({
+            do: "search",
+            subaction: "search",
+            story: term,
+          }).toString(),
+          signal: AbortSignal.timeout(3500),
+        });
+        if (!res.ok) return [];
+        const html = await res.text();
+        return [
+          ...html.matchAll(
+            /href="(https?:\/\/(?:ipv4\.)?vostfree\.ws\/\d+-[^"]+\.html)"[^>]*>([\s\S]*?)<\/a>/gi,
+          ),
+        ].map((m) => ({
+          url: m[1]!.replace(/^http:\/\//i, "https://"),
+          title: m[2]!
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim(),
+        }));
       }),
     );
 
-    const uniqueUrls = [...new Set(resolvedUrls.filter((u): u is string => Boolean(u)))];
+    for (const s of searchSettled) {
+      if (s.status !== "fulfilled") continue;
+      for (const hit of s.value) {
+        if (!hit.url || seenPageUrls.has(hit.url) || hit.title.length < 2) continue;
+        seenPageUrls.add(hit.url);
+        const hay = `${hit.url} ${hit.title}`.toLowerCase();
+        const isVf = /-vf(?:[.-]|$)|\bvf\b|\bfrench\b/i.test(hay);
+        const isMovieHit = /\bfilm\b|\bmovie\b/i.test(hay);
+        if (params.variant === "vf" && !isVf) continue;
+        if (params.variant === "vostfr" && isVf) continue;
+
+        const cleanCandTitle = hit.title.replace(/\b(vf|vostfr|french)\b/gi, "").trim();
+        let score = scoreCatalogMatch(cleanCandTitle, searchTerms);
+        if (params.isMovie && isMovieHit) score += 120;
+        if (!params.isMovie && isMovieHit) score -= 220;
+        candidates.push({ url: hit.url, title: hit.title, isVf, score });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    const top = candidates.find((c) => c.score >= 150);
+    if (!top) return [];
+
+    const pageRes = await fetch(top.url, {
+      headers: { "User-Agent": BROWSER_UA, Referer: `${VOSTFREE_ORIGIN}/` },
+      signal: AbortSignal.timeout(3500),
+    });
+    if (!pageRes.ok) return [];
+    const html = await pageRes.text();
+
+    // Match the option tag for Episode N to locate its button_box container id (e.g. buttons_1)
+    let boxId = `buttons_${params.episode}`;
+    const epOptions = [
+      ...html.matchAll(/<option[^>]+value="(buttons_\d+)"[^>]*>([\s\S]*?)<\/option>/gi),
+    ];
+    const matchedOpt = epOptions.find((m) => {
+      const numMatch = /\b0*(\d+)\b/.exec(m[2]!);
+      return numMatch && Number(numMatch[1]) === params.episode;
+    });
+    if (matchedOpt?.[1]) boxId = matchedOpt[1];
+
+    const boxRegex = new RegExp(
+      `<div[^>]+id="${boxId}"[^>]*>([\\s\\S]*?)<\\/div>\\s*<\\/div>`,
+      "i",
+    );
+    const boxMatch = boxRegex.exec(html);
+    const boxScope =
+      boxMatch?.[1] ??
+      (() => {
+        const idx = html.indexOf(`id="${boxId}"`);
+        if (idx === -1) return "";
+        const nextBox = html.indexOf(`id="buttons_`, idx + 12);
+        return html.slice(idx, nextBox > idx ? nextBox : idx + 2500);
+      })();
+    if (!boxScope) return [];
+
+    const contentMap = new Map<string, string>();
+    for (const cm of html.matchAll(/<div[^>]+id="content_(player_\d+)"[^>]*>([\s\S]*?)<\/div>/gi)) {
+      contentMap.set(cm[1]!, cm[2]!.trim());
+    }
+
+    const rawUrls: string[] = [];
+    for (const pm of boxScope.matchAll(/<div[^>]+id="(player_\d+)"[^>]+class="([^"]+)"/gi)) {
+      const contentVal = contentMap.get(pm[1]!);
+      if (!contentVal) continue;
+      const built = buildVostfreePlayerUrl(pm[2]!, contentVal);
+      if (built) rawUrls.push(built);
+    }
+
+    const uniqueUrls = [...new Set(rawUrls)].sort((a, b) => scoreEmbedHost(b) - scoreEmbedHost(a));
     if (uniqueUrls.length === 0) return [];
 
     const verified = await Promise.all(
-      uniqueUrls.map(async (u) => ({
+      uniqueUrls.slice(0, 6).map(async (u) => ({
         url: u,
         ok: await probeSingleEmbed(u, 2500),
       })),
     );
     const workingUrls = verified.filter((v) => v.ok).map((v) => v.url);
-    const finalUrls = workingUrls.length > 0 ? workingUrls : uniqueUrls;
     const prefix = params.variant === "vf" ? "VF" : "VOSTFR";
 
-    return finalUrls.map((u, idx) => ({
-      label: `${prefix} · Lecteur ${idx + 1}`,
+    return workingUrls.map((u, idx) => ({
+      label: `${prefix} · Vostfree ${idx + 1}`,
       url: u,
-      available: workingUrls.includes(u),
+      available: true,
     }));
   } catch {
     return [];
   }
+}
+
+export async function resolveFrenchAnimeSources(params: {
+  titles: (string | null | undefined)[];
+  episode: number;
+  variant: "vf" | "vostfr";
+  isMovie?: boolean;
+}): Promise<ProbeableEmbed[]> {
+  const [samaRes, vostfreeRes] = await Promise.allSettled([
+    resolveAnimeSamaEmbeds(params),
+    resolveVostfreeEmbeds(params),
+  ]);
+  const sama = samaRes.status === "fulfilled" ? samaRes.value : [];
+  const vostfree = vostfreeRes.status === "fulfilled" ? vostfreeRes.value : [];
+
+  const merged: ProbeableEmbed[] = [];
+  const seen = new Set<string>();
+  const combined = [...sama, ...vostfree].sort(
+    (a, b) => Number(b.available !== false) - Number(a.available !== false),
+  );
+  for (const item of combined) {
+    if (!item.url || seen.has(item.url)) continue;
+    seen.add(item.url);
+    merged.push(item);
+  }
+  return merged;
+}
+
+export async function extractDirectStreamsFromEmbeds(
+  embeds: ProbeableEmbed[],
+  opts?: { langLabel?: string; streamLang?: string },
+): Promise<StreamSource[]> {
+  const candidates = embeds
+    .filter(
+      (e) =>
+        e.available !== false &&
+        /(ansembed\.net|uqload\.|iframedream\.|mp4upload\.|vidcore\.io|vidsrc\.su|vidnest\.fun|vidlink\.pro)/i.test(
+          e.url,
+        ),
+    )
+    .slice(0, 4);
+
+  if (candidates.length === 0) return [];
+
+  const extracted: StreamSource[] = [];
+  const seen = new Set<string>();
+
+  await Promise.allSettled(
+    candidates.map(async (emb) => {
+      try {
+        const origin = new URL(emb.url).origin;
+        const res = await fetch(emb.url, {
+          headers: {
+            "User-Agent": BROWSER_UA,
+            Referer: `${origin}/`,
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!res.ok) return;
+        const body = await res.text();
+        const matches =
+          body.match(/https?:\/\/[^"'\\\s<>]+?\.(?:m3u8|mp4)(?:\?[^"'\\\s<>]*)?/gi) ?? [];
+
+        for (const rawUrl of matches.slice(0, 4)) {
+          const clean = rawUrl.replace(/\\u002F/g, "/").replace(/\\\//g, "/");
+          if (seen.has(clean)) continue;
+          seen.add(clean);
+
+          const isMp4 = /\.mp4(\?|$)/i.test(clean);
+          const check = await fetch(clean, {
+            method: isMp4 ? "HEAD" : "GET",
+            headers: {
+              "User-Agent": BROWSER_UA,
+              Referer: `${origin}/`,
+              Origin: origin,
+              Accept: "*/*",
+            },
+            redirect: "follow",
+            signal: AbortSignal.timeout(3500),
+          });
+          if (!check.ok) continue;
+
+          if (!isMp4) {
+            const manifest = await check.text();
+            if (!manifest.includes("#EXTM3U")) continue;
+          } else {
+            const ct = (check.headers.get("content-type") ?? "").toLowerCase();
+            if (ct.includes("text/html")) continue;
+          }
+
+          extracted.push({
+            url: signMediaProxyUrl(clean, `${origin}/`),
+            type: isMp4 ? "mp4" : "hls",
+            label: `${emb.label}${opts?.langLabel ? ` · ${opts.langLabel}` : ""}`,
+            lang: opts?.streamLang ?? null,
+          });
+          return;
+        }
+      } catch {
+        /* ignore blocked embed extraction */
+      }
+    }),
+  );
+
+  return extracted;
 }

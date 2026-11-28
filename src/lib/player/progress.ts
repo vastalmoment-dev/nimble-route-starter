@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { isAnimeItem } from "@/lib/catalog/anime-bridge";
 import type { MediaItem, Source } from "@/lib/catalog/types";
 import type { AudioOption } from "@/lib/stream/resolver";
 
@@ -159,7 +160,15 @@ function readLastMapCached(): Record<string, LastWatchedEntry> {
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
-    if (e.key === PROGRESS_KEY || e.key === LAST_WATCHED_KEY || e.key === CONTINUE_WATCHING_KEY) {
+    if (
+      e.key === null ||
+      e.key === PROGRESS_KEY ||
+      e.key === LAST_WATCHED_KEY ||
+      e.key === CONTINUE_WATCHING_KEY
+    ) {
+      progressCacheRaw = null;
+      lastCacheRaw = null;
+      continueCacheRaw = null;
       emit();
     }
   });
@@ -276,10 +285,104 @@ export const playbackProgress = {
     return map[showKey(source, id)] ?? null;
   },
 
-  removeContinueWatching(source: Source | string, id: string) {
+  removeShowHistory(source: Source | string, id: string) {
     const targetKey = showKey(source, id);
-    const next = readContinueList().filter((e) => showKey(e.item.source, e.item.id) !== targetKey);
-    writeContinueList(next);
+    const epPrefix = `${targetKey}:`;
+
+    const nextContinue = readContinueList().filter(
+      (e) => showKey(e.item.source, e.item.id) !== targetKey,
+    );
+    writeContinueList(nextContinue);
+
+    const lastMap = readMap<LastWatchedEntry>(LAST_WATCHED_KEY);
+    if (targetKey in lastMap) {
+      delete lastMap[targetKey];
+      writeMap(LAST_WATCHED_KEY, lastMap);
+      lastCacheRaw = null;
+    }
+
+    const progMap = readMap<PlaybackProgressEntry>(PROGRESS_KEY);
+    let progChanged = false;
+    for (const k of Object.keys(progMap)) {
+      if (k.startsWith(epPrefix)) {
+        delete progMap[k];
+        progChanged = true;
+      }
+    }
+    if (progChanged) {
+      writeMap(PROGRESS_KEY, progMap);
+      progressCacheRaw = null;
+    }
+
+    emit();
+  },
+
+  removeContinueWatching(source: Source | string, id: string) {
+    this.removeShowHistory(source, id);
+  },
+
+  clearHistory(scope: "all" | "anime" | "other" = "all") {
+    if (typeof window === "undefined") return;
+    if (scope === "all") {
+      try {
+        window.localStorage.removeItem(PROGRESS_KEY);
+        window.localStorage.removeItem(LAST_WATCHED_KEY);
+        window.localStorage.removeItem(CONTINUE_WATCHING_KEY);
+      } catch {
+        /* ignore */
+      }
+      progressCacheRaw = null;
+      progressCacheMap = {};
+      lastCacheRaw = null;
+      lastCacheMap = {};
+      continueCacheRaw = null;
+      continueCacheList = [];
+      emit();
+      return;
+    }
+
+    const currentContinue = readContinueList();
+    const removedShowKeys = new Set<string>();
+    const keptContinue: ContinueWatchingEntry[] = [];
+
+    for (const entry of currentContinue) {
+      const anime = isAnimeItem(entry.item);
+      const shouldRemove = scope === "anime" ? anime : !anime;
+      if (shouldRemove) {
+        removedShowKeys.add(showKey(entry.item.source, entry.item.id));
+      } else {
+        keptContinue.push(entry);
+      }
+    }
+
+    const lastMap = readMap<LastWatchedEntry>(LAST_WATCHED_KEY);
+    for (const key of Object.keys(lastMap)) {
+      const isAnilist = key.startsWith("anilist:");
+      if (
+        removedShowKeys.has(key) ||
+        (scope === "anime" && isAnilist) ||
+        (scope === "other" && !isAnilist && !removedShowKeys.has(key))
+      ) {
+        if (scope === "anime" ? removedShowKeys.has(key) || isAnilist : removedShowKeys.has(key)) {
+          delete lastMap[key];
+          removedShowKeys.add(key);
+        }
+      }
+    }
+
+    const progMap = readMap<PlaybackProgressEntry>(PROGRESS_KEY);
+    for (const epKey of Object.keys(progMap)) {
+      const ownerShowKey = epKey.split(":s")[0] ?? "";
+      if (removedShowKeys.has(ownerShowKey)) {
+        delete progMap[epKey];
+      }
+    }
+
+    writeContinueList(keptContinue);
+    writeMap(LAST_WATCHED_KEY, lastMap);
+    lastCacheRaw = null;
+    writeMap(PROGRESS_KEY, progMap);
+    progressCacheRaw = null;
     emit();
   },
 };

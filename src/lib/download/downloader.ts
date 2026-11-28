@@ -1,23 +1,25 @@
 import type { ResolvedStream } from "@/lib/stream/resolver";
 import { isMasterPlaylist, parseMasterPlaylist, parseMediaPlaylist, pickVariant } from "./hls";
+import { triggerBlobDownload } from "./offline-db";
 
 export interface DownloadOptions {
   filename: string;
   includeSubtitles?: boolean | undefined;
   lang?: "en" | "fr" | undefined;
+  skipSaveFile?: boolean | undefined;
   signal?: AbortSignal;
   onProgress?: (fraction: number) => void;
 }
 
+export interface DownloadedMediaResult {
+  blob: Blob;
+  ext: string;
+  mimeType: string;
+  subtitleVtt: string | null;
+}
+
 function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  triggerBlobDownload(blob, filename);
 }
 
 export function safeFilename(name: string) {
@@ -70,7 +72,10 @@ function buildIv(sequenceNumber: number, hexIv?: string): Uint8Array<ArrayBuffer
   return iv;
 }
 
-async function downloadHls(stream: ResolvedStream, opts: DownloadOptions) {
+async function downloadHls(
+  stream: ResolvedStream,
+  opts: DownloadOptions,
+): Promise<{ blob: Blob; ext: string; mimeType: string }> {
   let playlistUrl = stream.url;
   let text = await fetchText(playlistUrl, opts.signal);
   if (isMasterPlaylist(text)) {
@@ -123,17 +128,27 @@ async function downloadHls(stream: ResolvedStream, opts: DownloadOptions) {
 
   const isFmp4 =
     Boolean(playlist.initSegment) || /\.(m4s|mp4)(\?|$)/i.test(playlist.segments[0] ?? "");
-  const blob = new Blob(parts, { type: isFmp4 ? "video/mp4" : "video/mp2t" });
-  saveBlob(blob, `${opts.filename}.${isFmp4 ? "mp4" : "ts"}`);
+  const ext = isFmp4 ? "mp4" : "ts";
+  const mimeType = isFmp4 ? "video/mp4" : "video/mp2t";
+  const blob = new Blob(parts, { type: mimeType });
+  if (!opts.skipSaveFile) {
+    saveBlob(blob, `${opts.filename}.${ext}`);
+  }
+  return { blob, ext, mimeType };
 }
 
-async function downloadFile(stream: ResolvedStream, opts: DownloadOptions) {
+async function downloadFile(
+  stream: ResolvedStream,
+  opts: DownloadOptions,
+): Promise<{ blob: Blob; ext: string; mimeType: string }> {
   const res = await fetchWithRetry(stream.url, opts.signal, 2);
+  const mimeType = "video/mp4";
   if (!res.body) {
     const buf = await res.arrayBuffer();
-    saveBlob(new Blob([buf], { type: "video/mp4" }), `${opts.filename}.mp4`);
+    const blob = new Blob([buf], { type: mimeType });
+    if (!opts.skipSaveFile) saveBlob(blob, `${opts.filename}.mp4`);
     opts.onProgress?.(1);
-    return;
+    return { blob, ext: "mp4", mimeType };
   }
   const total = Number(res.headers.get("content-length") ?? 0);
   const reader = res.body.getReader();
@@ -146,12 +161,17 @@ async function downloadFile(stream: ResolvedStream, opts: DownloadOptions) {
     received += value.length;
     if (total) opts.onProgress?.(received / total);
   }
-  saveBlob(new Blob(chunks as BlobPart[], { type: "video/mp4" }), `${opts.filename}.mp4`);
+  const blob = new Blob(chunks as BlobPart[], { type: mimeType });
+  if (!opts.skipSaveFile) saveBlob(blob, `${opts.filename}.mp4`);
   opts.onProgress?.(1);
+  return { blob, ext: "mp4", mimeType };
 }
 
-async function maybeDownloadSubtitle(stream: ResolvedStream, opts: DownloadOptions) {
-  if (!opts.includeSubtitles || !stream.subtitles?.length) return;
+async function maybeDownloadSubtitle(
+  stream: ResolvedStream,
+  opts: DownloadOptions,
+): Promise<string | null> {
+  if (!opts.includeSubtitles || !stream.subtitles?.length) return null;
   const targetLang = opts.lang ?? "en";
   const preferred =
     stream.subtitles.find((s) =>
@@ -159,18 +179,27 @@ async function maybeDownloadSubtitle(stream: ResolvedStream, opts: DownloadOptio
         ? s.lang.toLowerCase().startsWith("fr") || /french|français/i.test(s.label)
         : s.lang.toLowerCase().startsWith("en") || /english/i.test(s.label),
     ) ?? stream.subtitles[0];
-  if (!preferred) return;
+  if (!preferred) return null;
   try {
     const res = await fetchWithRetry(preferred.url, opts.signal, 2);
     const vtt = await res.text();
-    if (!vtt.trim()) return;
-    saveBlob(new Blob([vtt], { type: "text/vtt; charset=utf-8" }), `${opts.filename}.vtt`);
+    if (!vtt.trim()) return null;
+    if (!opts.skipSaveFile) {
+      saveBlob(new Blob([vtt], { type: "text/vtt; charset=utf-8" }), `${opts.filename}.vtt`);
+    }
+    return vtt;
   } catch {
-    /* subtitle download is optional */
+    return null;
   }
 }
 
-export async function downloadStream(stream: ResolvedStream, opts: DownloadOptions) {
-  await (stream.type === "hls" ? downloadHls(stream, opts) : downloadFile(stream, opts));
-  await maybeDownloadSubtitle(stream, opts);
+export async function downloadStream(
+  stream: ResolvedStream,
+  opts: DownloadOptions,
+): Promise<DownloadedMediaResult> {
+  const video = await (stream.type === "hls"
+    ? downloadHls(stream, opts)
+    : downloadFile(stream, opts));
+  const subtitleVtt = await maybeDownloadSubtitle(stream, opts);
+  return { ...video, subtitleVtt };
 }

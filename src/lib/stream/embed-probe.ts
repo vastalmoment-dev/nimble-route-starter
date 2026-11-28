@@ -19,7 +19,7 @@ function blocksFraming(res: Response): boolean {
 }
 
 function looksLikeUnavailableHtml(text: string): boolean {
-  const lower = text.slice(0, 12000).toLowerCase();
+  const lower = text.slice(0, 16000).toLowerCase();
   if (
     lower.includes("just a moment") ||
     lower.includes("cf-browser-verification") ||
@@ -36,11 +36,33 @@ function looksLikeUnavailableHtml(text: string): boolean {
   ) {
     return true;
   }
+  if (
+    lower.includes("video is restricted") ||
+    lower.includes("this video is restricted") ||
+    lower.includes("cette vidéo a été supprimée") ||
+    lower.includes("cette video a ete supprimee") ||
+    lower.includes("cette vidéo n'est plus disponible") ||
+    lower.includes("vidéo supprimée") ||
+    lower.includes("vidéo indisponible") ||
+    lower.includes("removed due to a copyright violation") ||
+    lower.includes("removed due to copyright") ||
+    lower.includes("file was deleted") ||
+    lower.includes("deleted by the owner") ||
+    lower.includes("domain not allowed") ||
+    lower.includes("embedding has been disabled") ||
+    lower.includes("video has been removed") ||
+    lower.includes("this video has been deleted") ||
+    lower.includes("error code: <span>410") ||
+    lower.includes("error code: 410")
+  ) {
+    return true;
+  }
   const titleMatch = /<title[^>]*>([^<]{0,200})<\/title>/i.exec(lower)?.[1] ?? "";
   if (
-    /\b(404|not found|page introuvable|media unavailable|video unavailable|forbidden)\b/i.test(
+    /\b(404|410|not found|page introuvable|media unavailable|video unavailable|forbidden|file not found)\b/i.test(
       titleMatch,
-    )
+    ) ||
+    /^error\s*[-–|]/i.test(titleMatch.trim())
   ) {
     return true;
   }

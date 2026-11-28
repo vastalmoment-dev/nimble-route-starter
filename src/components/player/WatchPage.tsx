@@ -3,8 +3,11 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
   CaptionsOff,
+  CheckSquare,
   ChevronLeft,
   ChevronRight,
+  Download,
+  HardDrive,
   Layers,
   ListVideo,
   Loader2,
@@ -13,16 +16,20 @@ import {
   MonitorPlay,
   Play,
   RefreshCw,
+  Square,
   Subtitles,
   Users,
   X,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DownloadButton } from "@/components/media/DownloadButton";
 import { LanguageToggle } from "@/components/media/LanguageToggle";
 import { Button } from "@/components/ui/button";
 import { detailQuery } from "@/lib/catalog";
+import { isAnimeItem, resolveAniListIdForItem } from "@/lib/catalog/anime-bridge";
 import type { Source } from "@/lib/catalog/types";
+import { offlineLibrary, type OfflineMediaEntry } from "@/lib/download/offline-db";
+import { downloads } from "@/lib/download/store";
 import { useT } from "@/lib/i18n";
 import { useLandscapeFullscreen } from "@/lib/player/fullscreen";
 import { playbackProgress } from "@/lib/player/progress";
@@ -31,6 +38,7 @@ import { buildAnimeEmbedFallbacks, getAniLastAnimeStream } from "@/lib/stream/an
 import { customStreamUrl, isDirectVideo } from "@/lib/stream/custom-streams";
 import { buildMediaEmbedFallbacks, getMediaStream } from "@/lib/stream/media.functions";
 import { inferStreamType, type AudioOption } from "@/lib/stream/resolver";
+import { resolvePreferredAnimeAudio, useUserSettings } from "@/lib/settings/store";
 import { cn } from "@/lib/utils";
 
 const LazyVideoPlayer = lazy(() => import("@/components/player/VideoPlayer"));
@@ -63,7 +71,6 @@ function EmbedPlayerFrame({
   onLoad,
   onError,
   referrerPolicy = "origin",
-  sandbox = "allow-scripts allow-same-origin allow-forms",
   className,
 }: {
   src: string;
@@ -71,7 +78,6 @@ function EmbedPlayerFrame({
   onLoad?: () => void;
   onError?: () => void;
   referrerPolicy?: React.HTMLAttributeReferrerPolicy;
-  sandbox?: string;
   className?: string;
 }) {
   const { t } = useT();
@@ -93,7 +99,6 @@ function EmbedPlayerFrame({
         title={title}
         className="size-full border-0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-        sandbox={sandbox}
         allowFullScreen
         referrerPolicy={referrerPolicy}
         onLoad={onLoad}
@@ -196,6 +201,7 @@ export interface WatchPageProps {
   ep?: number | undefined;
   season?: number | undefined;
   audio?: AudioOption | undefined;
+  offlineId?: string | undefined;
 }
 
 export function WatchPage({
@@ -204,18 +210,114 @@ export function WatchPage({
   ep: searchEp,
   season: searchSeason,
   audio: searchAudio,
+  offlineId,
 }: WatchPageProps) {
-  const isAnime = source === "anilist";
   const { lang, t } = useT();
+  const settings = useUserSettings();
   const liveWatchers = useLiveWatchers(`${source}:${id}`);
 
   const lastWatched =
     typeof window !== "undefined" ? playbackProgress.getLastWatched(source, id) : null;
   const ep = searchEp ?? lastWatched?.episode ?? 1;
   const season = searchSeason ?? lastWatched?.season ?? 1;
-  const audio: AudioOption = searchAudio ?? lastWatched?.audio ?? "sub";
+  const audio: AudioOption = resolvePreferredAnimeAudio({
+    explicitAudio: searchAudio,
+    lastWatched,
+    settings,
+  });
 
   const navigate = useNavigate();
+
+  const detail = useQuery(detailQuery(source, id, lang));
+  const isAnime = source === "anilist" || isAnimeItem(detail.data);
+  const bridgedAnilist = useQuery({
+    queryKey: ["anime-bridge", source, id, detail.data?.imdbId ?? null, detail.data?.title ?? null],
+    queryFn: () =>
+      resolveAniListIdForItem({
+        source,
+        id,
+        title: detail.data?.title,
+        englishTitle: detail.data?.englishTitle,
+        imdbId: detail.data?.imdbId,
+      }),
+    enabled:
+      !offlineId &&
+      isAnime &&
+      source !== "anilist" &&
+      Boolean(detail.data?.imdbId || detail.data?.title),
+    staleTime: 1000 * 60 * 60,
+  });
+  const canonicalAnilistId = source === "anilist" ? id : (bridgedAnilist.data ?? null);
+  const useAnimePipeline =
+    source === "anilist" || (isAnime && (bridgedAnilist.isPending || Boolean(canonicalAnilistId)));
+
+  const [offlineState, setOfflineState] = useState<{
+    loading: boolean;
+    entry: OfflineMediaEntry | null;
+    videoUrl: string | null;
+    subtitleUrl: string | null;
+    notFound: boolean;
+  }>({
+    loading: Boolean(offlineId),
+    entry: null,
+    videoUrl: null,
+    subtitleUrl: null,
+    notFound: false,
+  });
+
+  useEffect(() => {
+    if (!offlineId) {
+      setOfflineState({
+        loading: false,
+        entry: null,
+        videoUrl: null,
+        subtitleUrl: null,
+        notFound: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    let vUrl: string | null = null;
+    let sUrl: string | null = null;
+    setOfflineState({
+      loading: true,
+      entry: null,
+      videoUrl: null,
+      subtitleUrl: null,
+      notFound: false,
+    });
+    void offlineLibrary.get(offlineId).then((entry) => {
+      if (cancelled) return;
+      if (!entry) {
+        setOfflineState({
+          loading: false,
+          entry: null,
+          videoUrl: null,
+          subtitleUrl: null,
+          notFound: true,
+        });
+        return;
+      }
+      vUrl = URL.createObjectURL(entry.videoBlob);
+      if (entry.subtitleVtt) {
+        sUrl = URL.createObjectURL(
+          new Blob([entry.subtitleVtt], { type: "text/vtt; charset=utf-8" }),
+        );
+      }
+      setOfflineState({
+        loading: false,
+        entry,
+        videoUrl: vUrl,
+        subtitleUrl: sUrl,
+        notFound: false,
+      });
+    });
+    return () => {
+      cancelled = true;
+      if (vUrl) URL.revokeObjectURL(vUrl);
+      if (sUrl) URL.revokeObjectURL(sUrl);
+    };
+  }, [offlineId]);
 
   const [playerMode, setPlayerMode] = useState<"native" | "embed">("native");
   const [selectedSourceIndex, setSelectedSourceIndex] = useState(0);
@@ -224,8 +326,10 @@ export function WatchPage({
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const [autoSwitchNote, setAutoSwitchNote] = useState<string | null>(null);
   const [episodesOpen, setEpisodesOpen] = useState(false);
-  const [includeSubtitles, setIncludeSubtitles] = useState(false);
+  const [includeSubtitles, setIncludeSubtitles] = useState(() => settings.downloadIncludeSubtitles);
   const [drawerSeason, setDrawerSeason] = useState(season);
+  const [drawerBatchMode, setDrawerBatchMode] = useState(false);
+  const [drawerSelectedEps, setDrawerSelectedEps] = useState<number[]>([]);
 
   const liveProgressRef = useRef<{ time: number; duration: number }>({ time: 0, duration: 0 });
   const carryOverRef = useRef<{ epKey: string; time: number } | null>(null);
@@ -263,7 +367,11 @@ export function WatchPage({
     setResumeTime(t);
   }, [source, id, season, ep, epKey, audio, isAnime, lang]);
 
-  const detail = useQuery(detailQuery(source, id, lang));
+  useEffect(() => {
+    setDrawerBatchMode(false);
+    setDrawerSelectedEps([]);
+  }, [source, id]);
+
   const detailItemRef = useRef(detail.data);
   detailItemRef.current = detail.data;
 
@@ -330,12 +438,19 @@ export function WatchPage({
     ? customStreamUrl(detail.data.key, detail.data.videoStreamUrl)
     : null;
 
+  const animeEpNumber = useMemo(() => {
+    if (source === "anilist" || season <= 1) return ep;
+    const allEps = detail.data?.episodes ?? [];
+    const earlierCount = allEps.filter((e) => (e.season ?? 1) < season).length;
+    return earlierCount > 0 ? earlierCount + ep : ep;
+  }, [source, season, ep, detail.data?.episodes]);
+
   const aniStream = useQuery({
     queryKey: [
       "anime-stream",
-      id,
+      canonicalAnilistId,
       detail.data?.malId ?? null,
-      ep,
+      animeEpNumber,
       audio,
       lang,
       detail.data?.mediaType ?? null,
@@ -343,9 +458,9 @@ export function WatchPage({
     queryFn: () =>
       getAniLastAnimeStream({
         data: {
-          anilistId: id,
+          anilistId: canonicalAnilistId!,
           malId: detail.data?.malId ?? null,
-          episode: ep,
+          episode: animeEpNumber,
           audio,
           lang,
           isMovie: detail.data?.mediaType === "movie",
@@ -354,7 +469,12 @@ export function WatchPage({
           romajiTitle: detail.data?.romajiTitle ?? null,
         },
       }),
-    enabled: isAnime && !detail.isLoading && !streamUrl,
+    enabled:
+      !offlineId &&
+      useAnimePipeline &&
+      Boolean(canonicalAnilistId) &&
+      !detail.isLoading &&
+      !streamUrl,
     staleTime: 1000 * 60 * 5,
     retry: false,
   });
@@ -386,14 +506,12 @@ export function WatchPage({
 
   // Anime French audio/subtitle routing:
   // - fr + sub: Japanese audio + French subtitles, switching to VOSTFR embed if native lacks French subtitles.
-  // - fr + dub: genuine VF embed if available, otherwise English dub + French subtitles in native player!
+  // - fr + dub: play extracted VF direct stream natively when available, else genuine VF embed, else English dub + FR subtitles.
   useEffect(() => {
-    if (!isAnime || !aniStream.data) return;
+    if (!useAnimePipeline || !aniStream.data) return;
     if (lang === "fr") {
       if (audio === "dub") {
-        if (aniStream.data.isFrenchAudio) {
-          setPlayerMode("embed");
-        } else if (aniStream.data.ok && aniStream.data.streamUrl) {
+        if (aniStream.data.ok && aniStream.data.streamUrl) {
           setPlayerMode("native");
         } else {
           setPlayerMode("embed");
@@ -403,7 +521,12 @@ export function WatchPage({
       if (
         audio === "sub" &&
         !aniStream.data.hasFrenchSubtitles &&
-        (aniStream.data.embedFallbacks?.length ?? 0) > 0
+        (aniStream.data.embedFallbacks?.length ?? 0) > 0 &&
+        !(
+          aniStream.data.ok &&
+          aniStream.data.streamUrl &&
+          aniStream.data.sources?.some((s) => s.label.includes("VOSTFR"))
+        )
       ) {
         setPlayerMode("embed");
       } else if (aniStream.data.ok && aniStream.data.streamUrl) {
@@ -418,7 +541,7 @@ export function WatchPage({
     } else {
       setPlayerMode("embed");
     }
-  }, [isAnime, lang, audio, aniStream.data]);
+  }, [useAnimePipeline, lang, audio, aniStream.data]);
 
   const inferredMediaType: "movie" | "tv" =
     detail.data?.mediaType ??
@@ -459,7 +582,8 @@ export function WatchPage({
         },
       }),
     enabled:
-      !isAnime &&
+      !offlineId &&
+      !useAnimePipeline &&
       !detail.isLoading &&
       !streamUrl &&
       Boolean(rawImdb || rawTmdb || rawTvmaze || detail.data?.title),
@@ -470,7 +594,7 @@ export function WatchPage({
   // Non-anime routing: switch to French server when lang=fr & native lacks FR audio,
   // use native player when playable, otherwise fall back cleanly to embed mode so watchdog failover runs.
   useEffect(() => {
-    if (isAnime || !mediaStream.data) return;
+    if (useAnimePipeline || !mediaStream.data) return;
     if (
       lang === "fr" &&
       !mediaStream.data.hasFrenchAudio &&
@@ -482,7 +606,7 @@ export function WatchPage({
     } else {
       setPlayerMode("embed");
     }
-  }, [isAnime, lang, mediaStream.data]);
+  }, [useAnimePipeline, lang, mediaStream.data]);
 
   // Watchdog: give each embed server at least 16s to load before auto-advancing to backup.
   useEffect(() => {
@@ -557,7 +681,11 @@ export function WatchPage({
     void navigate({
       to: "/watch/$source/$id",
       params: { source, id },
-      search: isAnime ? { ep: nextEp, audio } : { season: nextSeason, ep: nextEp },
+      search: isAnime
+        ? source !== "anilist" && nextSeason > 1
+          ? { season: nextSeason, ep: nextEp, audio }
+          : { ep: nextEp, audio }
+        : { season: nextSeason, ep: nextEp },
       replace: true,
     });
   };
@@ -591,10 +719,87 @@ export function WatchPage({
     void navigate({
       to: "/watch/$source/$id",
       params: { source, id },
-      search: { ep, audio: nextAudio },
+      search: {
+        ...(source !== "anilist" && season > 1 ? { season } : {}),
+        ep,
+        audio: nextAudio,
+      },
       replace: true,
     });
   };
+
+  if (offlineId) {
+    if (offlineState.loading) {
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
+          <div className="flex-1">
+            <PlayerSpinner />
+          </div>
+          <WatchDiscordPrompt />
+        </div>
+      );
+    }
+    if (offlineState.notFound || !offlineState.entry || !offlineState.videoUrl) {
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-scrim px-6 text-center">
+          <HardDrive className="size-10 text-muted-foreground" />
+          <p className="font-display text-xl font-semibold">{t("watch.offlineUnavailable")}</p>
+          <Button variant="glass" size="xl" onClick={goBack}>
+            {t("common.goBack")}
+          </Button>
+        </div>
+      );
+    }
+    const offEntry = offlineState.entry;
+    const isOffMovie = offEntry.mediaType === "movie";
+    const offSubLabel = isOffMovie
+      ? t("watch.fullMovie")
+      : `${offEntry.season > 1 ? `S${offEntry.season} · ` : ""}${t("detail.episode")} ${offEntry.episode}`;
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-scrim">
+        <div className="relative min-h-0 flex-1">
+          <Suspense fallback={<PlayerSpinner />}>
+            <LazyVideoPlayer
+              stream={{
+                url: offlineState.videoUrl,
+                type: "mp4",
+                provider: "SHADOW Offline",
+                isDemo: false,
+                ...(offlineState.subtitleUrl
+                  ? {
+                      subtitles: [
+                        {
+                          url: offlineState.subtitleUrl,
+                          lang: offEntry.lang,
+                          label: offEntry.lang === "fr" ? "Français" : "English",
+                        },
+                      ],
+                    }
+                  : {}),
+              }}
+              title={offEntry.title || title}
+              subtitle={`${offSubLabel} · ${t("watch.offlineBadge")}`}
+              poster={offEntry.poster ?? detail.data?.backdrop ?? detail.data?.poster ?? null}
+              initialTime={resumeTime}
+              preferSubtitles={Boolean(offlineState.subtitleUrl)}
+              preferredAudioLang={
+                offEntry.audio === "dub" ? (offEntry.lang === "fr" ? "fr" : "en") : "ja"
+              }
+              onTimeProgress={handleTimeProgress}
+              onBack={goBack}
+              topRight={
+                <span className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-emerald-400/30 bg-scrim/80 px-3 py-1 text-xs font-semibold text-foreground backdrop-blur-md">
+                  <HardDrive className="size-3.5 text-emerald-400" />
+                  <span>{t("watch.offlineBadge")}</span>
+                </span>
+              }
+            />
+          </Suspense>
+        </div>
+        <WatchDiscordPrompt />
+      </div>
+    );
+  }
 
   if (streamUrl && isDirectVideo(streamUrl)) {
     const directDownloadItem = detail.data ?? {
@@ -641,8 +846,14 @@ export function WatchPage({
     );
   }
 
-  if (isAnime && !streamUrl) {
-    const episodes = detail.data?.episodes ?? [];
+  if (useAnimePipeline && !streamUrl) {
+    const allEpisodes = [...(detail.data?.episodes ?? [])].sort(
+      (a, b) => (a.season ?? 1) - (b.season ?? 1) || a.number - b.number,
+    );
+    const episodes =
+      source !== "anilist" && allEpisodes.some((e) => (e.season ?? 1) === season)
+        ? allEpisodes.filter((e) => (e.season ?? 1) === season)
+        : allEpisodes;
     const relations = detail.data?.relations ?? [];
     const currentEp = episodes.find((e) => e.number === ep);
     const hasPrev = ep > 1;
@@ -657,7 +868,7 @@ export function WatchPage({
     const hasNextInSeason = episodes.length ? ep < episodes.length : true;
     const hasNext = hasNextInSeason || Boolean(nextSequel);
     const nextAction = hasNextInSeason
-      ? () => switchEpisode(ep + 1)
+      ? () => switchEpisode(ep + 1, season)
       : nextSequel
         ? () => switchAnimeSeason(nextSequel.id)
         : null;
@@ -667,23 +878,27 @@ export function WatchPage({
         ? `${nextSequel.title} · Ep 1`
         : null;
     const downloadItem = detail.data ?? {
-      source: "anilist" as const,
+      source,
       id,
+      section: "anime" as const,
       title: title || `Anime ${id}`,
     };
 
     const isFrenchDub = lang === "fr" && audio === "dub";
     const isFrenchSub = lang === "fr" && audio === "sub";
     const waitingForAnimeResolve =
-      (playerMode === "native" || isFrenchDub || isFrenchSub) && aniStream.isPending;
+      (source !== "anilist" && bridgedAnilist.isPending) ||
+      ((playerMode === "native" || isFrenchDub || isFrenchSub) && aniStream.isPending);
 
     const aniSources = aniStream.data?.sources ?? [];
-    const clientAniEmbeds = buildAnimeEmbedFallbacks({
-      anilistId: id,
-      malId: detail.data?.malId ?? null,
-      episode: ep,
-      audio,
-    });
+    const clientAniEmbeds = canonicalAnilistId
+      ? buildAnimeEmbedFallbacks({
+          anilistId: canonicalAnilistId,
+          malId: detail.data?.malId ?? null,
+          episode: animeEpNumber,
+          audio,
+        })
+      : [];
     const rawAniEmbedFallbacks = aniStream.data
       ? (aniStream.data.embedFallbacks ?? [])
       : isFrenchDub
@@ -696,9 +911,7 @@ export function WatchPage({
       ? Math.min(embedIndex, aniEmbedFallbacks.length - 1)
       : 0;
     const aniEmbedUrl = aniEmbedFallbacks[safeAniEmbedIdx]?.url ?? null;
-    const canUseAniNative =
-      !(isFrenchDub && aniStream.data?.isFrenchAudio) &&
-      Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
+    const canUseAniNative = Boolean(aniStream.data?.ok && aniStream.data.streamUrl);
     const showAniNative = playerMode === "native" && canUseAniNative;
     const aniAudioBadge =
       lang === "fr"
@@ -837,13 +1050,56 @@ export function WatchPage({
         </button>
         <DownloadButton
           item={downloadItem}
+          season={source === "anilist" ? 1 : season}
           episode={ep}
           audio={audio}
           includeSubtitles={includeSubtitles}
+          anilistId={canonicalAnilistId}
           className="min-h-[44px] rounded-full px-3 text-xs sm:h-9 sm:min-h-0 [&_svg]:size-3.5"
         />
       </>
     );
+
+    const drawerEpisodesList = episodes.length
+      ? episodes
+      : Array.from({ length: Math.max(ep + 5, 12) }, (_, i) => ({
+          id: `${id}-${i + 1}`,
+          number: i + 1,
+        }));
+
+    const toggleDrawerEp = (num: number) => {
+      setDrawerSelectedEps((prev) =>
+        prev.includes(num) ? prev.filter((n) => n !== num) : [...prev, num],
+      );
+    };
+
+    const startDrawerBatchDownload = () => {
+      const sorted = [...drawerSelectedEps].sort((a, b) => a - b);
+      if (!sorted.length) return;
+      void downloads.startBatch(
+        sorted.map((epNum) => ({
+          source,
+          id,
+          episode: epNum,
+          season: source === "anilist" ? 1 : season,
+          mediaType: detail.data?.mediaType,
+          title: downloadItem.title,
+          poster: detail.data?.poster ?? null,
+          audio,
+          includeSubtitles,
+          lang,
+          isAnime: true,
+          anilistId: canonicalAnilistId,
+          malId: detail.data?.malId,
+          imdbId: detail.data?.imdbId,
+          tmdbId: detail.data?.tmdbId,
+          englishTitle: detail.data?.englishTitle,
+          romajiTitle: detail.data?.romajiTitle,
+        })),
+      );
+      setDrawerBatchMode(false);
+      setDrawerSelectedEps([]);
+    };
 
     const episodeDrawer = episodesOpen && (
       <aside
@@ -858,17 +1114,71 @@ export function WatchPage({
               {episodes.length || ep} {t("watch.available")}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="round"
-            className="min-h-[44px] min-w-[44px] sm:size-8 sm:min-h-0 sm:min-w-0"
-            aria-label={t("watch.closeEpisodes")}
-            onClick={() => setEpisodesOpen(false)}
-          >
-            <X className="size-4" />
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant={drawerBatchMode ? "brand" : "glass"}
+              size="sm"
+              className="min-h-[44px] rounded-full px-3 text-xs sm:h-8 sm:min-h-0"
+              onClick={() => {
+                setDrawerBatchMode((prev) => {
+                  if (prev) setDrawerSelectedEps([]);
+                  return !prev;
+                });
+              }}
+            >
+              {drawerBatchMode ? t("detail.cancelSelect") : t("detail.selectEpisodes")}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="round"
+              className="min-h-[44px] min-w-[44px] sm:size-8 sm:min-h-0 sm:min-w-0"
+              aria-label={t("watch.closeEpisodes")}
+              onClick={() => {
+                setEpisodesOpen(false);
+                setDrawerBatchMode(false);
+                setDrawerSelectedEps([]);
+              }}
+            >
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
+        {drawerBatchMode && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-foreground/10 bg-surface/60 px-3 py-2">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setDrawerSelectedEps(drawerEpisodesList.map((item) => item.number))}
+                className="min-h-[36px] rounded-md border border-foreground/15 bg-surface px-2.5 py-1 text-xs font-medium text-foreground transition hover:border-cerulean/50 sm:min-h-0"
+              >
+                {t("detail.selectAll")}
+              </button>
+              <button
+                type="button"
+                disabled={drawerSelectedEps.length === 0}
+                onClick={() => setDrawerSelectedEps([])}
+                className="min-h-[36px] rounded-md border border-foreground/15 bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:min-h-0"
+              >
+                {t("detail.clearSelection")}
+              </button>
+            </div>
+            <Button
+              type="button"
+              variant="brand"
+              size="sm"
+              disabled={drawerSelectedEps.length === 0}
+              onClick={startDrawerBatchDownload}
+              className="min-h-[36px] gap-1.5 px-3 text-xs sm:min-h-0"
+            >
+              <Download className="size-3.5" />
+              <span>
+                {t("detail.downloadSelected").replace("{count}", String(drawerSelectedEps.length))}
+              </span>
+            </Button>
+          </div>
+        )}
         {relations.length > 0 && (
           <div className="border-b border-foreground/10 p-3">
             <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -893,38 +1203,64 @@ export function WatchPage({
         )}
         <div className="flex-1 overflow-y-auto p-2">
           <ol className="flex flex-col gap-1">
-            {(episodes.length
-              ? episodes
-              : Array.from({ length: Math.max(ep + 5, 12) }, (_, i) => ({
-                  id: `${id}-${i + 1}`,
-                  number: i + 1,
-                }))
-            ).map((item) => {
+            {drawerEpisodesList.map((item) => {
               const active = item.number === ep;
+              const checked = drawerSelectedEps.includes(item.number);
               return (
                 <li
                   key={item.id}
                   className={cn(
                     "flex items-center justify-between gap-2 rounded-lg px-3 py-1.5 transition",
-                    active ? "bg-cerulean/15 ring-1 ring-cerulean/40" : "hover:bg-surface",
+                    drawerBatchMode && checked
+                      ? "bg-cerulean/15 ring-1 ring-cerulean/50"
+                      : active
+                        ? "bg-cerulean/15 ring-1 ring-cerulean/40"
+                        : "hover:bg-surface",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => switchEpisode(item.number)}
-                    className="flex min-h-[44px] flex-1 items-center gap-2 text-left font-display text-sm font-semibold tabular-nums sm:min-h-0"
-                  >
-                    {active && <Play className="size-3.5 fill-current text-cerulean" />}
-                    <span>{item.number}</span>
-                  </button>
-                  <DownloadButton
-                    item={downloadItem}
-                    episode={item.number}
-                    audio={audio}
-                    includeSubtitles={includeSubtitles}
-                    variant="icon"
-                    compact
-                  />
+                  {drawerBatchMode ? (
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={checked}
+                      aria-label={t("detail.selectEpisodeAria").replace(
+                        "{ep}",
+                        String(item.number),
+                      )}
+                      onClick={() => toggleDrawerEp(item.number)}
+                      className="flex min-h-[44px] flex-1 items-center gap-2.5 text-left font-display text-sm font-semibold tabular-nums sm:min-h-0"
+                    >
+                      {checked ? (
+                        <CheckSquare className="size-4 shrink-0 text-cerulean" />
+                      ) : (
+                        <Square className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span>
+                        {t("detail.episode")} {item.number}
+                      </span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => switchEpisode(item.number)}
+                        className="flex min-h-[44px] flex-1 items-center gap-2 text-left font-display text-sm font-semibold tabular-nums sm:min-h-0"
+                      >
+                        {active && <Play className="size-3.5 fill-current text-cerulean" />}
+                        <span>{item.number}</span>
+                      </button>
+                      <DownloadButton
+                        item={downloadItem}
+                        season={source === "anilist" ? 1 : season}
+                        episode={item.number}
+                        audio={audio}
+                        includeSubtitles={includeSubtitles}
+                        anilistId={canonicalAnilistId}
+                        variant="icon"
+                        compact
+                      />
+                    </>
+                  )}
                 </li>
               );
             })}
@@ -963,8 +1299,8 @@ export function WatchPage({
                 onSwitchEmbed={aniEmbedUrl ? switchToEmbedMode : undefined}
                 selectedSourceIndex={selectedSourceIndex}
                 onSelectSourceIndex={setSelectedSourceIndex}
-                skipIntroSeconds={85}
-                preferSubtitles={!(lang === "en" && audio === "dub")}
+                skipIntroSeconds={settings.skipIntroSeconds}
+                preferSubtitles={settings.autoShowSubtitles && !(lang === "en" && audio === "dub")}
                 preferredAudioLang={audio === "dub" ? (lang === "fr" ? "fr" : "en") : "ja"}
                 topRight={animeControls}
               />
@@ -1111,7 +1447,7 @@ export function WatchPage({
     );
   }
 
-  if (!isAnime && !streamUrl) {
+  if (!useAnimePipeline && !streamUrl) {
     const isMovie = inferredMediaType === "movie";
     const allEpisodes = [...(detail.data?.episodes ?? [])].sort(
       (a, b) => (a.season ?? 1) - (b.season ?? 1) || a.number - b.number,
@@ -1443,7 +1779,10 @@ export function WatchPage({
                 onSwitchEmbed={mediaEmbedUrl ? switchToEmbedMode : undefined}
                 selectedSourceIndex={selectedSourceIndex}
                 onSelectSourceIndex={setSelectedSourceIndex}
-                skipIntroSeconds={isMovie ? 90 : 60}
+                skipIntroSeconds={
+                  settings.skipIntroSeconds === 0 ? 0 : isMovie ? 90 : settings.skipIntroSeconds
+                }
+                preferSubtitles={settings.autoShowSubtitles}
                 preferredAudioLang={lang}
                 topRight={mediaControls}
               />

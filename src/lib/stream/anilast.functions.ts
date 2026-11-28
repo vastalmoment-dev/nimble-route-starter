@@ -2,10 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
   detectAnimeSeasonFromTitles,
+  extractDirectStreamsFromEmbeds,
   fetchAnimeExternalIds,
   fetchEnglishOpenSubtitles,
   fetchFrenchOpenSubtitles,
-  resolveAnimeSamaEmbeds,
+  resolveFrenchAnimeSources,
 } from "./anime-fr";
 import { filterAvailableEmbeds, probeSingleEmbed } from "./embed-probe";
 import { signMediaProxyUrl } from "./media-proxy";
@@ -113,13 +114,21 @@ export interface AniLastStreamResult {
   error?: string;
 }
 
-function rewriteAnimeProxyPath(raw: string, kind: "hls" | "subtitle"): string {
-  const target = kind === "hls" ? "/api/anilast/hls" : "/api/anilast/subtitle";
-  if (raw.startsWith(`/api/proxy/${kind}`)) {
-    return raw.replace(`/api/proxy/${kind}`, target);
+function rewriteAnimeProxyPath(raw: string, kind: "hls" | "subtitle" | "stream"): string {
+  const effectiveKind =
+    kind === "subtitle" ? "subtitle" : raw.includes("/api/proxy/stream") ? "stream" : "hls";
+  const target =
+    effectiveKind === "subtitle"
+      ? "/api/anilast/subtitle"
+      : effectiveKind === "stream"
+        ? "/api/anilast/stream"
+        : "/api/anilast/hls";
+
+  if (raw.startsWith(`/api/proxy/${effectiveKind}`)) {
+    return raw.replace(`/api/proxy/${effectiveKind}`, target);
   }
-  if (raw.startsWith(`${ANILAST_ORIGIN}/api/proxy/${kind}`)) {
-    return raw.replace(`${ANILAST_ORIGIN}/api/proxy/${kind}`, target);
+  if (raw.startsWith(`${ANILAST_ORIGIN}/api/proxy/${effectiveKind}`)) {
+    return raw.replace(`${ANILAST_ORIGIN}/api/proxy/${effectiveKind}`, target);
   }
   if (/^https?:\/\//i.test(raw)) {
     return signMediaProxyUrl(raw, `${ANILAST_ORIGIN}/`);
@@ -166,15 +175,23 @@ interface AniLastApiResponse {
   error?: string;
 }
 
+function decodeSafe(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function looksSubOnlyResponse(hit: AniLastApiResponse): boolean {
-  const hay = `${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`.toLowerCase();
+  const hay = decodeSafe(`${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`).toLowerCase();
   const hasSubTag = /(?:^|[/?&=_.-])sub(?:bed)?(?:$|[/?&=_.-])|\bjapanese\b|\braw\b/.test(hay);
   const hasDubTag = /(?:^|[/?&=_.-])(?:dub|dubbed|dual|english)(?:$|[/?&=_.-])/.test(hay);
   return hasSubTag && !hasDubTag;
 }
 
 function looksExplicitDubResponse(hit: AniLastApiResponse): boolean {
-  const hay = `${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`.toLowerCase();
+  const hay = decodeSafe(`${hit.audio ?? ""} ${hit.provider ?? ""} ${hit.url ?? ""}`).toLowerCase();
   return /(?:^|[/?&=_.-])(?:dub|dubbed|dual|english)(?:$|[/?&=_.-])/.test(hay);
 }
 
@@ -237,13 +254,14 @@ export async function resolveAnimeStream(
 
   let dubFallbackToEnglish = false;
 
-  // French mode + DUB (VF): try genuine French VF first; if unavailable, fall back to English Dub + French subtitles.
+  // French mode + DUB (VF): try genuine French VF sources first (anime-sama + vostfree);
+  // extract direct HLS/MP4 when available so downloads & native player work, otherwise fall back to English Dub + FR subtitles.
   if (data.lang === "fr" && data.audio === "dub") {
     try {
       const ext = await fetchAnimeExternalIds(data.anilistId);
       if (!effectiveMalId && ext.malId) effectiveMalId = ext.malId;
       const titles = [data.title, data.englishTitle, data.romajiTitle, ext.frTitle];
-      const vfEmbeds = await resolveAnimeSamaEmbeds({
+      const vfEmbeds = await resolveFrenchAnimeSources({
         titles,
         episode: data.episode,
         variant: "vf",
@@ -251,13 +269,18 @@ export async function resolveAnimeStream(
       });
 
       if (vfEmbeds.length > 0) {
+        const directVfSources = await extractDirectStreamsFromEmbeds(vfEmbeds, {
+          langLabel: "VF",
+          streamLang: "fr",
+        });
         return {
-          ok: false,
-          streamUrl: null,
-          type: "hls",
+          ok: directVfSources.length > 0,
+          streamUrl: directVfSources[0]?.url ?? null,
+          type: directVfSources[0]?.type ?? "hls",
           provider: "SHADOW Stream",
           quality: null,
           subtitles: [],
+          ...(directVfSources.length > 0 ? { sources: directVfSources } : {}),
           embedUrl: vfEmbeds[0]!.url,
           embedFallbacks: vfEmbeds,
           hasFrenchSubtitles: false,
@@ -280,7 +303,7 @@ export async function resolveAnimeStream(
     const vostfrPromise =
       data.lang === "fr" && data.audio === "sub"
         ? extPromise.then((ext) =>
-            resolveAnimeSamaEmbeds({
+            resolveFrenchAnimeSources({
               titles: [...titles, ext?.frTitle],
               episode: data.episode,
               variant: "vostfr",
@@ -327,6 +350,25 @@ export async function resolveAnimeStream(
       }
     }
 
+    // Detect silent dub-to-sub fallback (e.g. anilast returning the exact Japanese sub URL for lang=dub).
+    if (
+      data.audio === "dub" &&
+      directHits.length > 0 &&
+      directHits.every(
+        (hit) =>
+          !looksExplicitDubResponse(hit) &&
+          hit.type !== "mp4" &&
+          !hit.url?.includes("/api/proxy/stream"),
+      )
+    ) {
+      const subCompare = await queryAnimeEndpoint(candidates[0]!, { ...data, audio: "sub" }).catch(
+        () => null,
+      );
+      if (subCompare?.url && directHits.every((hit) => hit.url === subCompare.url)) {
+        directHits.length = 0;
+      }
+    }
+
     if (data.audio === "dub" && directHits.length > 1) {
       directHits.sort(
         (a, b) => Number(looksExplicitDubResponse(b)) - Number(looksExplicitDubResponse(a)),
@@ -349,6 +391,27 @@ export async function resolveAnimeStream(
     const primaryEmbed = embedFallbacks[0]?.url ?? null;
 
     if (directHits.length === 0) {
+      const extractedSources = await extractDirectStreamsFromEmbeds(embedFallbacks, {
+        langLabel: data.lang === "fr" && data.audio === "sub" ? "VOSTFR" : data.audio.toUpperCase(),
+        streamLang: data.audio === "dub" ? "en" : "ja",
+      });
+      if (extractedSources.length > 0) {
+        return {
+          ok: true,
+          streamUrl: extractedSources[0]!.url,
+          type: extractedSources[0]!.type,
+          provider: "SHADOW Stream",
+          quality: null,
+          subtitles: [],
+          sources: extractedSources,
+          embedUrl: primaryEmbed,
+          embedFallbacks,
+          hasFrenchSubtitles: vostfrEmbeds.length > 0,
+          isFrenchAudio: false,
+          dubFallbackToEnglish,
+        };
+      }
+
       return {
         ok: false,
         streamUrl: null,
@@ -372,12 +435,17 @@ export async function resolveAnimeStream(
     const sources: StreamSource[] = [];
     for (const hit of directHits) {
       if (!hit.url) continue;
-      const rewritten = rewriteAnimeProxyPath(hit.url, "hls");
+      const kind = hit.url.includes("/api/proxy/stream") || hit.type === "mp4" ? "stream" : "hls";
+      const rewritten = rewriteAnimeProxyPath(hit.url, kind);
       if (seenUrls.has(rewritten)) continue;
       seenUrls.add(rewritten);
+      const streamType =
+        kind === "stream" || rewritten.startsWith("/api/anilast/stream")
+          ? "mp4"
+          : inferStreamType(rewritten, hit.type);
       sources.push({
         url: rewritten,
-        type: inferStreamType(rewritten, hit.type),
+        type: streamType,
         label: `Server ${sources.length + 1} · ${data.audio.toUpperCase()}`,
         lang: data.audio,
       });

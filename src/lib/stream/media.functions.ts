@@ -7,6 +7,8 @@ import type { StreamSource, StreamType, SubtitleTrack } from "./resolver";
 
 const STREAM_ORIGIN = "https://vidsrc.buzz";
 const FREMBED_ORIGIN = "https://frembed.one";
+const FREMBED_PICS_ORIGIN = "https://frembed.pics";
+const NONTONGO_ORIGIN = "https://www.nontongo.win";
 const BINGEAPI_ORIGIN = "https://bingeapi.st";
 const PRIMESRC_ORIGIN = "https://primesrc.me";
 const VIDCORE_ORIGIN = "https://vidcore.io";
@@ -171,6 +173,24 @@ export function buildMediaEmbedFallbacks(params: {
       : `${VIDLINK_ORIGIN}/tv/${mediaKey}/${params.season}/${params.episode}`,
   );
 
+  // Additional French & multi-audio fallback servers appended after default list so existing indices stay stable.
+  if (params.lang === "fr") {
+    if (params.tmdbId) {
+      push(
+        "frembed.pics · VF/VOSTFR",
+        params.mediaType === "movie"
+          ? `${FREMBED_PICS_ORIGIN}/embed/movie/${params.tmdbId}?id=${params.tmdbId}`
+          : `${FREMBED_PICS_ORIGIN}/embed/serie/${params.tmdbId}?id=${params.tmdbId}&sa=${params.season}&epi=${params.episode}`,
+      );
+    }
+    push(
+      "nontongo.win · VF/Multi",
+      params.mediaType === "movie"
+        ? `${NONTONGO_ORIGIN}/embed/movie/${mediaKey}`
+        : `${NONTONGO_ORIGIN}/embed/tv/${mediaKey}/${params.season}/${params.episode}`,
+    );
+  }
+
   return out;
 }
 
@@ -330,6 +350,7 @@ function isPreferredSub(
 async function verifyPlayableStream(
   rawUrl: string,
   hintType?: string,
+  refererOrigin: string = STREAM_ORIGIN,
 ): Promise<{ proxiedUrl: string; streamType: StreamType } | null> {
   const streamMatch = /_stream\?id=([a-zA-Z0-9_-]{8,128})/.exec(rawUrl);
   if (streamMatch?.[1]) {
@@ -359,20 +380,21 @@ async function verifyPlayableStream(
 
   let absUrl: string;
   try {
-    absUrl = new URL(rawUrl, STREAM_ORIGIN).toString();
+    absUrl = new URL(rawUrl, refererOrigin).toString();
   } catch {
     return null;
   }
   if (!/^https?:\/\//i.test(absUrl)) return null;
 
+  const cleanRefOrigin = refererOrigin.replace(/\/+$/, "");
   const isMp4Hint = hintType?.toLowerCase() === "mp4" || /\.(mp4|mkv|webm)(\?|$)/i.test(absUrl);
   try {
     const check = await fetch(absUrl, {
       method: isMp4Hint ? "HEAD" : "GET",
       headers: {
         "User-Agent": STREAM_HEADERS["User-Agent"],
-        Referer: `${STREAM_ORIGIN}/`,
-        Origin: STREAM_ORIGIN,
+        Referer: `${cleanRefOrigin}/`,
+        Origin: cleanRefOrigin,
         Accept: "*/*",
         "Accept-Language": "en-US,en;q=0.9",
       },
@@ -385,7 +407,7 @@ async function verifyPlayableStream(
       const text = await check.text();
       if (!text.includes("#EXTM3U")) return null;
       return {
-        proxiedUrl: signMediaProxyUrl(absUrl, `${STREAM_ORIGIN}/`),
+        proxiedUrl: signMediaProxyUrl(absUrl, `${cleanRefOrigin}/`),
         streamType: "hls",
       };
     }
@@ -393,7 +415,7 @@ async function verifyPlayableStream(
     // Avoid .mkv when possible because Chromium cannot play some MKV audio codecs natively.
     if (/\.mkv(\?|$)/i.test(absUrl)) return null;
     return {
-      proxiedUrl: signMediaProxyUrl(absUrl, `${STREAM_ORIGIN}/`),
+      proxiedUrl: signMediaProxyUrl(absUrl, `${cleanRefOrigin}/`),
       streamType: "mp4",
     };
   } catch {
@@ -682,7 +704,7 @@ async function extractDirectMediaFromEmbeds(embeds: EmbedFallback[]): Promise<St
     .filter(
       (e) =>
         e.available !== false &&
-        /(vidcore\.io|bingeapi\.st|primesrc\.me|vidsrc\.pm|vidsrc\.su|vidnest\.fun|vidlink\.pro)/i.test(
+        /(vidcore\.io|bingeapi\.st|primesrc\.me|vidsrc\.pm|vidsrc\.su|vidnest\.fun|vidlink\.pro|ansembed\.net|nontongo\.win|frembed\.)/i.test(
           e.url,
         ),
     )
@@ -695,8 +717,9 @@ async function extractDirectMediaFromEmbeds(embeds: EmbedFallback[]): Promise<St
   await Promise.allSettled(
     candidates.map(async (emb) => {
       try {
+        const origin = new URL(emb.url).origin;
         const res = await fetch(emb.url, {
-          headers: { ...STREAM_HEADERS, Referer: new URL(emb.url).origin + "/" },
+          headers: { ...STREAM_HEADERS, Referer: `${origin}/` },
           redirect: "follow",
           signal: AbortSignal.timeout(3000),
         });
@@ -708,7 +731,7 @@ async function extractDirectMediaFromEmbeds(embeds: EmbedFallback[]): Promise<St
           const clean = rawUrl.replace(/\\u002F/g, "/").replace(/\\\//g, "/");
           if (seen.has(clean)) continue;
           seen.add(clean);
-          const verified = await verifyPlayableStream(clean);
+          const verified = await verifyPlayableStream(clean, undefined, origin);
           if (verified) {
             extracted.push({
               url: verified.proxiedUrl,

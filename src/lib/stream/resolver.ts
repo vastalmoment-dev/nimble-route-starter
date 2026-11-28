@@ -40,6 +40,8 @@ export interface StreamRequest {
   lang?: SiteLanguage | undefined;
   includeSubtitles?: boolean | undefined;
   malId?: number | null | undefined;
+  anilistId?: string | null | undefined;
+  isAnime?: boolean | undefined;
   imdbId?: string | null | undefined;
   tmdbId?: string | null | undefined;
   englishTitle?: string | null | undefined;
@@ -91,15 +93,27 @@ export function endpointResolver(base: string): StreamResolver {
 export const aniLastResolver: StreamResolver = {
   name: "anime-stream",
   async resolve(req) {
-    if (req.source !== "anilist") return null;
+    let targetAnilistId = req.anilistId ?? (req.source === "anilist" ? req.id : null);
+    if (!targetAnilistId && req.isAnime) {
+      const { resolveAniListIdForItem } = await import("@/lib/catalog/anime-bridge");
+      targetAnilistId = await resolveAniListIdForItem({
+        source: req.source,
+        id: req.id,
+        title: req.title,
+        englishTitle: req.englishTitle,
+        imdbId: req.imdbId,
+      });
+    }
+    if (!targetAnilistId || !/^\d+$/.test(targetAnilistId)) return null;
+
     let malId = req.malId ?? null;
     let englishTitle = req.englishTitle ?? null;
     let romajiTitle = req.romajiTitle ?? null;
 
-    if (!malId && /^\d+$/.test(req.id)) {
+    if (!malId) {
       try {
         const { fetchAnimeDetail } = await import("@/lib/catalog/anilist");
-        const detail = await fetchAnimeDetail(req.id);
+        const detail = await fetchAnimeDetail(targetAnilistId);
         malId = detail.malId ?? null;
         englishTitle = englishTitle ?? detail.englishTitle ?? null;
         romajiTitle = romajiTitle ?? detail.romajiTitle ?? null;
@@ -111,11 +125,12 @@ export const aniLastResolver: StreamResolver = {
     const { getAniLastAnimeStream } = await import("./anilast.functions");
     const result = await getAniLastAnimeStream({
       data: {
-        anilistId: req.id,
+        anilistId: targetAnilistId,
         malId,
         episode: req.episode,
         audio: req.audio ?? "sub",
         lang: req.lang ?? siteLanguage.get(),
+        isMovie: req.mediaType === "movie",
         title: req.title,
         englishTitle,
         romajiTitle,
@@ -238,8 +253,12 @@ export function canStreamSource(source?: Source): boolean {
 
 function configuredResolvers(req: StreamRequest): StreamResolver[] {
   const list: StreamResolver[] = [];
-  if (req.source === "anilist") list.push(aniLastResolver);
-  else list.push(mediaStreamResolver);
+  if (req.source === "anilist" || req.isAnime || req.anilistId) {
+    list.push(aniLastResolver);
+  }
+  if (req.source !== "anilist") {
+    list.push(mediaStreamResolver);
+  }
   if (RESOLVER_BASE) list.push(endpointResolver(RESOLVER_BASE));
   return list;
 }

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
+import { z } from "zod";
 import { RouteFallback } from "@/components/layout/RouteFallback";
 
 const LazyWatchlistPage = lazy(() =>
@@ -7,14 +8,18 @@ const LazyWatchlistPage = lazy(() =>
 );
 
 function WatchlistRoutePage() {
+  const search = Route.useSearch();
   return (
     <Suspense fallback={<RouteFallback label="Loading Watchlist…" />}>
-      <LazyWatchlistPage />
+      <LazyWatchlistPage initialTab={search.tab} />
     </Suspense>
   );
 }
 
 export const Route = createFileRoute("/watchlist")({
+  validateSearch: z.object({
+    tab: z.enum(["all", "anime", "cartoons", "movies", "series", "offline"]).optional(),
+  }),
   head: () => ({
     meta: [
       { title: "My Watchlist — SHADOW" },

@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { cachedAsync } from "@/lib/cache/client-cache";
 import type { SiteLanguage } from "@/lib/i18n/language";
 import { fetchAnimeDetail, fetchAnimeShelves, searchAnime } from "./anilist";
+import { dedupeSearchAnimePriority } from "./anime-bridge";
 import { fetchCinemetaDetail, searchCinemeta } from "./cinemeta";
 import { loadAnimeFallbackCatalog, loadFallbackCatalog } from "./fallback";
 import { computeLiveSectionCatalog, searchLiveMediaCatalog } from "./live-catalog";
@@ -362,7 +363,9 @@ export async function computeSearchCatalog(
     settle(searchCinemeta(term)),
     settle(searchShows(term)),
   ]);
-  return interleave(anime ?? [], liveMedia ?? [], cinemetaClient ?? [], shows ?? []);
+  return dedupeSearchAnimePriority(
+    interleave(anime ?? [], liveMedia ?? [], cinemetaClient ?? [], shows ?? []),
+  );
 }
 
 export async function searchAll(q: string, lang: SiteLanguage = "en"): Promise<MediaItem[]> {

@@ -5,9 +5,10 @@ import {
   Drama,
   Home,
   Popcorn,
+  Settings,
+  Smartphone,
   Smile,
   Sparkles,
-  Wand2,
   type LucideIcon,
 } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n";
@@ -23,8 +24,9 @@ export const NAV_ITEMS: {
     | "/tollywood"
     | "/nollywood"
     | "/cartoons"
-    | "/mood"
-    | "/manga";
+    | "/get-app"
+    | "/manga"
+    | "/settings";
   labelKey: TranslationKey;
   label: string;
   icon: LucideIcon;
@@ -101,10 +103,17 @@ export const NAV_ITEMS: {
     accent: "group-data-[status=active]/nav:text-cerulean",
   },
   {
-    to: "/mood",
-    labelKey: "nav.mood",
-    label: "Mood Match",
-    icon: Wand2,
+    to: "/get-app",
+    labelKey: "nav.getApp",
+    label: "Get App",
+    icon: Smartphone,
+    accent: "group-data-[status=active]/nav:text-cerulean",
+  },
+  {
+    to: "/settings",
+    labelKey: "nav.settings",
+    label: "Settings",
+    icon: Settings,
     accent: "group-data-[status=active]/nav:text-cerulean",
   },
 ];

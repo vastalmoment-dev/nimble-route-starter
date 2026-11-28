@@ -12,7 +12,7 @@ import {
   sectionQuery,
   type GenreChipId,
 } from "@/lib/catalog";
-import { dedupe } from "@/lib/catalog/shelves";
+import { dedupeSearchAnimePriority } from "@/lib/catalog/anime-bridge";
 import { useT } from "@/lib/i18n";
 
 export interface SearchPageProps {
@@ -47,7 +47,7 @@ export function SearchPage({ q: rawQ, genres: rawGenresProp }: SearchPageProps) 
             (i.genres ?? []).some((g) => g.toLowerCase().includes(lower)),
         )
       : homeItems;
-    const merged = dedupe([...(lower ? remoteItems : []), ...local]);
+    const merged = dedupeSearchAnimePriority([...(lower ? remoteItems : []), ...local]);
     const filtered = filterByGenres(merged, genres);
     return lower ? filtered : filtered.slice(0, 120);
   }, [term, home.data, remote.data, genres]);

@@ -169,7 +169,11 @@ export function verifyMediaProxyToken(token: string | null): TokenPayload | null
   }
 }
 
-export function rewriteMediaPlaylist(body: string, baseUrl: string): string {
+export function rewriteMediaPlaylist(
+  body: string,
+  baseUrl: string,
+  referer = `${UPSTREAM_ORIGIN}/`,
+): string {
   const toProxied = (rawUri: string) => {
     if (
       rawUri.startsWith("/api/media/hls") ||
@@ -192,7 +196,7 @@ export function rewriteMediaPlaylist(body: string, baseUrl: string): string {
     }
     try {
       const abs = new URL(rawUri, baseUrl).toString();
-      return signMediaProxyUrl(abs, UPSTREAM_ORIGIN + "/");
+      return signMediaProxyUrl(abs, referer);
     } catch {
       return rawUri;
     }
@@ -349,6 +353,7 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
   }
 
   let upstreamUrl: string;
+  let segmentReferer: string | undefined;
   let customHeaders: Record<string, string> = { ...UPSTREAM_HEADERS };
 
   if (isHls) {
@@ -388,6 +393,7 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
       return new Response("Invalid or expired stream token", { status: 403 });
     }
     upstreamUrl = payload.u;
+    segmentReferer = payload.ref;
     let originHeader: string | undefined;
     let sameOrigin = false;
     try {
@@ -434,7 +440,11 @@ export async function handleMediaProxyRequest(request: Request): Promise<Respons
     if (looksLikePlaylist) {
       const text = await upstream.text();
       if (text.includes("#EXTM3U")) {
-        const rewritten = rewriteMediaPlaylist(text, upstream.url || upstreamUrl);
+        const rewritten = rewriteMediaPlaylist(
+          text,
+          upstream.url || upstreamUrl,
+          segmentReferer ?? `${UPSTREAM_ORIGIN}/`,
+        );
         return new Response(rewritten, {
           status: 200,
           headers: {

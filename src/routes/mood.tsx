@@ -2,14 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { RouteFallback } from "@/components/layout/RouteFallback";
 
-const LazyMoodPage = lazy(() =>
-  import("@/components/media/MoodPage").then((m) => ({ default: m.MoodPage })),
+const LazyGetAppPage = lazy(() =>
+  import("@/components/media/GetAppPage").then((m) => ({ default: m.GetAppPage })),
 );
 
 function MoodRoutePage() {
   return (
-    <Suspense fallback={<RouteFallback label="Loading Mood Match…" />}>
-      <LazyMoodPage />
+    <Suspense fallback={<RouteFallback label="Loading Get App…" />}>
+      <LazyGetAppPage />
     </Suspense>
   );
 }
@@ -17,15 +17,17 @@ function MoodRoutePage() {
 export const Route = createFileRoute("/mood")({
   head: () => ({
     meta: [
-      { title: "Mood Match — SHADOW" },
+      { title: "Get App — SHADOW" },
       {
         name: "description",
-        content: "Tell SHADOW how you feel and get anime picks matched to your mood.",
+        content:
+          "SHADOW mobile apps for iOS and Android are coming soon with offline episode packs and fast mobile streaming.",
       },
-      { property: "og:title", content: "Mood Match — SHADOW" },
+      { property: "og:title", content: "Get App — SHADOW" },
       {
         property: "og:description",
-        content: "Tell SHADOW how you feel and get anime picks matched to your mood.",
+        content:
+          "SHADOW iOS App and Android App coming soon. Stream or batch-download episodes on mobile today.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

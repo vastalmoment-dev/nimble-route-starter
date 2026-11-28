@@ -348,6 +348,14 @@ function Footer() {
             {t("nav.watchlist")}
           </Link>
           <Link
+            to="/settings"
+            onMouseEnter={() => preloadChunk("/settings")}
+            onFocus={() => preloadChunk("/settings")}
+            className="inline-flex min-h-[44px] items-center whitespace-nowrap transition hover:text-foreground sm:min-h-0"
+          >
+            {t("nav.settings")}
+          </Link>
+          <Link
             to="/policy"
             onMouseEnter={() => preloadChunk("/policy")}
             onFocus={() => preloadChunk("/policy")}

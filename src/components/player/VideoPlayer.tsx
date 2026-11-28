@@ -33,6 +33,7 @@ import {
 } from "@/lib/player/fullscreen";
 import { activeCueText, parseVtt, type SubtitleCue } from "@/lib/player/subtitles";
 import type { ResolvedStream, StreamSource, SubtitleTrack } from "@/lib/stream/resolver";
+import { userSettings } from "@/lib/settings/store";
 import { cn } from "@/lib/utils";
 
 export const PRIMARY_SERVER_TIMEOUT_MS = 16_000;
@@ -75,15 +76,8 @@ function formatTime(t: number) {
   return h ? `${h}:${m.toString().padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
-const AUTO_NEXT_KEY = "shadow:auto-next";
-
 function readAutoNextPref(): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    return window.localStorage.getItem(AUTO_NEXT_KEY) !== "false";
-  } catch {
-    return true;
-  }
+  return userSettings.get().autoPlayNext;
 }
 
 function fitAspectBox(
@@ -502,11 +496,7 @@ export default function VideoPlayer({
   const toggleAutoNext = useCallback(() => {
     setAutoNext((prev) => {
       const next = !prev;
-      try {
-        window.localStorage.setItem(AUTO_NEXT_KEY, String(next));
-      } catch {
-        /* ignore */
-      }
+      userSettings.update({ autoPlayNext: next });
       return next;
     });
   }, []);

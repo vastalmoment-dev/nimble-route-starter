@@ -144,7 +144,7 @@ function RootComponent() {
   // The player owns the whole screen; every other page sits inside the app shell.
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isPlayer = pathname.startsWith("/watch/");
-  const isAnime = pathname.startsWith("/anime") || pathname.startsWith("/mood");
+  const isAnime = pathname.startsWith("/anime");
 
   return (
     <QueryClientProvider client={queryClient}>

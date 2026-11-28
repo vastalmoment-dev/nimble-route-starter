@@ -3,10 +3,13 @@ import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
   CaptionsOff,
+  CheckSquare,
   Clock,
+  Download,
   Film,
   Layers,
   Play,
+  Square,
   Star,
   Subtitles,
   Users,
@@ -16,9 +19,12 @@ import { AdSlot } from "@/components/ads/AdSlot";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { detailQuery } from "@/lib/catalog";
+import { isAnimeItem, resolveAniListIdForItem } from "@/lib/catalog/anime-bridge";
 import { SECTION_META, itemKey, type MediaDetail, type MediaItem } from "@/lib/catalog/types";
+import { downloads } from "@/lib/download/store";
 import { getSectionMeta, useT } from "@/lib/i18n";
 import { playbackProgress, type LastWatchedEntry } from "@/lib/player/progress";
+import { resolvePreferredAnimeAudio, useUserSettings } from "@/lib/settings/store";
 import type { AudioOption } from "@/lib/stream/resolver";
 import { cn } from "@/lib/utils";
 import { DownloadButton } from "./DownloadButton";
@@ -57,24 +63,65 @@ export function ShowDetailBody({
   const { lang, t } = useT();
   const { open } = useMediaModal();
   const { data, isLoading, isError } = useQuery(detailQuery(item.source, item.id, lang));
-  const [audio, setAudio] = useState<AudioOption>(initialAudio ?? "sub");
-  const [includeSubtitles, setIncludeSubtitles] = useState(false);
+  const settings = useUserSettings();
+  const [audio, setAudio] = useState<AudioOption>(() =>
+    resolvePreferredAnimeAudio({
+      explicitAudio: initialAudio,
+      lastWatched:
+        typeof window !== "undefined"
+          ? playbackProgress.getLastWatched(item.source, item.id)
+          : null,
+      settings,
+    }),
+  );
+  const [includeSubtitles, setIncludeSubtitles] = useState(() => settings.downloadIncludeSubtitles);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(initialSeason ?? null);
   const [lastWatched, setLastWatched] = useState<LastWatchedEntry | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedEpisodes, setSelectedEpisodes] = useState<number[]>([]);
 
   useEffect(() => {
+    setBatchMode(false);
+    setSelectedEpisodes([]);
     const saved = playbackProgress.getLastWatched(item.source, item.id);
     setLastWatched(saved);
     if (!initialSeason && saved?.season) {
       setSelectedSeason(saved.season);
     }
-    if (!initialAudio && saved?.audio) {
-      setAudio(saved.audio);
-    }
-  }, [item.source, item.id, initialSeason, initialAudio]);
+    setAudio(
+      resolvePreferredAnimeAudio({
+        explicitAudio: initialAudio,
+        lastWatched: saved,
+        settings,
+      }),
+    );
+    setIncludeSubtitles(settings.downloadIncludeSubtitles);
+  }, [
+    item.source,
+    item.id,
+    initialSeason,
+    initialAudio,
+    settings.defaultAnimeAudio,
+    settings.defaultAnimeAudioUpdatedAt,
+    settings.downloadIncludeSubtitles,
+  ]);
 
-  const isAnime = item.source === "anilist";
   const d: MediaItem | MediaDetail = data ?? item;
+  const isAnime = isAnimeItem(d);
+  const bridgedAnilist = useQuery({
+    queryKey: ["anime-bridge", item.source, item.id, d.imdbId ?? null, d.title],
+    queryFn: () =>
+      resolveAniListIdForItem({
+        source: item.source,
+        id: item.id,
+        title: d.title,
+        englishTitle: d.englishTitle,
+        imdbId: d.imdbId,
+      }),
+    enabled: isAnime && item.source !== "anilist" && Boolean(d.imdbId || d.title),
+    staleTime: 1000 * 60 * 60,
+  });
+  const resolvedAnilistId = item.source === "anilist" ? item.id : (bridgedAnilist.data ?? null);
 
   const allEpisodes = useMemo(() => {
     const list = data?.episodes ?? [];
@@ -92,11 +139,11 @@ export function ShowDetailBody({
       : (seasons[0] ?? 1);
 
   const seasonEpisodes = useMemo(() => {
-    if (isAnime || seasons.length <= 1) return allEpisodes;
+    if (item.source === "anilist" || seasons.length <= 1) return allEpisodes;
     return allEpisodes
       .filter((e) => (e.season ?? 1) === activeSeason)
       .sort((a, b) => a.number - b.number);
-  }, [allEpisodes, isAnime, seasons.length, activeSeason]);
+  }, [allEpisodes, item.source, seasons.length, activeSeason]);
 
   const meta = SECTION_META[d.section ?? item.section];
   const localizedMeta = getSectionMeta(d.section ?? item.section, lang);
@@ -109,7 +156,11 @@ export function ShowDetailBody({
   const resumeSeason = lastWatched?.season ?? activeSeason;
 
   const watchSearch = isAnime
-    ? { ep: resumeEp, audio }
+    ? isMovie
+      ? { audio }
+      : seasons.length > 1
+        ? { season: resumeSeason, ep: resumeEp, audio }
+        : { ep: resumeEp, audio }
     : isMovie
       ? {}
       : { season: resumeSeason, ep: resumeEp };
@@ -180,7 +231,18 @@ export function ShowDetailBody({
                 to="/watch/$source/$id"
                 params={{ source: item.source, id: item.id }}
                 search={watchSearch}
-                onClick={onClose}
+                onClick={() => {
+                  playbackProgress.save({
+                    source: item.source,
+                    id: item.id,
+                    season: isMovie ? 1 : resumeSeason,
+                    episode: isMovie ? 1 : resumeEp,
+                    currentTime: 0,
+                    audio: isAnime ? audio : undefined,
+                    item: d,
+                  });
+                  onClose?.();
+                }}
               >
                 <Play /> {primaryCtaLabel}
               </Link>
@@ -250,10 +312,11 @@ export function ShowDetailBody({
             )}
             <DownloadButton
               item={d}
-              season={isAnime || isMovie ? 1 : activeSeason}
+              season={item.source === "anilist" || isMovie ? 1 : activeSeason}
               episode={resumeEp}
               audio={audio}
               includeSubtitles={includeSubtitles}
+              anilistId={resolvedAnilistId}
             />
           </div>
         </div>
@@ -306,7 +369,24 @@ export function ShowDetailBody({
                     </span>
                   ) : null}
                 </h2>
-                {!isAnime && seasons.length > 1 && (
+                {isAnime && seasonEpisodes.length > 0 && (
+                  <Button
+                    type="button"
+                    variant={batchMode ? "brand" : "glass"}
+                    size="sm"
+                    onClick={() => {
+                      setBatchMode((prev) => {
+                        if (prev) setSelectedEpisodes([]);
+                        return !prev;
+                      });
+                    }}
+                    className="min-h-[44px] gap-1.5 rounded-full px-3.5 text-xs sm:min-h-8"
+                  >
+                    <CheckSquare className="size-3.5" />
+                    <span>{batchMode ? t("detail.cancelSelect") : t("detail.selectEpisodes")}</span>
+                  </Button>
+                )}
+                {item.source !== "anilist" && seasons.length > 1 && (
                   <div
                     className="flex flex-wrap gap-1.5"
                     role="tablist"
@@ -332,6 +412,78 @@ export function ShowDetailBody({
                   </div>
                 )}
               </div>
+              {isAnime && batchMode && seasonEpisodes.length > 0 && (
+                <div
+                  data-testid="anime-batch-toolbar"
+                  className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-foreground/10 bg-surface/75 px-3 py-2.5"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEpisodes(seasonEpisodes.map((ep) => ep.number))}
+                      className="min-h-[44px] rounded-md border border-foreground/15 bg-background/60 px-3 py-1.5 text-xs font-semibold text-foreground transition hover:border-cerulean/50 sm:min-h-8 sm:py-1"
+                    >
+                      {t("detail.selectAll")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedEpisodes.length === 0}
+                      onClick={() => setSelectedEpisodes([])}
+                      className="min-h-[44px] rounded-md border border-foreground/15 bg-background/60 px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:opacity-40 sm:min-h-8 sm:py-1"
+                    >
+                      {t("detail.clearSelection")}
+                    </button>
+                    <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                      {t("detail.selectedCount").replace(
+                        "{count}",
+                        String(selectedEpisodes.length),
+                      )}
+                    </span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="brand"
+                    size="sm"
+                    disabled={selectedEpisodes.length === 0}
+                    onClick={() => {
+                      const sorted = [...selectedEpisodes].sort((a, b) => a - b);
+                      if (!sorted.length) return;
+                      void downloads.startBatch(
+                        sorted.map((epNum) => ({
+                          source: d.source,
+                          id: d.id,
+                          episode: epNum,
+                          season: item.source === "anilist" ? 1 : activeSeason,
+                          mediaType: d.mediaType,
+                          title: d.title,
+                          poster: d.poster ?? null,
+                          audio,
+                          includeSubtitles,
+                          lang,
+                          isAnime,
+                          anilistId: resolvedAnilistId,
+                          malId: d.malId,
+                          imdbId: d.imdbId,
+                          tmdbId: d.tmdbId,
+                          englishTitle: d.englishTitle,
+                          romajiTitle: d.romajiTitle,
+                        })),
+                      );
+                      setBatchMode(false);
+                      setSelectedEpisodes([]);
+                    }}
+                    className="min-h-[44px] gap-1.5 rounded-full px-4 text-xs sm:min-h-8"
+                  >
+                    <Download className="size-3.5" />
+                    <span>
+                      {t("detail.downloadSelected").replace(
+                        "{count}",
+                        String(selectedEpisodes.length),
+                      )}
+                    </span>
+                  </Button>
+                </div>
+              )}
               {isLoading && (
                 <div className="space-y-2">
                   {Array.from({ length: 6 }, (_, i) => (
@@ -359,46 +511,85 @@ export function ShowDetailBody({
                       lastWatched.episode === ep.number &&
                       (isAnime || lastWatched.season === epSeason);
                     const subtitleText = isAnime ? null : cleanEpisodeLabel(ep.title, ep.number);
+                    const isSelected = isAnime && batchMode && selectedEpisodes.includes(ep.number);
                     return (
                       <li
                         key={ep.id}
                         className={cn(
                           "group/ep flex items-center justify-between gap-3 rounded-lg border px-3 py-2 transition",
-                          isLastWatched
-                            ? "border-cerulean/50 bg-cerulean/10"
-                            : "border-foreground/5 bg-surface/60 hover:border-cerulean/40 hover:bg-surface",
+                          isSelected
+                            ? "border-cerulean bg-cerulean/15"
+                            : isLastWatched
+                              ? "border-cerulean/50 bg-cerulean/10"
+                              : "border-foreground/5 bg-surface/60 hover:border-cerulean/40 hover:bg-surface",
                         )}
                       >
-                        <Link
-                          to="/watch/$source/$id"
-                          params={{ source: item.source, id: item.id }}
-                          search={
-                            isAnime ? { ep: ep.number, audio } : { season: epSeason, ep: ep.number }
-                          }
-                          onClick={onClose}
-                          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left sm:min-h-0"
-                        >
-                          <span className="flex w-8 shrink-0 items-center gap-1.5 font-display text-sm font-semibold tabular-nums">
-                            {isLastWatched && (
-                              <Play className="size-3 shrink-0 fill-current text-cerulean" />
+                        {isAnime && batchMode ? (
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={isSelected}
+                            aria-label={t("detail.selectEpisodeAria").replace(
+                              "{ep}",
+                              String(ep.number),
                             )}
-                            <span>{ep.number}</span>
-                          </span>
-                          {subtitleText && (
-                            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground group-hover/ep:text-foreground/85">
-                              {subtitleText}
+                            onClick={() =>
+                              setSelectedEpisodes((prev) =>
+                                prev.includes(ep.number)
+                                  ? prev.filter((n) => n !== ep.number)
+                                  : [...prev, ep.number],
+                              )
+                            }
+                            className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left sm:min-h-0"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="size-4 shrink-0 text-cerulean" />
+                            ) : (
+                              <Square className="size-4 shrink-0 text-muted-foreground" />
+                            )}
+                            <span className="font-display text-sm font-semibold tabular-nums">
+                              {t("detail.episode")} {ep.number}
                             </span>
-                          )}
-                        </Link>
-                        <DownloadButton
-                          item={d}
-                          season={isAnime ? 1 : epSeason}
-                          episode={ep.number}
-                          audio={audio}
-                          includeSubtitles={includeSubtitles}
-                          variant="icon"
-                          compact
-                        />
+                          </button>
+                        ) : (
+                          <>
+                            <Link
+                              to="/watch/$source/$id"
+                              params={{ source: item.source, id: item.id }}
+                              search={
+                                isAnime
+                                  ? seasons.length > 1
+                                    ? { season: epSeason, ep: ep.number, audio }
+                                    : { ep: ep.number, audio }
+                                  : { season: epSeason, ep: ep.number }
+                              }
+                              onClick={onClose}
+                              className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left sm:min-h-0"
+                            >
+                              <span className="flex w-8 shrink-0 items-center gap-1.5 font-display text-sm font-semibold tabular-nums">
+                                {isLastWatched && (
+                                  <Play className="size-3 shrink-0 fill-current text-cerulean" />
+                                )}
+                                <span>{ep.number}</span>
+                              </span>
+                              {subtitleText && (
+                                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground group-hover/ep:text-foreground/85">
+                                  {subtitleText}
+                                </span>
+                              )}
+                            </Link>
+                            <DownloadButton
+                              item={d}
+                              season={item.source === "anilist" ? 1 : epSeason}
+                              episode={ep.number}
+                              audio={audio}
+                              includeSubtitles={includeSubtitles}
+                              anilistId={resolvedAnilistId}
+                              variant="icon"
+                              compact
+                            />
+                          </>
+                        )}
                       </li>
                     );
                   })}
@@ -543,6 +734,10 @@ export function ShowDetailBody({
               </div>
             </div>
           )}
+
+          <div className="flex justify-center pt-2 md:hidden">
+            <AdSlot slot="sidebar" />
+          </div>
         </div>
         <div className="hidden md:block">
           <div className="sticky top-20 space-y-4">
@@ -554,7 +749,9 @@ export function ShowDetailBody({
               imdbId={d.imdbId ?? item.imdbId}
               className="w-full rounded-xl shadow-card"
             />
-            <AdSlot slot="rectangle" />
+            <div className="flex justify-center">
+              <AdSlot slot="sidebar" />
+            </div>
           </div>
         </div>
       </div>

@@ -8,7 +8,7 @@ const LazyPolicyPage = lazy(() =>
 
 function PolicyRoutePage() {
   return (
-    <Suspense fallback={<RouteFallback label="Loading Policy…" />}>
+    <Suspense fallback={<RouteFallback label="Loading Privacy Policy…" />}>
       <LazyPolicyPage />
     </Suspense>
   );
@@ -17,17 +17,17 @@ function PolicyRoutePage() {
 export const Route = createFileRoute("/policy")({
   head: () => ({
     meta: [
-      { title: "Policy, DMCA & Acceptable Use — SHADOW" },
+      { title: "Privacy Policy, DMCA & Acceptable Use — SHADOW" },
       {
         name: "description",
         content:
-          "Read the SHADOW content disclaimer, third-party hosting policy, DMCA removal procedure, and strict anti-bot server protection rules.",
+          "Read SHADOW's privacy policy, technical proof of zero file hosting, anti-piracy stance, DMCA removal procedure, and anti-bot server rules.",
       },
-      { property: "og:title", content: "Policy, DMCA & Acceptable Use — SHADOW" },
+      { property: "og:title", content: "Privacy Policy, DMCA & Acceptable Use — SHADOW" },
       {
         property: "og:description",
         content:
-          "SHADOW does not host any files on its servers. All media is indexed from third-party sites. Automated bots and server flooding are strictly prohibited.",
+          "SHADOW does not host, store, or upload any media files on its servers. All content links to independent third-party hosts, with local-only browser preferences.",
       },
       { property: "og:type", content: "website" },
     ],

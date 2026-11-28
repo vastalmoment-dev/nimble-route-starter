@@ -1,20 +1,35 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import type { MediaItem } from "@/lib/catalog/types";
 import { MediaCard, MediaCardSkeleton } from "./MediaCard";
 
 const CARD = "w-[140px] sm:w-[160px] lg:w-[180px] snap-start";
 
-export function Shelf({ title, items }: { title: string; items: MediaItem[] }) {
+export function Shelf({
+  title,
+  items,
+  rightAction,
+  onRemoveItem,
+  testId,
+}: {
+  title: string;
+  items: MediaItem[];
+  rightAction?: ReactNode | undefined;
+  onRemoveItem?: ((item: MediaItem) => void) | undefined;
+  testId?: string | undefined;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const scroll = (dir: 1 | -1) => {
     const el = ref.current;
     if (el) el.scrollBy({ left: dir * el.clientWidth * 0.85, behavior: "smooth" });
   };
   return (
-    <section className="group/shelf relative animate-fade-up">
-      <div className="mb-3 flex items-end justify-between px-4 sm:px-8 lg:px-12">
-        <h2 className="font-display text-base font-semibold sm:text-lg">{title}</h2>
+    <section data-testid={testId} className="group/shelf relative animate-fade-up">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-8 lg:px-12">
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="font-display text-base font-semibold sm:text-lg">{title}</h2>
+          {rightAction}
+        </div>
         <div className="hidden gap-1.5 opacity-0 transition-opacity group-hover/shelf:opacity-100 sm:flex">
           <button
             type="button"
@@ -39,7 +54,7 @@ export function Shelf({ title, items }: { title: string; items: MediaItem[] }) {
         className="no-scrollbar flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 pb-6 pt-2 sm:scroll-px-8 sm:px-8 lg:scroll-px-12 lg:px-12"
       >
         {items.map((item) => (
-          <MediaCard key={item.key} item={item} className={CARD} />
+          <MediaCard key={item.key} item={item} className={CARD} onRemove={onRemoveItem} />
         ))}
       </div>
     </section>

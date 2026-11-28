@@ -26,7 +26,8 @@ function resolveBackLabel(pathname: string | undefined, t: ReturnType<typeof use
     "/nollywood": t("nav.nollywood"),
     "/cartoons": t("nav.cartoons"),
     "/manga": t("nav.manga"),
-    "/mood": t("nav.mood"),
+    "/get-app": t("nav.getApp"),
+    "/mood": t("nav.getApp"),
     "/watchlist": t("nav.watchlist"),
     "/search": t("nav.search"),
   };

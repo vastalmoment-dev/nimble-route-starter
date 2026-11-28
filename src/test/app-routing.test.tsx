@@ -18,6 +18,7 @@ describe("App routing", () => {
 
     expect(router.matchRoutes("/").at(-1)?.routeId).not.toBe(rootRouteId);
     expect(router.matchRoutes("/manga").at(-1)?.routeId).toBe("/manga");
+    expect(router.matchRoutes("/settings").at(-1)?.routeId).toBe("/settings");
     expect(router.matchRoutes("/novels").some((m) => String(m.routeId) === "/novels")).toBe(false);
   });
 

@@ -80,7 +80,9 @@ const EN = {
   "nav.nollywood": "Nollywood",
   "nav.cartoons": "Cartoons",
   "nav.manga": "Manga",
-  "nav.mood": "Mood Match",
+  "nav.mood": "Get App",
+  "nav.getApp": "Get App",
+  "nav.settings": "Settings",
   "nav.search": "Search",
   "nav.mainAria": "Main",
   "nav.footerAria": "Footer",
@@ -126,6 +128,9 @@ const EN = {
 
   // Sections & Genres
   "section.continueWatching": "Continue Watching",
+  "continue.clearHistory": "Clear History",
+  "continue.manageSettings": "History & Settings",
+  "continue.removeAria": "Remove {title} from Continue Watching",
   "section.shelfErrorTitle": "This shelf went dark",
   "section.shelfErrorDesc":
     "We couldn't reach the catalog just now. Check your connection and try again.",
@@ -154,6 +159,14 @@ const EN = {
   "watchlist.filterCartoons": "Cartoons",
   "watchlist.filterMovies": "Movies",
   "watchlist.filterSeries": "Shows & Dramas",
+  "watchlist.filterOffline": "Saved Offline",
+  "watchlist.offlineEmpty":
+    "No episodes or movies saved offline yet. Hit Download on any title to store it in this browser.",
+  "watchlist.offlineClear": "Clear Offline",
+  "watchlist.playOffline": "Play Offline",
+  "watchlist.exportFile": "Save File",
+  "watchlist.removeOffline": "Remove",
+  "watchlist.offlineStored": "saved locally for offline playback",
   "watchlist.emptyTitle": "Your watchlist is empty",
   "watchlist.emptyBody":
     "Tap the bookmark button on any anime, cartoon, or movie card to keep it handy right here.",
@@ -206,6 +219,13 @@ const EN = {
   "detail.subsToggleHint": "Choose whether downloaded episodes include subtitle files",
   "detail.episodeLower": "episode",
   "detail.episodesLower": "episodes",
+  "detail.selectEpisodes": "Select episodes",
+  "detail.cancelSelect": "Done",
+  "detail.selectAll": "Select all",
+  "detail.clearSelection": "Clear",
+  "detail.selectedCount": "{count} selected",
+  "detail.downloadSelected": "Download selected ({count})",
+  "detail.selectEpisodeAria": "Select episode {ep} for batch download",
 
   // Watch Page & Video Player
   "watch.discordPrompt": "Stream buffering or not loading?",
@@ -247,6 +267,8 @@ const EN = {
   "watch.watchingNow": "{count} watching now",
   "watch.watchingNowPlural": "{count} watching now",
   "watch.expandLandscape": "Expand landscape",
+  "watch.offlineBadge": "Playing Offline",
+  "watch.offlineUnavailable": "This offline copy is no longer stored on this device.",
 
   // VideoPlayer Controls
   "player.play": "Play",
@@ -352,47 +374,130 @@ const EN = {
   "manga.chapter": "Chapter",
   "manga.loadMorePages": "Load more pages",
 
-  // Mood Page
-  "mood.title": "Mood Match",
-  "mood.subtitle": "Describe how you feel and what you're into — we'll find anime that fits.",
-  "mood.placeholder":
-    "e.g. Feeling nostalgic, want a heartfelt story with great music, nothing too gory",
-  "mood.finding": "Finding matches…",
-  "mood.submit": "Recommend anime",
-  "mood.error": "Couldn't get recommendations right now.",
+  // Get App Page
+  "getApp.kicker": "Mobile & TV Companion",
+  "getApp.title": "Get the SHADOW App",
+  "getApp.subtitle":
+    "Dedicated iOS and Android apps are currently in development. Stream seamlessly, queue multi-episode offline packs, and resume across devices — coming soon.",
+  "getApp.iosTitle": "iOS App",
+  "getApp.iosPlatform": "iPhone & iPad · iOS 16+",
+  "getApp.iosDesc":
+    "Native Swift playback with hardware-accelerated HLS video, AirPlay casting, Picture-in-Picture, and offline episode downloads.",
+  "getApp.iosFeat1": "Hardware-accelerated player with subtitle & audio switching",
+  "getApp.iosFeat2": "Batch episode downloads saved cleanly for flights and commutes",
+  "getApp.iosFeat3": "AirPlay, lock-screen controls, and instant resume sync",
+  "getApp.androidTitle": "Android App",
+  "getApp.androidPlatform": "Phones, Tablets & Android TV · Android 10+",
+  "getApp.androidDesc":
+    "Lightweight APK and Play release engineered for fast browsing, Chromecast support, background episode downloads, and TV remote navigation.",
+  "getApp.androidFeat1": "Adaptive streaming and multi-episode background queue",
+  "getApp.androidFeat2": "Chromecast and Android TV lean-back interface support",
+  "getApp.androidFeat3": "Local watchlist storage with zero account sign-up",
+  "getApp.comingSoon": "Coming Soon",
+  "getApp.notifyMe": "Notify me on release",
+  "getApp.notified": "Saved — release reminder enabled",
+  "getApp.webReadyTitle": "Stream & Download on Mobile Today",
+  "getApp.webReadyDesc":
+    "While our iOS and Android apps finish testing, you can browse, watch, and batch-download episodes directly in your mobile browser right now.",
+  "getApp.browseNow": "Browse Catalog",
 
   // Downloads Tray
   "downloads.title": "Downloads",
+  "downloads.queued": "Queued…",
   "downloads.resolving": "Finding stream…",
   "downloads.saving": "Saving for offline",
   "downloads.done": "Saved to your device",
+  "downloads.openOffline": "Offline Library",
   "downloads.cancelled": "Cancelled",
   "downloads.cancelAria": "Cancel download",
   "downloads.dismissAria": "Dismiss",
 
   // Policy Page
-  "policy.kicker": "Legal & Service Guidelines",
-  "policy.title": "Policy, DMCA & Acceptable Use",
+  "policy.kicker": "Privacy Policy, Legal & Service Guidelines",
+  "policy.title": "Privacy Policy, DMCA & Acceptable Use",
   "policy.intro":
-    "Please read these terms carefully before browsing or streaming on SHADOW. By using this site, you agree to respect third-party copyright rules and protect server stability for every viewer.",
-  "policy.s1Title": "01. No Hosted Files & Third-Party Content Disclaimer",
+    "SHADOW is an independent web index and browser interface committed to transparency, user privacy, and strict respect for copyright law. Please review our technical architecture, non-hosting proof, and privacy commitments below.",
+  "policy.s1Title": "01. Zero File Hosting & Technical Proof of Non-Storage",
   "policy.s1P1":
-    "SHADOW does not host, upload, store, or distribute any video, audio, subtitle, or media files on our own servers. All streams, episodes, movies, and media embeds accessible through this site originate exclusively from independent third-party websites and external media providers.",
+    "SHADOW does not host, upload, store, transcode, cache permanently, or distribute any video, audio, subtitle, comic archive, or media files on any server under our control. Our infrastructure contains zero video storage buckets, zero file-upload portals, zero proprietary content distribution servers, and zero peer-to-peer trackers or torrent files.",
   "policy.s1P2":
-    "SHADOW functions solely as an informational catalog and playback interface that locates and displays content already publicly available on third-party sites. We have no control over, and assume no responsibility for, the availability, legality, or uptime of files hosted by external sources.",
-  "policy.s2Title": "02. Anti-Bot Warning & Server Protection",
+    "Every title card, synopsis, poster, and playback reference displayed on SHADOW functions solely as an automated directory pointer to material already published independently on external third-party hosts and public metadata directories. When playback starts, your browser communicates directly with or retrieves streams through standard web protocols from those separate external providers — proving SHADOW operates strictly as a neutral search and catalog interface, not a piracy host.",
+  "policy.s1P3":
+    "Because we neither create nor store media files, we cannot alter, edit, watermark, or permanently delete files residing on remote third-party servers. Any public-domain literature listed on the site points exclusively to verified out-of-copyright public editions.",
+  "policy.s2Title": "02. Anti-Piracy Position & Third-Party Independence",
   "policy.s2P1":
-    "Do not use automated bots, scrapers, crawlers, download scripts, or high-frequency request tools to overwhelm or flood our servers. Automated traffic consumes bandwidth and degrades playback quality for genuine viewers.",
+    "SHADOW opposes unlawful piracy and does not endorse, incentivize, pay for, or collaborate with unauthorized uploaders. We exercise no administrative control over the uptime, regional licensing, content, or security practices of external third-party hosts.",
   "policy.s2P2":
-    "Any user, script, automated client, or IP address detected attempting to scrape catalog endpoints, bypass rate limits, or overwhelm SHADOW servers with excessive requests will be permanently banned and blocked without prior notice.",
-  "policy.s3Title": "03. Copyright & DMCA Removal Requests",
+    "We never bypass paywalls, crack DRM encryption, defeat subscriber authentication, or modify protected streams. If any external media provider uses digital rights protection or restricts access, SHADOW respects those technical boundaries and refuses to download or redistribute protected content.",
+  "policy.s3Title": "03. Anti-Bot Warning & Server Protection",
   "policy.s3P1":
-    "We respect intellectual property rights. Because SHADOW does not host any media files on our servers, permanent file removal must be requested directly with the third-party host storing the file.",
+    "Do not use automated bots, scrapers, crawlers, download scripts, or high-frequency request tools to overwhelm or flood our servers. Automated traffic consumes bandwidth and degrades playback quality for genuine viewers.",
   "policy.s3P2":
-    "If you are a copyright owner or authorized representative and wish for a catalog reference link to be removed from SHADOW, identify the exact page URL and title so it can be promptly de-indexed.",
-  "policy.s4Title": "04. Viewer Privacy & Browser Preferences",
+    "Any user, script, automated client, or IP address detected attempting to scrape catalog endpoints, bypass rate limits, or overwhelm SHADOW servers with excessive requests will be permanently banned and blocked without prior notice.",
+  "policy.s4Title": "04. Copyright & DMCA Removal Requests",
   "policy.s4P1":
-    "Your watchlist, language selection, and playback resume timestamps are saved locally inside your own browser storage so you can continue shows where you left off across sessions. No personal account registration is required to browse or stream.",
+    "We respect intellectual property rights and respond promptly to valid copyright notices. Because SHADOW does not host any media files on our servers, permanent deletion of an underlying media file must be requested directly with the independent third-party host storing that file.",
+  "policy.s4P2":
+    "If you are a copyright owner or authorized legal representative and wish for a catalog reference link to be removed from SHADOW, provide the exact SHADOW page URL, title name, proof of ownership, and a good-faith statement so the reference can be swiftly de-indexed.",
+  "policy.s5Title": "05. Privacy Policy & Local-Only Viewer Data",
+  "policy.s5P1":
+    "SHADOW requires no user account, registration, email address, password, phone number, or payment method. Your watchlist, selected site language, app release reminder flag, and episode resume timestamps are stored exclusively inside your own browser's local storage and are never sold or shared with data brokers.",
+  "policy.s5P2":
+    "When your browser loads external third-party video players or public catalog feeds, standard HTTP request metadata (such as your IP address and browser user-agent) is handled directly by those independent third-party services under their respective privacy policies. You can wipe all SHADOW local preferences at any time through your browser settings or the Clear Watchlist button.",
+
+  // Settings & Watch History (Browser-Local)
+  "settings.kicker": "Browser-Only Storage",
+  "settings.title": "Settings & Watch History",
+  "settings.subtitle":
+    "Customize anime Dub/Sub defaults, playback behavior, and manage your Continue Watching history.",
+  "settings.localNoticeTitle": "Stored strictly in your browser — never on our servers",
+  "settings.localNoticeDesc":
+    "All preferences, Continue Watching timestamps, My Watchlist items, and offline downloads stay inside this browser's local storage and IndexedDB. Clearing your browser data or removing items below deletes them permanently.",
+  "settings.playbackTitle": "Playback & Anime Preferences",
+  "settings.defaultAnimeAudio": "Default Anime Audio",
+  "settings.defaultAnimeAudioDesc":
+    "Choose whether anime load in Japanese Sub or Dub first whenever you open any anime to watch.",
+  "settings.animeSubOpt": "SUB · Load in Sub first",
+  "settings.animeDubOpt": "DUB · Load in Dub first",
+  "settings.autoPlayNext": "Auto-Play Next Episode",
+  "settings.autoPlayNextDesc":
+    "Automatically start the countdown for the next episode when the current one finishes.",
+  "settings.autoShowSubtitles": "Auto-Enable Subtitles",
+  "settings.autoShowSubtitlesDesc":
+    "Show matching subtitles automatically on Subbed anime and native streams when available.",
+  "settings.downloadIncludeSubs": "Include Subtitles on Download by Default",
+  "settings.downloadIncludeSubsDesc":
+    "Pre-select the + Subs option when downloading anime episodes for offline viewing.",
+  "settings.skipIntro": "Skip Intro Jump",
+  "settings.skipIntroDesc": "Set how many seconds the Skip Intro button jumps forward.",
+  "settings.skipIntroOff": "Off",
+  "settings.language": "Interface & Dub Language",
+  "settings.languageDesc":
+    "Switch between English (EN Dub / EN Sub) and French (VF Dub / VOSTFR Sub) across catalogs and players.",
+  "settings.on": "On",
+  "settings.off": "Off",
+  "settings.resetPrefs": "Reset Preferences",
+  "settings.resetDone": "Preferences restored to defaults",
+  "settings.historyTitle": "Watch History & Continue Watching",
+  "settings.historySubtitle":
+    "Titles recently played in this browser. Delete an individual anime or clear your full watch history at any time.",
+  "settings.historyFilterAll": "All History",
+  "settings.historyFilterAnime": "Anime",
+  "settings.historyFilterOther": "Movies & Series",
+  "settings.clearAnimeHistory": "Clear Anime History",
+  "settings.clearAllHistory": "Clear All History",
+  "settings.historyEmpty":
+    "No watch history recorded in this browser yet. Start any anime, cartoon, or movie and it will appear here and in Continue Watching.",
+  "settings.historyNoMatch": "No history items match this filter.",
+  "settings.deleteItem": "Delete",
+  "settings.deleteItemAria": "Delete watch history for {title}",
+  "settings.resumeItem": "Resume",
+  "settings.storageOverview": "Local Browser Storage Summary",
+  "settings.storageHistoryCount": "Continue Watching items",
+  "settings.storageWatchlistCount": "Watchlist saved titles",
+  "settings.storageOfflineCount": "Offline stored videos",
+  "settings.openWatchlist": "Open Watchlist",
+  "settings.openOffline": "Open Offline Library",
 } as const;
 
 export type TranslationKey = keyof typeof EN;
@@ -409,7 +514,9 @@ const FR: Record<TranslationKey, string> = {
   "nav.nollywood": "Nollywood",
   "nav.cartoons": "Dessins Animés",
   "nav.manga": "Manga",
-  "nav.mood": "Humeur",
+  "nav.mood": "App Mobile",
+  "nav.getApp": "App Mobile",
+  "nav.settings": "Paramètres",
   "nav.search": "Recherche",
   "nav.mainAria": "Navigation principale",
   "nav.footerAria": "Pied de page",
@@ -456,6 +563,9 @@ const FR: Record<TranslationKey, string> = {
 
   // Sections & Genres
   "section.continueWatching": "Reprendre la lecture",
+  "continue.clearHistory": "Effacer l'historique",
+  "continue.manageSettings": "Historique & Paramètres",
+  "continue.removeAria": "Retirer {title} de Reprendre la lecture",
   "section.shelfErrorTitle": "Ce catalogue est momentanément indisponible",
   "section.shelfErrorDesc":
     "Impossible de joindre le catalogue pour l'instant. Vérifiez votre connexion et réessayez.",
@@ -484,6 +594,14 @@ const FR: Record<TranslationKey, string> = {
   "watchlist.filterCartoons": "Dessins Animés",
   "watchlist.filterMovies": "Films",
   "watchlist.filterSeries": "Séries & Dramas",
+  "watchlist.filterOffline": "Hors ligne",
+  "watchlist.offlineEmpty":
+    "Aucun épisode ou film enregistré hors ligne. Cliquez sur Télécharger sur un titre pour le stocker localement.",
+  "watchlist.offlineClear": "Tout supprimer",
+  "watchlist.playOffline": "Lire hors ligne",
+  "watchlist.exportFile": "Enregistrer le fichier",
+  "watchlist.removeOffline": "Supprimer",
+  "watchlist.offlineStored": "enregistré(s) localement pour lecture hors ligne",
   "watchlist.emptyTitle": "Votre liste est vide",
   "watchlist.emptyBody":
     "Appuyez sur le bouton signet sur n'importe quel animé, film ou série pour le garder sous la main ici.",
@@ -536,6 +654,13 @@ const FR: Record<TranslationKey, string> = {
   "detail.subsToggleHint": "Choisir si les épisodes téléchargés incluent les sous-titres",
   "detail.episodeLower": "épisode",
   "detail.episodesLower": "épisodes",
+  "detail.selectEpisodes": "Sélectionner",
+  "detail.cancelSelect": "Terminé",
+  "detail.selectAll": "Tout sélectionner",
+  "detail.clearSelection": "Effacer",
+  "detail.selectedCount": "{count} sélectionné(s)",
+  "detail.downloadSelected": "Télécharger la sélection ({count})",
+  "detail.selectEpisodeAria": "Sélectionner l'épisode {ep} pour téléchargement groupé",
 
   // Watch Page & Video Player
   "watch.discordPrompt": "Le flux met en mémoire tampon ou ne charge pas ?",
@@ -577,6 +702,8 @@ const FR: Record<TranslationKey, string> = {
   "watch.watchingNow": "{count} spectateur en ligne",
   "watch.watchingNowPlural": "{count} spectateurs en ligne",
   "watch.expandLandscape": "Agrandir en paysage",
+  "watch.offlineBadge": "Lecture hors ligne",
+  "watch.offlineUnavailable": "Cette copie hors ligne n'est plus stockée sur cet appareil.",
 
   // VideoPlayer Controls
   "player.play": "Lecture",
@@ -683,48 +810,131 @@ const FR: Record<TranslationKey, string> = {
   "manga.chapter": "Chapitre",
   "manga.loadMorePages": "Charger plus de pages",
 
-  // Mood Page
-  "mood.title": "Accord d'Humeur",
-  "mood.subtitle":
-    "Décrivez votre humeur et vos envies — nous trouverons les animés parfaits pour vous.",
-  "mood.placeholder":
-    "ex. Envie de nostalgie, une histoire touchante avec une belle musique, sans trop de violence",
-  "mood.finding": "Recherche en cours…",
-  "mood.submit": "Recommander des animés",
-  "mood.error": "Impossible d'obtenir des recommandations pour le moment.",
+  // Get App Page
+  "getApp.kicker": "Application Mobile & TV",
+  "getApp.title": "Télécharger l'app SHADOW",
+  "getApp.subtitle":
+    "Nos applications natives iOS et Android sont actuellement en cours de développement. Streaming fluide, téléchargements groupés hors ligne et reprise instantanée — bientôt disponibles.",
+  "getApp.iosTitle": "Application iOS",
+  "getApp.iosPlatform": "iPhone & iPad · iOS 16+",
+  "getApp.iosDesc":
+    "Lecteur natif Swift avec accélération matérielle HLS, diffusion AirPlay, Image dans l'Image et téléchargement d'épisodes hors ligne.",
+  "getApp.iosFeat1": "Lecteur fluide avec changement rapide de langue et sous-titres",
+  "getApp.iosFeat2": "Téléchargement groupé d'épisodes pour voyager hors ligne",
+  "getApp.iosFeat3": "AirPlay, contrôles écran verrouillé et reprise automatique",
+  "getApp.androidTitle": "Application Android",
+  "getApp.androidPlatform": "Téléphones, Tablettes & Android TV · Android 10+",
+  "getApp.androidDesc":
+    "Application optimisée pour Android et Android TV avec Chromecast, file d'attente de téléchargement et navigation à la télécommande.",
+  "getApp.androidFeat1": "Lecture adaptative et file de téléchargement multi-épisodes",
+  "getApp.androidFeat2": "Compatibilité Chromecast et interface Android TV",
+  "getApp.androidFeat3": "Ma Liste enregistrée localement sans création de compte",
+  "getApp.comingSoon": "Bientôt disponible",
+  "getApp.notifyMe": "M'avertir à la sortie",
+  "getApp.notified": "Enregistré — rappel de sortie activé",
+  "getApp.webReadyTitle": "Déjà disponible sur navigateur mobile",
+  "getApp.webReadyDesc":
+    "En attendant la sortie des applications iOS et Android, vous pouvez déjà regarder et télécharger plusieurs épisodes directement depuis votre navigateur.",
+  "getApp.browseNow": "Parcourir le catalogue",
 
   // Downloads Tray
   "downloads.title": "Téléchargements",
+  "downloads.queued": "En attente…",
   "downloads.resolving": "Recherche du flux…",
   "downloads.saving": "Enregistrement hors ligne",
   "downloads.done": "Enregistré sur votre appareil",
+  "downloads.openOffline": "Hors ligne",
   "downloads.cancelled": "Annulé",
   "downloads.cancelAria": "Annuler le téléchargement",
   "downloads.dismissAria": "Fermer",
 
   // Policy Page
-  "policy.kicker": "Mentions Légales & Règlement",
-  "policy.title": "Politique, DMCA & Conditions d'Utilisation",
+  "policy.kicker": "Confidentialité, Mentions Légales & Règlement",
+  "policy.title": "Confidentialité, DMCA & Conditions d'Utilisation",
   "policy.intro":
-    "Veuillez lire attentivement ces conditions avant de naviguer ou de regarder du contenu sur SHADOW. En utilisant ce site, vous acceptez de respecter les droits d'auteur tiers et la stabilité des serveurs.",
-  "policy.s1Title": "01. Aucun fichier hébergé & Contenu tiers",
+    "SHADOW est un index web indépendant et une interface de navigation dédiée à la confidentialité des utilisateurs et au strict respect du droit d'auteur. Découvrez ci-dessous les preuves techniques de non-hébergement et notre politique de confidentialité.",
+  "policy.s1Title": "01. Zéro Fichier Hébergé & Preuve Technique de Non-Stockage",
   "policy.s1P1":
-    "SHADOW n'héberge, ne téléverse, ne stocke et ne distribue aucun fichier vidéo, audio, sous-titre ou média sur ses propres serveurs. Tous les flux, épisodes, films et lecteurs proviennent exclusivement de fournisseurs externes indépendants.",
+    "SHADOW n'héberge, ne téléverse, ne stocke, ne transcode, ne met en cache de façon permanente et ne distribue aucun fichier vidéo, audio, sous-titre ou archive sur ses serveurs. Notre infrastructure ne contient aucun espace de stockage vidéo, aucun formulaire d'envoi de médias, aucun CDN de contenu propriétaire et aucun tracker peer-to-peer ou torrent.",
   "policy.s1P2":
-    "SHADOW agit uniquement comme un catalogue informatif et une interface de lecture affichant du contenu déjà disponible publiquement sur des sites tiers. Nous n'avons aucun contrôle sur la disponibilité ou la légalité des fichiers hébergés par des sources externes.",
-  "policy.s2Title": "02. Protection Anti-Bot & Stabilité des Serveurs",
+    "Chaque fiche, synopsis, affiche et lien de lecture affiché sur SHADOW agit exclusivement comme un index automatisé pointant vers des contenus déjà publiés de manière indépendante par des hébergeurs tiers et des répertoires publics de métadonnées. Lors de la lecture, votre navigateur communique directement avec ces fournisseurs externes distincts — démontrant que SHADOW fonctionne uniquement comme un annuaire de recherche, et non comme un site d'hébergement ou de piratage.",
+  "policy.s1P3":
+    "Puisque nous ne créons ni ne conservons aucun fichier média, nous ne pouvons ni modifier ni supprimer définitivement des fichiers résidant sur des serveurs tiers distants. Les ouvrages du domaine public référencés pointent exclusivement vers des éditions libres de droits.",
+  "policy.s2Title": "02. Position Anti-Piratage & Indépendance vis-à-vis des Tiers",
   "policy.s2P1":
-    "N'utilisez pas de bots automatisés, scrapers, crawlers ou scripts de téléchargement massif pour surcharger nos serveurs. Le trafic automatisé consomme la bande passante et dégrade la qualité de lecture des spectateurs.",
+    "SHADOW s'oppose au piratage commercial et ne rémunère, n'encourage ni ne collabore avec des téléverseurs non autorisés. Nous n'exerçons aucun contrôle éditorial ou administratif sur la disponibilité ou les pratiques de serveurs externes indépendants.",
   "policy.s2P2":
-    "Tout utilisateur, script, client automatisé ou adresse IP détecté en train d'extraire nos points de terminaison ou de contourner nos limites de requêtes sera définitivement banni et bloqué sans préavis.",
-  "policy.s3Title": "03. Droits d'Auteur & Demandes de Retrait DMCA",
+    "Nous ne contournons jamais de péages numériques, de protections DRM ou d'authentifications payantes. Lorsqu'un fournisseur externe applique un chiffrement protégé, SHADOW respecte cette barrière technique et bloque le téléchargement.",
+  "policy.s3Title": "03. Protection Anti-Bot & Stabilité des Serveurs",
   "policy.s3P1":
-    "Nous respectons la propriété intellectuelle. Comme SHADOW n'héberge aucun fichier média sur ses serveurs, tout retrait définitif doit être demandé directement auprès de l'hébergeur tiers concerné.",
+    "N'utilisez pas de bots automatisés, scrapers, crawlers ou scripts de téléchargement massif pour surcharger nos serveurs. Le trafic automatisé consomme la bande passante et dégrade la qualité de lecture des spectateurs.",
   "policy.s3P2":
-    "Si vous êtes titulaire de droits ou représentant autorisé et souhaitez retirer une référence du catalogue SHADOW, indiquez l'URL exacte de la page et le titre afin qu'il soit désindexé rapidement.",
-  "policy.s4Title": "04. Confidentialité & Préférences Locales",
+    "Tout utilisateur, script, client automatisé ou adresse IP détecté en train d'extraire nos points de terminaison ou de contourner nos limites de requêtes sera définitivement banni et bloqué sans préavis.",
+  "policy.s4Title": "04. Droits d'Auteur & Demandes de Retrait DMCA",
   "policy.s4P1":
-    "Votre liste de suivi, votre langue choisie et vos positions de reprise de lecture sont enregistrées localement dans votre navigateur. Aucune création de compte personnel n'est requise pour naviguer ou regarder.",
+    "Nous respectons la propriété intellectuelle et traitons rapidement toute notification valide. Comme SHADOW n'héberge aucun fichier média sur ses serveurs, tout retrait définitif d'un fichier doit être demandé directement auprès de l'hébergeur tiers concerné.",
+  "policy.s4P2":
+    "Si vous êtes titulaire de droits ou représentant autorisé et souhaitez retirer une référence du catalogue SHADOW, indiquez l'URL exacte sur SHADOW, le titre et une déclaration de bonne foi afin qu'il soit rapidement désindexé.",
+  "policy.s5Title": "05. Politique de Confidentialité & Données Locales",
+  "policy.s5P1":
+    "SHADOW ne demande ni compte personnel, ni adresse e-mail, ni mot de passe, ni numéro de téléphone ou carte bancaire. Votre liste de suivi, votre langue choisie, votre rappel d'application et vos positions de lecture sont enregistrés uniquement dans le stockage local de votre navigateur et ne sont jamais vendus à des courtiers en données.",
+  "policy.s5P2":
+    "Lorsque votre navigateur charge un lecteur vidéo externe ou un flux public, les métadonnées réseau standards (adresse IP, agent utilisateur) sont traitées directement par ces services tiers indépendants selon leurs propres politiques. Vous pouvez effacer toutes vos données locales à tout moment depuis votre navigateur.",
+
+  // Settings & Watch History (Browser-Local)
+  "settings.kicker": "Stockage local navigateur",
+  "settings.title": "Paramètres & Historique",
+  "settings.subtitle":
+    "Choisissez l'audio anime par défaut (VF/Dub ou VOSTFR/Sub), les options du lecteur et gérez votre historique.",
+  "settings.localNoticeTitle":
+    "Enregistré uniquement dans votre navigateur — jamais sur nos serveurs",
+  "settings.localNoticeDesc":
+    "Tous vos réglages, votre historique de lecture, Ma Liste et vos vidéos hors ligne restent dans le stockage local et IndexedDB de votre navigateur. Aucune donnée personnelle n'est envoyée ni conservée sur un serveur.",
+  "settings.playbackTitle": "Préférences de lecture & Animés",
+  "settings.defaultAnimeAudio": "Audio animé par défaut",
+  "settings.defaultAnimeAudioDesc":
+    "Choisissez si les animés s'ouvrent d'abord en VOSTFR (Sub) ou en VF / Dub dès que vous lancez un titre.",
+  "settings.animeSubOpt": "SUB · Charger en VOSTFR / Sub",
+  "settings.animeDubOpt": "DUB · Charger en VF / Dub en premier",
+  "settings.autoPlayNext": "Enchaîner l'épisode suivant",
+  "settings.autoPlayNextDesc":
+    "Lance automatiquement le compte à rebours vers l'épisode suivant à la fin de la lecture.",
+  "settings.autoShowSubtitles": "Activer les sous-titres automatiquement",
+  "settings.autoShowSubtitlesDesc":
+    "Affiche automatiquement les sous-titres disponibles sur les animés VOSTFR et lecteurs natifs.",
+  "settings.downloadIncludeSubs": "Inclure les sous-titres au téléchargement par défaut",
+  "settings.downloadIncludeSubsDesc":
+    "Pré-active l'option + ST lors du téléchargement d'épisodes d'animés hors ligne.",
+  "settings.skipIntro": "Saut d'intro",
+  "settings.skipIntroDesc": "Durée avancée lorsque vous cliquez sur Passer l'intro.",
+  "settings.skipIntroOff": "Désactivé",
+  "settings.language": "Langue de l'interface & du doublage",
+  "settings.languageDesc":
+    "Basculez entre Anglais (Dub EN / Sub EN) et Français (Dub VF / VOSTFR) sur tout le site.",
+  "settings.on": "Activé",
+  "settings.off": "Désactivé",
+  "settings.resetPrefs": "Réinitialiser les réglages",
+  "settings.resetDone": "Préférences réinitialisées par défaut",
+  "settings.historyTitle": "Historique & Reprendre la lecture",
+  "settings.historySubtitle":
+    "Titres récemment lancés dans ce navigateur. Supprimez un animé précis ou effacez tout l'historique à tout moment.",
+  "settings.historyFilterAll": "Tout l'historique",
+  "settings.historyFilterAnime": "Animés",
+  "settings.historyFilterOther": "Films & Séries",
+  "settings.clearAnimeHistory": "Effacer l'historique animé",
+  "settings.clearAllHistory": "Tout effacer",
+  "settings.historyEmpty":
+    "Aucun historique enregistré dans ce navigateur pour le moment. Lancez un animé ou un film pour le retrouver ici et dans Reprendre la lecture.",
+  "settings.historyNoMatch": "Aucun élément ne correspond à ce filtre.",
+  "settings.deleteItem": "Supprimer",
+  "settings.deleteItemAria": "Supprimer l'historique pour {title}",
+  "settings.resumeItem": "Reprendre",
+  "settings.storageOverview": "Résumé du stockage local",
+  "settings.storageHistoryCount": "Titres dans Reprendre la lecture",
+  "settings.storageWatchlistCount": "Titres dans Ma Liste",
+  "settings.storageOfflineCount": "Vidéos enregistrées hors ligne",
+  "settings.openWatchlist": "Ouvrir Ma Liste",
+  "settings.openOffline": "Bibliothèque hors ligne",
 };
 
 export const TRANSLATIONS: Record<SiteLanguage, Record<TranslationKey, string>> = {

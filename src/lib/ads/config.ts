@@ -1,7 +1,5 @@
 /**
- * Ad slot registry. Each slot renders an empty, sized container until a network key is set.
- * Adsterra: set VITE_ADSTERRA_<SLOT>_KEY (e.g. VITE_ADSTERRA_SIDEBAR_KEY) and optionally
- * VITE_ADSTERRA_HOST (defaults to www.highperformanceformat.com).
+ * Ad slot registry. Each slot defines dimensions and optional network keys.
  */
 export type AdSlotId = "sidebar" | "leaderboard" | "rectangle" | "player-companion";
 
@@ -12,8 +10,22 @@ export interface AdSlotConfig {
   envKey: string;
 }
 
+export const BAUVAL_SIDEBAR_BANNER = {
+  key: "2a31814008f1846b736fd03f471f4beb",
+  format: "iframe" as const,
+  width: 160,
+  height: 300,
+  params: {},
+  scriptSrc: "https://bauval.org/22/2a31814008f1846b736fd03f471f4beb",
+} as const;
+
 export const AD_SLOTS: Record<AdSlotId, AdSlotConfig> = {
-  sidebar: { width: 160, height: 600, label: "Skyscraper", envKey: "VITE_ADSTERRA_SIDEBAR_KEY" },
+  sidebar: {
+    width: BAUVAL_SIDEBAR_BANNER.width,
+    height: BAUVAL_SIDEBAR_BANNER.height,
+    label: "Sidebar Banner",
+    envKey: "VITE_ADSTERRA_SIDEBAR_KEY",
+  },
   leaderboard: {
     width: 728,
     height: 90,
@@ -31,6 +43,7 @@ export const AD_SLOTS: Record<AdSlotId, AdSlotConfig> = {
 
 export function getAdKey(slot: AdSlotId): string | null {
   const env = import.meta.env as Record<string, string | undefined>;
+  if (slot === "sidebar") return env[AD_SLOTS[slot].envKey] || BAUVAL_SIDEBAR_BANNER.key;
   return env[AD_SLOTS[slot].envKey] || null;
 }
 
@@ -39,8 +52,13 @@ export function getAdHost(): string {
   return env["VITE_ADSTERRA_HOST"] || "www.highperformanceformat.com";
 }
 
-/** Isolated iframe document for an Adsterra banner so network scripts never touch the app. */
-export function adsterraDocument(key: string, width: number, height: number, host = getAdHost()) {
+/** Isolated iframe document for an external banner script so atOptions stays scoped cleanly. */
+export function adsterraDocument(
+  key: string = BAUVAL_SIDEBAR_BANNER.key,
+  width: number = BAUVAL_SIDEBAR_BANNER.width,
+  height: number = BAUVAL_SIDEBAR_BANNER.height,
+  scriptSrc: string = BAUVAL_SIDEBAR_BANNER.scriptSrc,
+) {
   const opts = JSON.stringify({ key, format: "iframe", height, width, params: {} });
-  return `<!doctype html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden}</style></head><body><script>atOptions=${opts};</script><script src="https://${host}/${encodeURIComponent(key)}/invoke.js"></script></body></html>`;
+  return `<!doctype html><html><head><style>html,body{margin:0;padding:0;background:transparent;overflow:hidden;display:flex;align-items:center;justify-content:center;width:${width}px;height:${height}px;}</style></head><body><script>atOptions=${opts};</script><script data-cfasync="false" src="${scriptSrc}"></script></body></html>`;
 }

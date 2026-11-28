@@ -1,4 +1,5 @@
-import { CheckCircle2, Download, Loader2, X, XCircle } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { CheckCircle2, Clock, Download, HardDrive, Loader2, X, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { downloads, useDownloads } from "@/lib/download/store";
 import { useT } from "@/lib/i18n";
@@ -9,16 +10,30 @@ export function DownloadsTray() {
   if (!jobs.length) return null;
   return (
     <div className="fixed bottom-4 right-4 z-[60] w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border bg-popover/95 shadow-card backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-        <Download className="size-3.5" /> {t("downloads.title")}
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <span className="flex items-center gap-2">
+          <Download className="size-3.5" /> {t("downloads.title")}
+        </span>
+        <Link
+          to="/watchlist"
+          search={{ tab: "offline" }}
+          className="inline-flex items-center gap-1 text-[11px] font-semibold normal-case tracking-normal text-cerulean hover:underline"
+        >
+          <HardDrive className="size-3" />
+          <span>{t("downloads.openOffline")}</span>
+        </Link>
       </div>
       <ul className="max-h-72 divide-y overflow-y-auto">
         {jobs.map((job) => {
-          const active = job.status === "resolving" || job.status === "downloading";
+          const active =
+            job.status === "queued" || job.status === "resolving" || job.status === "downloading";
           return (
             <li key={job.id} className="space-y-2 px-4 py-3">
               <div className="flex items-start gap-2">
-                {active && (
+                {job.status === "queued" && (
+                  <Clock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                )}
+                {(job.status === "resolving" || job.status === "downloading") && (
                   <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-cerulean" />
                 )}
                 {job.status === "done" && (
@@ -30,10 +45,19 @@ export function DownloadsTray() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{job.title}</p>
                   <p className="text-xs text-muted-foreground">
+                    {job.status === "queued" && t("downloads.queued")}
                     {job.status === "resolving" && t("downloads.resolving")}
                     {job.status === "downloading" &&
                       `${t("downloads.saving")} · ${Math.round(job.progress * 100)}%`}
-                    {job.status === "done" && t("downloads.done")}
+                    {job.status === "done" && (
+                      <Link
+                        to="/watchlist"
+                        search={{ tab: "offline" }}
+                        className="font-medium text-cerulean hover:underline"
+                      >
+                        {t("downloads.done")} · {t("downloads.openOffline")} →
+                      </Link>
+                    )}
                     {job.status === "cancelled" && t("downloads.cancelled")}
                     {job.status === "error" && job.error}
                   </p>

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AdSlot } from "@/components/ads/AdSlot";
 import { AdsterraScript } from "@/components/ads/AdsterraScript";
 import { AnimeCatalogGrid } from "@/components/media/AnimeCatalogGrid";
 import VideoPlayer from "@/components/player/VideoPlayer";
@@ -189,6 +190,21 @@ describe("Adsterra script placement", () => {
     expect(script?.getAttribute("src")).toBe(
       "https://abscloud.org/1/36ab3dcb9658b1a279bded157b344c72",
     );
+  });
+
+  it("renders the 160x300 Bauval sidebar banner inside an isolated iframe in sidebar AdSlot", () => {
+    const { container } = render(<AdSlot slot="sidebar" />);
+    const aside = container.querySelector('aside[data-ad-slot="sidebar"]');
+    expect(aside).toBeTruthy();
+    const iframe = aside?.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    expect(iframe?.getAttribute("width")).toBe("160");
+    expect(iframe?.getAttribute("height")).toBe("300");
+    const srcDoc = iframe?.getAttribute("srcdoc") ?? "";
+    expect(srcDoc).toContain("2a31814008f1846b736fd03f471f4beb");
+    expect(srcDoc).toContain("https://bauval.org/22/2a31814008f1846b736fd03f471f4beb");
+    expect(srcDoc).toContain('"width":160');
+    expect(srcDoc).toContain('"height":300');
   });
 });
 
@@ -453,10 +469,32 @@ describe("Two-step Back navigation, ordered episodes & Policy page", () => {
     expect(heading).toBeTruthy();
     const text = container.textContent ?? "";
     expect(text).toMatch(/does not host, upload, store/i);
+    expect(text).toMatch(/Zero File Hosting & Technical Proof of Non-Storage/i);
+    expect(text).toMatch(/Anti-Piracy Position/i);
+    expect(text).toMatch(/Privacy Policy & Local-Only Viewer Data/i);
     expect(text).toMatch(/third-party/i);
     expect(text).toMatch(/bots/i);
     expect(text).toMatch(/permanently banned/i);
-    expect(text.toLowerCase()).not.toContain("anilast");
+    const forbiddenSites = [
+      "anilast",
+      "anilist",
+      "tmdb",
+      "cinemeta",
+      "tvmaze",
+      "vidsrc",
+      "vidlink",
+      "vidfast",
+      "bingeapi",
+      "primesrc",
+      "frembed",
+      "mangadex",
+      "gutenberg",
+      "anime-sama",
+      "opensubtitles",
+    ];
+    for (const site of forbiddenSites) {
+      expect(text.toLowerCase()).not.toContain(site);
+    }
   });
 
   it("never falls back to YouTube trailers on WatchPage when watching shows without IMDb IDs", async () => {
@@ -703,6 +741,169 @@ describe("Two-step Back navigation, ordered episodes & Policy page", () => {
     fireEvent.change(searchInput, { target: { value: "miraculous" } });
     fireEvent.submit(form!);
     expect(form?.getAttribute("data-mobile-expanded")).toBe("false");
+  });
+
+  it("renders movie embed iframes without a sandbox attribute so third-party embeds play", async () => {
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+      if (url.includes("cinemeta")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              meta: {
+                id: "tt1234567",
+                type: "movie",
+                name: "Test Movie",
+                poster: "https://example.com/poster.jpg",
+                description: "Feature movie.",
+                genres: ["Action"],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            streamUrl: null,
+            embedUrl: "https://example-embed.test/movie/tt1234567",
+            embedFallbacks: [
+              { label: "Provider Alpha", url: "https://example-embed.test/movie/tt1234567" },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({
+        initialEntries: ["/watch/cinemeta/movie-tt1234567"],
+      }),
+    });
+
+    await router.load();
+    render(<RouterProvider router={router} />);
+
+    const frameWrap = await screen.findByTestId("embed-player-container");
+    const iframe = frameWrap.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    expect(iframe?.getAttribute("src")).toContain("tt1234567");
+    expect(iframe?.hasAttribute("sandbox")).toBe(false);
+  });
+
+  it("renders Get App page with iOS App, Android App, Coming Soon status, and working release reminders", async () => {
+    window.localStorage.clear();
+    siteLanguage.set("en");
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({ initialEntries: ["/get-app"] }),
+    });
+
+    await router.load();
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByRole("heading", { name: /Get the SHADOW App/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /iOS App/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /Android App/i })).toBeTruthy();
+    expect(screen.getAllByText(/Coming Soon/i).length).toBeGreaterThanOrEqual(2);
+
+    const notifyButtons = screen.getAllByRole("button", { name: /Notify me on release/i });
+    expect(notifyButtons).toHaveLength(2);
+    fireEvent.click(notifyButtons[0]!);
+    expect(window.localStorage.getItem("shadow_app_notify_ios")).toBe("1");
+    expect(notifyButtons[0]?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("supports selecting multiple anime episodes and queuing batch downloads", async () => {
+    window.localStorage.clear();
+    siteLanguage.set("en");
+    const { RouterProvider, createMemoryHistory, createRouter } =
+      await import("@tanstack/react-router");
+    const { routeTree } = await import("@/routeTree.gen");
+    const { downloads } = await import("@/lib/download/store");
+
+    const batchSpy = vi.spyOn(downloads, "startBatch").mockResolvedValue();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = typeof input === "string" ? input : input instanceof Request ? input.url : "";
+      if (url.includes("graphql.anilist.co")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: {
+                Media: {
+                  id: 999,
+                  idMal: 999,
+                  title: { english: "Batch Anime", romaji: "Batch Anime" },
+                  coverImage: {
+                    large: "https://example.com/a.jpg",
+                    extraLarge: "https://example.com/a.jpg",
+                  },
+                  bannerImage: null,
+                  episodes: 4,
+                  genres: ["Action"],
+                  averageScore: 88,
+                  seasonYear: 2024,
+                  format: "TV",
+                  status: "FINISHED",
+                  description: "Batch download test anime.",
+                  characters: { edges: [] },
+                  relations: { edges: [] },
+                },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({ initialEntries: ["/title/anilist/999"] }),
+    });
+
+    await router.load();
+    render(<RouterProvider router={router} />);
+
+    const selectBtn = await screen.findByRole("button", { name: /Select episodes/i });
+    fireEvent.click(selectBtn);
+
+    const ep3Check = await screen.findByRole("checkbox", {
+      name: /Select episode 3 for batch download/i,
+    });
+    const ep1Check = screen.getByRole("checkbox", {
+      name: /Select episode 1 for batch download/i,
+    });
+    fireEvent.click(ep3Check);
+    fireEvent.click(ep1Check);
+
+    const downloadBatchBtn = screen.getByRole("button", { name: /Download selected \(2\)/i });
+    fireEvent.click(downloadBatchBtn);
+
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    const reqs = batchSpy.mock.calls[0]?.[0] ?? [];
+    expect(reqs.map((r) => r.episode)).toEqual([1, 3]);
+    expect(reqs[0]?.source).toBe("anilist");
   });
 });
 

@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Bookmark, BookmarkCheck, Play, Star } from "lucide-react";
+import { Bookmark, BookmarkCheck, Play, Star, X } from "lucide-react";
+import { isAnimeItem } from "@/lib/catalog/anime-bridge";
 import type { MediaItem } from "@/lib/catalog/types";
 import { useT } from "@/lib/i18n";
 import { preloadChunk } from "@/lib/preload-chunks";
-import { useShowProgress } from "@/lib/player/progress";
+import { playbackProgress, useShowProgress } from "@/lib/player/progress";
+import { resolvePreferredAnimeAudio, useUserSettings } from "@/lib/settings/store";
 import { useIsInWatchlist, watchlist } from "@/lib/watchlist/store";
 import { cn } from "@/lib/utils";
 import { DownloadButton } from "./DownloadButton";
@@ -20,11 +22,25 @@ const SECTION_DOT: Record<MediaItem["section"], string> = {
   cartoons: "bg-genre-cartoons",
 };
 
-export function MediaCard({ item, className }: { item: MediaItem; className?: string }) {
+export function MediaCard({
+  item,
+  className,
+  onRemove,
+}: {
+  item: MediaItem;
+  className?: string;
+  onRemove?: ((item: MediaItem) => void) | undefined;
+}) {
   const { lang, t } = useT();
   const { open } = useMediaModal();
   const saved = useIsInWatchlist(item.key);
   const { last, progressPct } = useShowProgress(item.source, item.id);
+  const settings = useUserSettings();
+  const anime = isAnimeItem(item);
+  const preferredAnimeAudio = anime
+    ? resolvePreferredAnimeAudio({ lastWatched: last, settings })
+    : undefined;
+
   const titleFallback = (
     <div className="flex size-full items-center justify-center p-3 text-center font-display text-sm text-muted-foreground">
       {item.title}
@@ -39,13 +55,24 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         : `${lang === "fr" ? "Ép." : "Ep"} ${last.episode}`
     : null;
 
+  const playSeason = last?.season ?? 1;
+  const playEp = last?.episode ?? 1;
+
   const playSearch = last
     ? item.source === "anilist"
-      ? { ep: last.episode, ...(last.audio ? { audio: last.audio } : {}) }
+      ? { ep: last.episode, ...(preferredAnimeAudio ? { audio: preferredAnimeAudio } : {}) }
       : item.mediaType === "movie"
-        ? {}
-        : { season: last.season, ep: last.episode }
-    : {};
+        ? anime && preferredAnimeAudio
+          ? { audio: preferredAnimeAudio }
+          : {}
+        : {
+            season: last.season,
+            ep: last.episode,
+            ...(anime && preferredAnimeAudio ? { audio: preferredAnimeAudio } : {}),
+          }
+    : anime && preferredAnimeAudio
+      ? { audio: preferredAnimeAudio }
+      : {};
 
   return (
     <div className={cn("group/card relative shrink-0", className)}>
@@ -149,6 +176,17 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
         to="/watch/$source/$id"
         params={{ source: item.source, id: item.id }}
         search={playSearch}
+        onClick={() => {
+          playbackProgress.save({
+            source: item.source,
+            id: item.id,
+            season: item.mediaType === "movie" ? 1 : playSeason,
+            episode: item.mediaType === "movie" ? 1 : playEp,
+            currentTime: 0,
+            audio: preferredAnimeAudio,
+            item,
+          });
+        }}
         onMouseEnter={() => preloadChunk("/watch")}
         onFocus={() => preloadChunk("/watch")}
         aria-label={
@@ -171,6 +209,21 @@ export function MediaCard({ item, className }: { item: MediaItem; className?: st
           compact
           className="absolute left-2 top-2 scale-75 rounded-full border border-foreground/15 bg-scrim/80 text-foreground opacity-0 backdrop-blur-md transition duration-300 group-hover/card:scale-100 group-hover/card:opacity-100 focus-visible:opacity-100"
         />
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemove(item);
+          }}
+          aria-label={t("continue.removeAria").replace("{title}", item.title)}
+          title={t("continue.removeAria").replace("{title}", item.title)}
+          className="absolute bottom-2.5 right-2 flex size-8 items-center justify-center rounded-full border border-foreground/20 bg-scrim/85 text-foreground/85 backdrop-blur-md transition duration-200 hover:border-destructive/60 hover:text-destructive sm:opacity-0 sm:group-hover/card:opacity-100 focus-visible:opacity-100"
+        >
+          <X className="size-3.5" />
+        </button>
       )}
     </div>
   );

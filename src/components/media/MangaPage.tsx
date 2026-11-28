@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AdSlot } from "@/components/ads/AdSlot";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -625,6 +626,9 @@ export function MangaPage() {
             >
               {t("manga.nextPage")}
             </Button>
+          </div>
+          <div className="mt-8 flex justify-center lg:hidden">
+            <AdSlot slot="sidebar" />
           </div>
         </>
       )}
