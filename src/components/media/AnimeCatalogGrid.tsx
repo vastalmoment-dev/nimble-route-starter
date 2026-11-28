@@ -31,8 +31,11 @@ export function AnimeCatalogGrid({ genres }: { genres: GenreChipId[] }) {
         lang,
       }),
     getNextPageParam: (last) => (last.hasNextPage ? last.currentPage + 1 : undefined),
-    staleTime: 1000 * 60 * 15,
+    staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 60,
+    refetchOnWindowFocus: true,
+    refetchInterval: 1000 * 60 * 3,
+    refetchIntervalInBackground: false,
   });
 
   const items = useMemo(() => {

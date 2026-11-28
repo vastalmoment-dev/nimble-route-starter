@@ -263,6 +263,8 @@ const EN = {
   "watch.switchingServer": "Server unavailable — switching to {server}…",
   "watch.vfUnavailable":
     "French dub (VF) is not available for this episode yet — try Sub (VOSTFR).",
+  "watch.dubPendingNotice":
+    "English Dub may not be released for this episode yet — switch to SUB or try another server:",
   "watch.dubEnFrSubs": "DUB EN · FR Subs (VF unavailable)",
   "watch.watchingNow": "{count} watching now",
   "watch.watchingNowPlural": "{count} watching now",
@@ -698,6 +700,8 @@ const FR: Record<TranslationKey, string> = {
   "watch.switchingServer": "Serveur indisponible — passage vers {server}…",
   "watch.vfUnavailable":
     "Version française (VF) indisponible pour cet épisode — essayez Sub (VOSTFR).",
+  "watch.dubPendingNotice":
+    "La VF n'est peut-être pas encore sortie pour cet épisode — passez en VOSTFR (SUB) ou essayez un autre serveur :",
   "watch.dubEnFrSubs": "DUB EN · ST FR (VF indisponible)",
   "watch.watchingNow": "{count} spectateur en ligne",
   "watch.watchingNowPlural": "{count} spectateurs en ligne",

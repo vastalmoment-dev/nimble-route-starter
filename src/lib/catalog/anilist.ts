@@ -125,6 +125,15 @@ function pickAniTitle(title: { english: string | null; romaji: string | null }):
   return title.english || title.romaji || "Untitled";
 }
 
+function airedCountFromNext(
+  next: { episode?: number | null; airingAt?: number | null } | null | undefined,
+  fallback?: number | null,
+): number | null {
+  if (!next?.episode) return fallback ?? null;
+  const alreadyAired = typeof next.airingAt === "number" && next.airingAt * 1000 <= Date.now();
+  return alreadyAired ? next.episode : Math.max(1, next.episode - 1);
+}
+
 export function mapAniMedia(
   m: AniMedia,
   overrideLatestEp?: number,
@@ -132,9 +141,7 @@ export function mapAniMedia(
 ): MediaItem {
   const poster = m.coverImage.large ?? m.coverImage.extraLarge ?? m.coverImage.medium ?? null;
   const posterHd = m.coverImage.extraLarge ?? m.coverImage.large ?? m.coverImage.medium ?? null;
-  const airedEpisodes = m.nextAiringEpisode?.episode
-    ? Math.max(1, m.nextAiringEpisode.episode - 1)
-    : m.episodes;
+  const airedEpisodes = airedCountFromNext(m.nextAiringEpisode, m.episodes);
   return {
     key: itemKey("anilist", String(m.id)),
     id: String(m.id),
@@ -168,7 +175,7 @@ const shelfQuery = (alias: string, args: string) =>
 export async function fetchAnimeShelves(lang: SiteLanguage = "en") {
   return cachedAsync(
     `anilist:shelves:${lang}`,
-    1000 * 60 * 10,
+    1000 * 60 * 2,
     async () => {
       const nowSec = Math.floor(Date.now() / 1000);
       const query = `query {
@@ -236,7 +243,7 @@ export async function fetchAnimeShelves(lang: SiteLanguage = "en") {
         top: map("top"),
       };
     },
-    { persist: "local" },
+    { persist: "local", swrMs: 1000 * 60 },
   );
 }
 
@@ -266,7 +273,7 @@ export async function fetchAllAnimePage({
   const q = search?.trim() ?? "";
   return cachedAsync(
     `anilist:page:${lang}:${sort}:${page}:${perPage}:${q.toLowerCase()}`,
-    1000 * 60 * 15,
+    1000 * 60 * 3,
     async () => {
       const data = await gql<{
         Page: {
@@ -296,14 +303,14 @@ export async function fetchAllAnimePage({
         total: data.Page.pageInfo.total,
       };
     },
-    { persist: "local" },
+    { persist: "local", swrMs: 1000 * 90 },
   );
 }
 
 export async function searchAnime(search: string, lang: SiteLanguage = "en"): Promise<MediaItem[]> {
   return cachedAsync(
     `anilist:search:${lang}:${search.trim().toLowerCase()}`,
-    1000 * 60 * 15,
+    1000 * 60 * 3,
     async () => {
       const data = await gql<{ Page: { media: AniMedia[] } }>(
         `query ($search: String) { Page(perPage: 36) { media(type: ANIME, isAdult: false, search: $search, sort: SEARCH_MATCH) { ${MEDIA_FIELDS} } } }`,
@@ -311,7 +318,7 @@ export async function searchAnime(search: string, lang: SiteLanguage = "en"): Pr
       );
       return data.Page.media.map((m) => mapAniMedia(m, undefined, lang));
     },
-    { persist: "local" },
+    { persist: "local", swrMs: 1000 * 90 },
   );
 }
 
@@ -448,9 +455,7 @@ async function collectSeasonRelations(
       (a, b) => (a.node.seasonYear ?? 9999) - (b.node.seasonYear ?? 9999) || a.node.id - b.node.id,
     )
     .map(({ node, relationType }) => {
-      const epCount = node.nextAiringEpisode?.episode
-        ? Math.max(1, node.nextAiringEpisode.episode - 1)
-        : node.episodes;
+      const epCount = airedCountFromNext(node.nextAiringEpisode, node.episodes);
       return {
         id: String(node.id),
         source: "anilist" as const,
@@ -471,12 +476,14 @@ export async function fetchAnimeDetail(
   id: string,
   lang: SiteLanguage = "en",
 ): Promise<MediaDetail> {
+  let nextAiringTtlCap: number | undefined;
   return cachedAsync(
     `anilist:detail:${lang}:${id}`,
-    1000 * 60 * 30,
+    1000 * 60 * 15,
     async () => {
       type R = {
         Media: AniMedia & {
+          airingSchedule?: { nodes?: { episode: number; airingAt: number }[] | null } | null;
           streamingEpisodes: { title: string | null; thumbnail: string | null }[];
           externalLinks: { site: string; url: string; type: string | null }[] | null;
           relations: { edges: AniRelationEdge[] };
@@ -491,6 +498,7 @@ export async function fetchAnimeDetail(
       const data = await gql<R>(
         `query ($id: Int) { Media(id: $id, type: ANIME) {
         ${MEDIA_FIELDS}
+        airingSchedule(notYetAired: false, perPage: 50) { nodes { episode airingAt } }
         streamingEpisodes { title thumbnail }
         externalLinks { site url type }
         relations {
@@ -511,15 +519,28 @@ export async function fetchAnimeDetail(
         { id: Number(id) },
       );
       const m = data.Media;
+      const nowMs = Date.now();
+      if (typeof m.nextAiringEpisode?.airingAt === "number") {
+        const untilAiringMs = m.nextAiringEpisode.airingAt * 1000 - nowMs + 5000;
+        if (untilAiringMs > 0) {
+          nextAiringTtlCap = Math.max(15_000, Math.min(90_000, untilAiringMs));
+        }
+      }
+
       const base = mapAniMedia(m, undefined, lang);
       const streaming = m.streamingEpisodes ?? [];
-      const airedFromSchedule = m.nextAiringEpisode?.episode
-        ? Math.max(1, m.nextAiringEpisode.episode - 1)
-        : 0;
+      const airedFromNext = airedCountFromNext(m.nextAiringEpisode, 0) ?? 0;
+      const scheduleMax = (m.airingSchedule?.nodes ?? []).reduce((max, n) => {
+        if (typeof n?.airingAt === "number" && n.airingAt * 1000 <= nowMs && n.episode > max) {
+          return n.episode;
+        }
+        return max;
+      }, 0);
       const total =
         Math.max(
           m.episodes ?? 0,
-          airedFromSchedule,
+          airedFromNext,
+          scheduleMax,
           streaming.length,
           base.mediaType === "movie" ? 1 : 0,
         ) || 12;
@@ -545,6 +566,7 @@ export async function fetchAnimeDetail(
       return {
         ...base,
         episodesCount: episodes.length,
+        latestEpisode: Math.max(base.latestEpisode ?? 0, airedFromNext, scheduleMax) || null,
         episodes,
         ...(relations?.length ? { relations } : {}),
         watchLinks: (m.externalLinks ?? [])
@@ -557,6 +579,19 @@ export async function fetchAnimeDetail(
         })),
       };
     },
-    { persist: "local" },
+    {
+      persist: "local",
+      swrMs: 1000 * 45,
+      dynamicTtlMs: (detail) => {
+        const isReleasing =
+          detail.status === "releasing" ||
+          detail.status === "en cours" ||
+          (detail.relations?.some((r) => r.status === "releasing") ?? false);
+        if (isReleasing) {
+          return nextAiringTtlCap ?? 90_000;
+        }
+        return undefined;
+      },
+    },
   );
 }

@@ -11,33 +11,30 @@ const VALID_SECTIONS = new Set<SectionId>([
   "cartoons",
 ]);
 
+const SERVER_CATALOG_FRESH_MS = 90_000;
 const SERVER_CATALOG_TTL_MS = 1000 * 60 * 10;
 const CATALOG_EDGE_CACHE_CONTROL = "public, max-age=180, s-maxage=600, stale-while-revalidate=3600";
 
-const serverResponseCache = new Map<string, { exp: number; body: string }>();
+const serverResponseCache = new Map<string, { ts: number; exp: number; body: string }>();
 const serverInflight = new Map<string, Promise<string>>();
 
-async function getCachedJsonBody(
-  cacheKey: string,
-  producer: () => Promise<unknown>,
-): Promise<string> {
-  const now = Date.now();
-  const hit = serverResponseCache.get(cacheKey);
-  if (hit && now <= hit.exp) {
-    return hit.body;
-  }
-
+function startCatalogRefresh(cacheKey: string, producer: () => Promise<unknown>): Promise<string> {
   const active = serverInflight.get(cacheKey);
   if (active) return active;
 
   const task = producer()
     .then((data) => {
       const body = JSON.stringify(data);
+      const now = Date.now();
       if (serverResponseCache.size > 60) {
         const oldest = serverResponseCache.keys().next().value;
         if (oldest !== undefined) serverResponseCache.delete(oldest);
       }
-      serverResponseCache.set(cacheKey, { exp: Date.now() + SERVER_CATALOG_TTL_MS, body });
+      serverResponseCache.set(cacheKey, {
+        ts: now,
+        exp: now + SERVER_CATALOG_TTL_MS,
+        body,
+      });
       return body;
     })
     .finally(() => {
@@ -46,6 +43,24 @@ async function getCachedJsonBody(
 
   serverInflight.set(cacheKey, task);
   return task;
+}
+
+async function getCachedJsonBody(
+  cacheKey: string,
+  producer: () => Promise<unknown>,
+): Promise<string> {
+  const now = Date.now();
+  const hit = serverResponseCache.get(cacheKey);
+  if (hit && now <= hit.exp) {
+    if (now - hit.ts >= SERVER_CATALOG_FRESH_MS) {
+      void startCatalogRefresh(cacheKey, producer).catch(() => {
+        /* keep stale entry until next request if upstream transiently fails */
+      });
+    }
+    return hit.body;
+  }
+
+  return startCatalogRefresh(cacheKey, producer);
 }
 
 function jsonResponse(body: string, status = 200): Response {
@@ -77,7 +92,9 @@ export async function handleCatalogApiRequest(request: Request): Promise<Respons
 
   try {
     if (url.pathname === "/api/catalog/home") {
-      const body = await getCachedJsonBody(`home:${lang}`, () => computeHomeCatalog(lang));
+      const body = await getCachedJsonBody(`home:${lang}`, () =>
+        computeHomeCatalog(lang, { forceRefresh: true }),
+      );
       return jsonResponse(request.method === "HEAD" ? "" : body);
     }
 
@@ -90,7 +107,7 @@ export async function handleCatalogApiRequest(request: Request): Promise<Respons
         });
       }
       const body = await getCachedJsonBody(`section:${section}:${lang}`, () =>
-        computeSectionCatalog(section, lang),
+        computeSectionCatalog(section, lang, { forceRefresh: true }),
       );
       return jsonResponse(request.method === "HEAD" ? "" : body);
     }

@@ -107,13 +107,17 @@ const STREAM_ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const SUB_REF_RE = /^[A-Za-z0-9._~=-]{10,1024}$/;
 const IMDB_ID_RE = /^tt\d{5,10}$/;
 
-let fallbackSecret: Buffer | null = null;
+const globalSecretHolder = globalThis as typeof globalThis & {
+  __shadowMediaProxySecret?: Buffer;
+};
 
 function getSignSecret(): string | Buffer {
   const envSecret = process.env["MEDIA_PROXY_SECRET"] || process.env["SESSION_SECRET"];
   if (envSecret) return envSecret;
-  if (!fallbackSecret) fallbackSecret = crypto.randomBytes(32);
-  return fallbackSecret;
+  if (!globalSecretHolder.__shadowMediaProxySecret) {
+    globalSecretHolder.__shadowMediaProxySecret = crypto.randomBytes(32);
+  }
+  return globalSecretHolder.__shadowMediaProxySecret;
 }
 
 interface TokenPayload {

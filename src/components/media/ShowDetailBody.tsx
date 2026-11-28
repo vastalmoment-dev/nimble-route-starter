@@ -18,7 +18,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AdSlot } from "@/components/ads/AdSlot";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { detailQuery } from "@/lib/catalog";
+import { detailQuery, isOngoingMediaDetail } from "@/lib/catalog";
 import { isAnimeItem, resolveAniListIdForItem } from "@/lib/catalog/anime-bridge";
 import { SECTION_META, itemKey, type MediaDetail, type MediaItem } from "@/lib/catalog/types";
 import { downloads } from "@/lib/download/store";
@@ -62,7 +62,14 @@ export function ShowDetailBody({
 }: ShowDetailBodyProps) {
   const { lang, t } = useT();
   const { open } = useMediaModal();
-  const { data, isLoading, isError } = useQuery(detailQuery(item.source, item.id, lang));
+  const { data, isLoading, isError } = useQuery({
+    ...detailQuery(item.source, item.id, lang),
+    staleTime: 1000 * 60 * 2,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => (isOngoingMediaDetail(query.state.data) ? 90_000 : false),
+    refetchIntervalInBackground: false,
+  });
   const settings = useUserSettings();
   const [audio, setAudio] = useState<AudioOption>(() =>
     resolvePreferredAnimeAudio({

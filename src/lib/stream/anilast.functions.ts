@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import {
   detectAnimeSeasonFromTitles,
@@ -766,4 +767,11 @@ export async function resolveAnimeStream(
 
 export const getAniLastAnimeStream = createServerFn({ method: "GET" })
   .inputValidator((input) => StreamInputSchema.parse(input))
-  .handler(async ({ data }): Promise<AniLastStreamResult> => resolveAnimeStream(data));
+  .handler(async ({ data }): Promise<AniLastStreamResult> => {
+    try {
+      setResponseHeader("Cache-Control", "no-store");
+    } catch {
+      /* ignore when invoked outside HTTP request context */
+    }
+    return resolveAnimeStream(data);
+  });

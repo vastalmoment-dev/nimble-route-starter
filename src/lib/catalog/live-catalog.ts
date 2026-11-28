@@ -242,7 +242,8 @@ const CURATED_KDRAMAS: CuratedEntry[] = [
   { type: "movie", imdbId: "tt5700672" }, // Train to Busan
 ];
 
-const CACHE_TTL_MS = 1000 * 60 * 10;
+const CACHE_FRESH_MS = 1000 * 60 * 2;
+const CACHE_STALE_MS = 1000 * 60 * 10;
 const HYDRATE_BATCH_SIZE = 6;
 const sectionCache = new Map<string, { ts: number; catalog: SectionCatalog }>();
 const inflight = new Map<string, Promise<SectionCatalog>>();
@@ -795,15 +796,11 @@ async function buildRegionalCatalog(
   };
 }
 
-export async function computeLiveSectionCatalog(
+function startLiveCatalogRefresh(
+  cacheKey: string,
   section: NonAnimeSection,
   lang: CatalogLang,
 ): Promise<SectionCatalog> {
-  const cacheKey = `${section}:${lang}`;
-  const cached = sectionCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS && cached.catalog.items.length > 0) {
-    return cached.catalog;
-  }
   const existingFlight = inflight.get(cacheKey);
   if (existingFlight) return existingFlight;
 
@@ -832,6 +829,30 @@ export async function computeLiveSectionCatalog(
 
   inflight.set(cacheKey, task);
   return task;
+}
+
+export async function computeLiveSectionCatalog(
+  section: NonAnimeSection,
+  lang: CatalogLang,
+  opts?: { forceRefresh?: boolean },
+): Promise<SectionCatalog> {
+  const cacheKey = `${section}:${lang}`;
+  if (!opts?.forceRefresh) {
+    const cached = sectionCache.get(cacheKey);
+    if (cached && cached.catalog.items.length > 0) {
+      const age = Date.now() - cached.ts;
+      if (age < CACHE_FRESH_MS) {
+        return cached.catalog;
+      }
+      if (age < CACHE_STALE_MS) {
+        void startLiveCatalogRefresh(cacheKey, section, lang).catch(() => {
+          /* keep stale catalog on transient refresh errors */
+        });
+        return cached.catalog;
+      }
+    }
+  }
+  return startLiveCatalogRefresh(cacheKey, section, lang);
 }
 
 async function searchImdbSuggestions(query: string): Promise<MediaItem[]> {

@@ -55,8 +55,7 @@ const EDGE_CACHED_IMAGE_PATHS = new Set([
   "/api/media/image",
 ]);
 
-const EDGE_SERVER_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+const EDGE_SERVER_CACHE_CONTROL = "public, max-age=60, s-maxage=120, stale-while-revalidate=300";
 
 function withEdgeCacheHeaders(request: Request, response: Response): Response {
   if (!response.ok) return response;

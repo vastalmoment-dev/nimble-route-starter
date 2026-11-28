@@ -23,7 +23,14 @@ export function SectionPage({
   renderAfterShelves?: ((genres: GenreChipId[]) => ReactNode) | undefined;
 }) {
   const { lang, t } = useT();
-  const { data, isLoading, isError, refetch, isFetching } = useQuery(sectionQuery(section, lang));
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    ...sectionQuery(section, lang),
+    staleTime: 1000 * 60 * 2,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 1000 * 60 * 3,
+    refetchIntervalInBackground: false,
+  });
   const [genres, setGenres] = useState<GenreChipId[]>([]);
   const watchlistEntries = useWatchlist();
   const continueEntries = useContinueWatching();

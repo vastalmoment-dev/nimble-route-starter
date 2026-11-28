@@ -5,19 +5,25 @@ const MAX_LOCAL_ENTRIES = 24;
 
 export type CachePersistence = "session" | "local";
 
-export interface CachedAsyncOptions {
+export interface CachedAsyncOptions<T = unknown> {
   persist?: CachePersistence;
   /** Allows unit tests to explicitly exercise persistent localStorage caching. */
   forceCache?: boolean;
+  /** Revalidate in the background when cached entry age exceeds `swrMs` while still before `exp`. */
+  swrMs?: number;
+  /** Optional dynamic TTL override computed from resolved payload (e.g. shorter for airing shows). */
+  dynamicTtlMs?: (data: T) => number | undefined;
 }
 
 interface CacheEntry<T> {
+  ts?: number;
   exp: number;
   data: T;
 }
 
 const memoryCache = new Map<string, CacheEntry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
+const bgRevalidating = new Set<string>();
 
 function isTestMode(): boolean {
   try {
@@ -75,7 +81,7 @@ function pruneStorage(storage: Storage, prefix: string): void {
 function readStored<T>(
   key: string,
   persist: CachePersistence,
-): { data: T; exp: number } | undefined {
+): { data: T; exp: number; ts: number } | undefined {
   const storage = getStorage(persist);
   if (!storage) return undefined;
   const fullKey = `${storagePrefix(persist)}${key}`;
@@ -87,7 +93,11 @@ function readStored<T>(
       storage.removeItem(fullKey);
       return undefined;
     }
-    return { data: parsed.data, exp: parsed.exp };
+    return {
+      data: parsed.data,
+      exp: parsed.exp,
+      ts: typeof parsed.ts === "number" ? parsed.ts : 0,
+    };
   } catch {
     return undefined;
   }
@@ -125,6 +135,24 @@ export function clearClientMemoryCache(): void {
   memoryCache.clear();
 }
 
+function storeEntry<T>(
+  key: string,
+  baseTtlMs: number,
+  data: T,
+  persist: CachePersistence,
+  options?: CachedAsyncOptions<T>,
+) {
+  const now = Date.now();
+  const customTtl = options?.dynamicTtlMs?.(data);
+  const effectiveTtl =
+    typeof customTtl === "number" && Number.isFinite(customTtl) && customTtl > 0
+      ? customTtl
+      : baseTtlMs;
+  const entry: CacheEntry<T> = { ts: now, exp: now + effectiveTtl, data };
+  setMemory(key, entry);
+  writeStored(key, entry, persist);
+}
+
 /**
  * Deduplicates concurrent in-flight promises and caches resolved results in memory + browser storage
  * (`localStorage` or `sessionStorage`) for `ttlMs`. Skips TTL caching during Vitest runs unless
@@ -134,21 +162,50 @@ export async function cachedAsync<T>(
   key: string,
   ttlMs: number,
   fetcher: () => Promise<T>,
-  options?: CachedAsyncOptions,
+  options?: CachedAsyncOptions<T>,
 ): Promise<T> {
   const persist: CachePersistence = options?.persist ?? "local";
   const bypassTtl = ttlMs <= 0 || (isTestMode() && !options?.forceCache);
 
   if (!bypassTtl) {
+    const now = Date.now();
+    const revalidateIfStale = (entryTs: number) => {
+      if (
+        options?.swrMs &&
+        options.swrMs > 0 &&
+        now - entryTs >= options.swrMs &&
+        !bgRevalidating.has(key) &&
+        !inflight.has(key)
+      ) {
+        bgRevalidating.add(key);
+        void fetcher()
+          .then((fresh) => {
+            if (fresh !== undefined && fresh !== null) {
+              storeEntry(key, ttlMs, fresh, persist, options);
+            }
+          })
+          .catch(() => {
+            /* keep existing cached data on background refresh error */
+          })
+          .finally(() => {
+            bgRevalidating.delete(key);
+          });
+      }
+    };
+
     const mem = memoryCache.get(key) as CacheEntry<T> | undefined;
     if (mem) {
-      if (Date.now() <= mem.exp) return mem.data;
+      if (now <= mem.exp) {
+        revalidateIfStale(mem.ts ?? 0);
+        return mem.data;
+      }
       memoryCache.delete(key);
     }
 
     const stored = readStored<T>(key, persist);
     if (stored !== undefined) {
-      setMemory(key, { exp: stored.exp, data: stored.data });
+      setMemory(key, { ts: stored.ts, exp: stored.exp, data: stored.data });
+      revalidateIfStale(stored.ts);
       return stored.data;
     }
   }
@@ -159,9 +216,7 @@ export async function cachedAsync<T>(
   const flight = fetcher()
     .then((data) => {
       if (!bypassTtl && data !== undefined && data !== null) {
-        const entry: CacheEntry<T> = { exp: Date.now() + ttlMs, data };
-        setMemory(key, entry);
-        writeStored(key, entry, persist);
+        storeEntry(key, ttlMs, data, persist, options);
       }
       return data;
     })

@@ -91,6 +91,7 @@ async function runDownload(req: StreamRequest & { poster?: string | null }) {
         downloaded = await downloadStream(candidate, {
           filename,
           includeSubtitles: includeSubs,
+          audio,
           lang,
           signal: controller.signal,
           onProgress: (p) => update(id, { progress: p }),

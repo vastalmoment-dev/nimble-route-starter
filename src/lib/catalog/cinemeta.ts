@@ -205,12 +205,12 @@ export async function fetchCinemetaCatalog(
   const url = `${CINEMETA_ORIGIN}/catalog/${type}/${catalogId}${suffix}.json`;
   return cachedAsync(
     `cinemeta:cat:${url}`,
-    1000 * 60 * 10,
+    1000 * 60 * 3,
     async () => {
       const json = await fetchJson<{ metas?: CinemetaMeta[] }>(url);
       return json.metas ?? [];
     },
-    { persist: "session" },
+    { persist: "session", swrMs: 1000 * 90 },
   );
 }
 
@@ -221,7 +221,7 @@ export async function fetchCinemetaMeta(
   if (!IMDB_ID_RE.test(imdbId)) return null;
   return cachedAsync(
     `cinemeta:meta:${type}:${imdbId}`,
-    1000 * 60 * 10,
+    1000 * 60 * 3,
     async () => {
       try {
         const json = await fetchJson<{ meta?: CinemetaMeta | null }>(
@@ -233,7 +233,14 @@ export async function fetchCinemetaMeta(
         return null;
       }
     },
-    { persist: "session" },
+    {
+      persist: "session",
+      swrMs: 1000 * 60,
+      dynamicTtlMs: (meta) =>
+        meta && /continuing|returning|airing|in production/i.test(meta.status ?? "")
+          ? 90_000
+          : undefined,
+    },
   );
 }
 

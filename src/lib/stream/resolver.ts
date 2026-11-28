@@ -124,15 +124,33 @@ export const aniLastResolver: StreamResolver = {
     }
     if (!targetAnilistId || !/^\d+$/.test(targetAnilistId)) return null;
 
-    let malId = req.malId ?? null;
-    let englishTitle = req.englishTitle ?? null;
-    let romajiTitle = req.romajiTitle ?? null;
+    const continuousEpisode = await resolveContinuousAnimeEpisode(req);
+    const { resolveAnimeSeasonTarget } = await import("@/lib/catalog/anime-bridge");
+    const target = await resolveAnimeSeasonTarget({
+      source: req.source,
+      canonicalAnilistId: targetAnilistId,
+      season: req.season,
+      episode: req.episode,
+      mediaType: req.mediaType,
+      malId: req.malId,
+      title: req.title,
+      englishTitle: req.englishTitle,
+      romajiTitle: req.romajiTitle,
+      continuousEpisode,
+    });
+
+    targetAnilistId = target.anilistId;
+    let malId = target.malId ?? null;
+    let resolvedTitle = target.title ?? req.title;
+    let englishTitle = target.englishTitle ?? req.englishTitle ?? null;
+    let romajiTitle = target.romajiTitle ?? req.romajiTitle ?? null;
 
     if (!malId) {
       try {
         const { fetchAnimeDetail } = await import("@/lib/catalog/anilist");
         const detail = await fetchAnimeDetail(targetAnilistId);
         malId = detail.malId ?? null;
+        resolvedTitle = detail.title || resolvedTitle;
         englishTitle = englishTitle ?? detail.englishTitle ?? null;
         romajiTitle = romajiTitle ?? detail.romajiTitle ?? null;
       } catch {
@@ -140,18 +158,16 @@ export const aniLastResolver: StreamResolver = {
       }
     }
 
-    const mappedEpisode = await resolveContinuousAnimeEpisode(req);
-
     const { getAniLastAnimeStream } = await import("@/lib/stream/anilast.functions");
     const result = await getAniLastAnimeStream({
       data: {
         anilistId: targetAnilistId,
         malId,
-        episode: mappedEpisode,
+        episode: target.episode,
         audio: req.audio ?? "sub",
         lang: req.lang ?? siteLanguage.get(),
         isMovie: req.mediaType === "movie",
-        title: req.title,
+        title: resolvedTitle,
         englishTitle,
         romajiTitle,
       },
@@ -253,9 +269,15 @@ export function hashString(input: string): number {
   return h >>> 0;
 }
 
-const RESOLVER_BASE = (import.meta.env as Record<string, string | undefined>)[
-  "VITE_STREAM_RESOLVER_URL"
-];
+const RESOLVER_BASE = (() => {
+  try {
+    return (import.meta.env as Record<string, string | undefined> | undefined)?.[
+      "VITE_STREAM_RESOLVER_URL"
+    ];
+  } catch {
+    return undefined;
+  }
+})();
 
 /** True only when a real stream source is configured. */
 export const hasStreamSource = Boolean(RESOLVER_BASE);

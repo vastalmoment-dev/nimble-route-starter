@@ -98,7 +98,7 @@ export async function fetchLiveAiringShows(
 ): Promise<Record<SectionId, MediaItem[]>> {
   return cachedAsync(
     `tvmaze:airing:${lang}`,
-    1000 * 60 * 10,
+    1000 * 60 * 2,
     async () => {
       const buckets: Record<SectionId, MediaItem[]> = {
         anime: [],
@@ -139,26 +139,26 @@ export async function fetchLiveAiringShows(
       }
       return buckets;
     },
-    { persist: "session" },
+    { persist: "session", swrMs: 1000 * 60 },
   );
 }
 
 export async function searchShows(q: string): Promise<MediaItem[]> {
   return cachedAsync(
     `tvmaze:search:${q.trim().toLowerCase()}`,
-    1000 * 60 * 15,
+    1000 * 60 * 3,
     async () => {
       const rows = await get<{ show: TvmShow }[]>(`/search/shows?q=${encodeURIComponent(q)}`);
       return rows.map((r) => mapShow(r.show)).filter((i) => i.poster);
     },
-    { persist: "session" },
+    { persist: "session", swrMs: 1000 * 90 },
   );
 }
 
 export async function fetchShowDetail(id: string): Promise<MediaDetail> {
   return cachedAsync(
     `tvmaze:detail:${id}`,
-    1000 * 60 * 15,
+    1000 * 60 * 3,
     async () => {
       type R = TvmShow & {
         externals?: { imdb?: string | null; thetvdb?: number | null } | null;
@@ -222,6 +222,10 @@ export async function fetchShowDetail(id: string): Promise<MediaDetail> {
         })),
       };
     },
-    { persist: "session" },
+    {
+      persist: "session",
+      swrMs: 1000 * 60,
+      dynamicTtlMs: (detail) => (/running/i.test(detail.status ?? "") ? 90_000 : undefined),
+    },
   );
 }

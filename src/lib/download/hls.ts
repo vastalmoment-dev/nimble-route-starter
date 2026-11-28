@@ -4,6 +4,15 @@ export interface Variant {
   uri: string;
   bandwidth: number;
   resolution?: string;
+  audioGroup?: string;
+}
+
+export interface AudioRendition {
+  groupId: string;
+  language?: string;
+  name?: string;
+  uri: string;
+  isDefault: boolean;
 }
 
 export interface HlsKeyInfo {
@@ -40,6 +49,66 @@ export function isMasterPlaylist(text: string): boolean {
   return text.includes("#EXT-X-STREAM-INF");
 }
 
+export function parseAudioTracks(text: string, baseUrl: string): AudioRendition[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  const tracks: AudioRendition[] = [];
+  for (const line of lines) {
+    if (!line.startsWith("#EXT-X-MEDIA:")) continue;
+    const type = /TYPE=([A-Z0-9_-]+)/i.exec(line)?.[1]?.toUpperCase();
+    if (type !== "AUDIO") continue;
+    const uri = /URI="([^"]+)"/.exec(line)?.[1];
+    if (!uri) continue;
+    const groupId = /GROUP-ID="([^"]+)"/.exec(line)?.[1] ?? "default";
+    const language = /LANGUAGE="([^"]+)"/.exec(line)?.[1];
+    const name = /NAME="([^"]+)"/.exec(line)?.[1];
+    const isDefault = /DEFAULT=YES/i.test(line);
+    tracks.push({
+      groupId,
+      uri: resolve(uri, baseUrl),
+      isDefault,
+      ...(language ? { language } : {}),
+      ...(name ? { name } : {}),
+    });
+  }
+  return tracks;
+}
+
+export function pickAudioRendition(
+  tracks: AudioRendition[],
+  opts: {
+    groupId?: string | undefined;
+    audio?: "sub" | "dub" | undefined;
+    lang?: "en" | "fr" | undefined;
+  },
+): AudioRendition | null {
+  if (!tracks.length) return null;
+  const scoped = opts.groupId ? tracks.filter((t) => t.groupId === opts.groupId) : tracks;
+  const pool = scoped.length ? scoped : tracks;
+
+  const matches = (t: AudioRendition, codes: string[]) => {
+    const l = (t.language ?? "").trim().toLowerCase();
+    const n = (t.name ?? "").trim().toLowerCase();
+    return codes.some((c) => l === c || l.startsWith(`${c}-`) || n.includes(c));
+  };
+
+  if (opts.audio === "dub") {
+    if (opts.lang === "fr") {
+      const fr = pool.find((t) => matches(t, ["fr", "fre", "fra", "french", "français"]));
+      if (fr) return fr;
+    }
+    const en = pool.find((t) => matches(t, ["en", "eng", "english"]));
+    if (en) return en;
+  } else if (opts.audio === "sub") {
+    const jp = pool.find((t) => matches(t, ["ja", "jp", "jpn", "japanese", "japonais"]));
+    if (jp) return jp;
+  } else if (opts.lang === "fr") {
+    const fr = pool.find((t) => matches(t, ["fr", "fre", "fra", "french", "français"]));
+    if (fr) return fr;
+  }
+
+  return pool.find((t) => t.isDefault) ?? pool[0]!;
+}
+
 export function parseMasterPlaylist(text: string, baseUrl: string): Variant[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim());
   const variants: Variant[] = [];
@@ -49,6 +118,7 @@ export function parseMasterPlaylist(text: string, baseUrl: string): Variant[] {
     const bw = /BANDWIDTH=(\d+)/.exec(line)?.[1];
     const res = /RESOLUTION=(\d+x\d+)/.exec(line)?.[1];
     const codecs = /CODECS="([^"]+)"/.exec(line)?.[1] ?? "";
+    const audioGroup = /AUDIO="([^"]+)"/.exec(line)?.[1];
     let j = i + 1;
     while (j < lines.length && (lines[j] === "" || lines[j]!.startsWith("#"))) j++;
     const uri = lines[j];
@@ -62,6 +132,7 @@ export function parseMasterPlaylist(text: string, baseUrl: string): Variant[] {
       uri: resolve(uri, baseUrl),
       bandwidth: Number(bw ?? 0),
       ...(res ? { resolution: res } : {}),
+      ...(audioGroup ? { audioGroup } : {}),
     });
   }
   return variants.sort((a, b) => a.bandwidth - b.bandwidth);

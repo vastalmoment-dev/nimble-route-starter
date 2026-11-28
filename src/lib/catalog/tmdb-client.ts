@@ -9,7 +9,8 @@ import {
 } from "./tmdb-shared";
 import type { MediaDetail, MediaItem } from "./types";
 
-const TMDB_LOCAL_CACHE_MS = 1000 * 60 * 30;
+const TMDB_LOCAL_CACHE_MS = 1000 * 60 * 10;
+const TMDB_SWR_MS = 1000 * 60 * 2;
 
 function getPublicTmdbKey(): string | null {
   try {
@@ -34,7 +35,7 @@ export async function fetchTmdbSectionDirect(
     `tmdb:section:${section}:${lang}`,
     TMDB_LOCAL_CACHE_MS,
     () => fetchTmdbSectionWithKey(section, lang, key),
-    { persist: "local" },
+    { persist: "local", swrMs: TMDB_SWR_MS },
   );
 }
 
@@ -48,7 +49,7 @@ export async function fetchTmdbDetailDirect(
     `tmdb:detail:${id}:${lang}`,
     TMDB_LOCAL_CACHE_MS,
     () => fetchTmdbDetailWithKey(id, lang, key),
-    { persist: "local" },
+    { persist: "local", swrMs: TMDB_SWR_MS },
   );
 }
 
@@ -65,6 +66,6 @@ export async function fetchTmdbTrailerDirect(
       type
         ? fetchTmdbVideosWithKey(type, idOrTitle, key)
         : searchTmdbTrailerWithKey(idOrTitle, key),
-    { persist: "local" },
+    { persist: "local", swrMs: TMDB_SWR_MS },
   );
 }

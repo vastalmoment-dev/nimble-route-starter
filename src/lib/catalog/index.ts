@@ -21,11 +21,12 @@ import {
 
 type NonAnime = Exclude<SectionId, "anime">;
 
-const SECTION_CACHE_TTL_MS = 1000 * 60 * 10;
-const HOME_CACHE_TTL_MS = 1000 * 60 * 10;
-const DETAIL_CACHE_TTL_MS = 1000 * 60 * 15;
-const SEARCH_CACHE_TTL_MS = 1000 * 60 * 10;
-const TMDB_CACHE_TTL_MS = 1000 * 60 * 15;
+const SECTION_CACHE_TTL_MS = 1000 * 60 * 2;
+const HOME_CACHE_TTL_MS = 1000 * 60 * 2;
+const DETAIL_CACHE_TTL_MS = 1000 * 60 * 3;
+const SEARCH_CACHE_TTL_MS = 1000 * 60 * 3;
+const TMDB_CACHE_TTL_MS = 1000 * 60 * 3;
+const CATALOG_SWR_MS = 1000 * 60;
 const QUERY_STALE_TIME_MS = 1000 * 60 * 15;
 const QUERY_GC_TIME_MS = 1000 * 60 * 60;
 
@@ -74,7 +75,7 @@ async function loadTmdbSection(
     `tmdb:section:${section}:${lang}`,
     TMDB_CACHE_TTL_MS,
     () => getTmdbSection({ data: { section, lang } }),
-    { persist: "session" },
+    { persist: "session", swrMs: CATALOG_SWR_MS },
   );
 }
 
@@ -85,7 +86,7 @@ async function loadTmdbDetail(id: string, lang: SiteLanguage): Promise<MediaDeta
     `tmdb:detail:${id}:${lang}`,
     TMDB_CACHE_TTL_MS,
     () => getTmdbDetail({ data: { id, lang } }),
-    { persist: "session" },
+    { persist: "session", swrMs: CATALOG_SWR_MS },
   );
 }
 
@@ -148,9 +149,13 @@ async function loadAnime(lang: SiteLanguage = "en"): Promise<SectionCatalog> {
   };
 }
 
-async function loadNonAnime(section: NonAnime, lang: SiteLanguage = "en"): Promise<SectionCatalog> {
+async function loadNonAnime(
+  section: NonAnime,
+  lang: SiteLanguage = "en",
+  opts?: { forceRefresh?: boolean },
+): Promise<SectionCatalog> {
   const [liveRes, tmdbRes] = await Promise.allSettled([
-    computeLiveSectionCatalog(section, lang),
+    computeLiveSectionCatalog(section, lang, opts),
     loadTmdbSection(section, lang),
   ]);
   const live = liveRes.status === "fulfilled" ? liveRes.value : null;
@@ -192,8 +197,9 @@ async function loadNonAnime(section: NonAnime, lang: SiteLanguage = "en"): Promi
 export async function computeSectionCatalog(
   section: SectionId,
   lang: SiteLanguage = "en",
+  opts?: { forceRefresh?: boolean },
 ): Promise<SectionCatalog> {
-  return section === "anime" ? loadAnime(lang) : loadNonAnime(section, lang);
+  return section === "anime" ? loadAnime(lang) : loadNonAnime(section, lang, opts);
 }
 
 export function loadSection(
@@ -215,7 +221,7 @@ export function loadSection(
       }
       return computeSectionCatalog(section, lang);
     },
-    { persist: "session" },
+    { persist: "session", swrMs: CATALOG_SWR_MS },
   );
 }
 
@@ -225,7 +231,10 @@ const settle = <T>(p: Promise<T>) =>
     () => null,
   );
 
-export async function computeHomeCatalog(lang: SiteLanguage = "en"): Promise<SectionCatalog> {
+export async function computeHomeCatalog(
+  lang: SiteLanguage = "en",
+  opts?: { forceRefresh?: boolean },
+): Promise<SectionCatalog> {
   const isFr = lang === "fr";
   const ids: SectionId[] = [
     "anime",
@@ -237,7 +246,7 @@ export async function computeHomeCatalog(lang: SiteLanguage = "en"): Promise<Sec
     "cartoons",
   ];
   const results = (
-    await Promise.all(ids.map((id) => settle(computeSectionCatalog(id, lang))))
+    await Promise.all(ids.map((id) => settle(computeSectionCatalog(id, lang, opts))))
   ).filter((r): r is SectionCatalog => r !== null);
   if (!results.length) throw new Error("No catalog source is reachable right now.");
   const shelf = (id: string) => results.map((r) => r.shelves.find((s) => s.id === id)?.items ?? []);
@@ -329,7 +338,25 @@ export async function loadHome(lang: SiteLanguage = "en"): Promise<SectionCatalo
       }
       return computeHomeCatalog(lang);
     },
-    { persist: "session" },
+    { persist: "session", swrMs: CATALOG_SWR_MS },
+  );
+}
+
+export function isOngoingMediaDetail(
+  detail: Pick<MediaDetail, "status" | "relations"> | null | undefined,
+): boolean {
+  if (!detail) return false;
+  if (
+    /releasing|running|continuing|returning|airing|in production|en cours/i.test(
+      detail.status ?? "",
+    )
+  ) {
+    return true;
+  }
+  return Boolean(
+    detail.relations?.some((r) =>
+      /releasing|running|continuing|returning|airing|en cours/i.test(r.status ?? ""),
+    ),
   );
 }
 
@@ -349,7 +376,11 @@ export async function loadDetail(
       if (!detail) throw new Error("This title is unavailable right now.");
       return detail;
     },
-    { persist: "session" },
+    {
+      persist: "session",
+      swrMs: 1000 * 45,
+      dynamicTtlMs: (detail) => (isOngoingMediaDetail(detail) ? 60_000 : undefined),
+    },
   );
 }
 
@@ -385,7 +416,7 @@ export async function searchAll(q: string, lang: SiteLanguage = "en"): Promise<M
       }
       return computeSearchCatalog(term, lang);
     },
-    { persist: "session" },
+    { persist: "session", swrMs: CATALOG_SWR_MS },
   );
 }
 

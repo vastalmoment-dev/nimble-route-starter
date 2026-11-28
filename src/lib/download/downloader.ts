@@ -1,10 +1,20 @@
 import type { ResolvedStream } from "@/lib/stream/resolver";
-import { isMasterPlaylist, parseMasterPlaylist, parseMediaPlaylist, pickVariant } from "./hls";
+import {
+  isMasterPlaylist,
+  parseAudioTracks,
+  parseMasterPlaylist,
+  parseMediaPlaylist,
+  pickAudioRendition,
+  pickVariant,
+  type MediaPlaylist,
+} from "./hls";
 import { triggerBlobDownload } from "./offline-db";
+import { muxMpegTsVideoAndAudio } from "./ts-mux";
 
 export interface DownloadOptions {
   filename: string;
   includeSubtitles?: boolean | undefined;
+  audio?: "sub" | "dub" | undefined;
   lang?: "en" | "fr" | undefined;
   skipSaveFile?: boolean | undefined;
   signal?: AbortSignal;
@@ -123,23 +133,14 @@ function buildIv(sequenceNumber: number, hexIv?: string): Uint8Array<ArrayBuffer
   return iv;
 }
 
-async function downloadHls(
-  stream: ResolvedStream,
-  opts: DownloadOptions,
-): Promise<{ blob: Blob; ext: string; mimeType: string }> {
-  let playlistUrl = stream.url;
-  let text = await fetchText(playlistUrl, opts.signal);
-  if (isMasterPlaylist(text)) {
-    const variant = pickVariant(parseMasterPlaylist(text, playlistUrl));
-    if (!variant) throw new Error("No downloadable video rendition was found.");
-    playlistUrl = variant.uri;
-    text = await fetchText(playlistUrl, opts.signal);
-  }
-  const playlist = parseMediaPlaylist(text, playlistUrl);
-  if (playlist.encrypted)
-    throw new Error("This stream uses DRM protection and can't be saved offline.");
-  if (!playlist.segments.length) throw new Error("This stream has no segments to download.");
-
+async function fetchMediaSegments(
+  playlist: MediaPlaylist,
+  opts: {
+    signal?: AbortSignal;
+    cooldown: RateCooldown;
+    onSegmentDone: () => void;
+  },
+): Promise<ArrayBuffer[]> {
   let cryptoKey: CryptoKey | null = null;
   if (playlist.key?.method === "AES-128") {
     const keyRes = await fetchWithRetry(playlist.key.uri, opts.signal, 3);
@@ -156,15 +157,13 @@ async function downloadHls(
   const hasInit = Boolean(playlist.initSegment);
   const urls = [...(playlist.initSegment ? [playlist.initSegment] : []), ...playlist.segments];
   const parts: ArrayBuffer[] = new Array(urls.length);
-  const cooldown: RateCooldown = { until: 0 };
-  let done = 0;
   let cursor = 0;
   const seqBase = playlist.mediaSequence ?? 0;
 
   const worker = async () => {
     while (cursor < urls.length) {
       const index = cursor++;
-      const res = await fetchWithRetry(urls[index]!, opts.signal, 6, cooldown);
+      const res = await fetchWithRetry(urls[index]!, opts.signal, 6, opts.cooldown);
       let buf = await res.arrayBuffer();
       if (cryptoKey && (!hasInit || index > 0)) {
         const segSeq = seqBase + (hasInit ? index - 1 : index);
@@ -172,17 +171,88 @@ async function downloadHls(
         buf = await globalThis.crypto.subtle.decrypt({ name: "AES-CBC", iv }, cryptoKey, buf);
       }
       parts[index] = buf;
-      done++;
-      opts.onProgress?.(done / urls.length);
+      opts.onSegmentDone();
     }
   };
   await Promise.all(Array.from({ length: 4 }, worker));
+  return parts;
+}
+
+async function downloadHls(
+  stream: ResolvedStream,
+  opts: DownloadOptions,
+): Promise<{ blob: Blob; ext: string; mimeType: string }> {
+  let playlistUrl = stream.url;
+  let text = await fetchText(playlistUrl, opts.signal);
+  let audioPlaylist: MediaPlaylist | null = null;
+
+  if (isMasterPlaylist(text)) {
+    const masterText = text;
+    const masterUrl = playlistUrl;
+    const variant = pickVariant(parseMasterPlaylist(masterText, masterUrl));
+    if (!variant) throw new Error("No downloadable video rendition was found.");
+    playlistUrl = variant.uri;
+    text = await fetchText(playlistUrl, opts.signal);
+
+    const audioTracks = parseAudioTracks(masterText, masterUrl);
+    const chosenAudio = pickAudioRendition(audioTracks, {
+      groupId: variant.audioGroup,
+      audio: opts.audio,
+      lang: opts.lang,
+    });
+    if (chosenAudio) {
+      try {
+        const audioText = await fetchText(chosenAudio.uri, opts.signal);
+        const parsedAudio = parseMediaPlaylist(audioText, chosenAudio.uri);
+        if (!parsedAudio.encrypted && parsedAudio.segments.length > 0 && !parsedAudio.initSegment) {
+          audioPlaylist = parsedAudio;
+        }
+      } catch {
+        /* fallback cleanly if separate audio playlist is unavailable */
+      }
+    }
+  }
+  const playlist = parseMediaPlaylist(text, playlistUrl);
+  if (playlist.encrypted)
+    throw new Error("This stream uses DRM protection and can't be saved offline.");
+  if (!playlist.segments.length) throw new Error("This stream has no segments to download.");
 
   const isFmp4 =
     Boolean(playlist.initSegment) || /\.(m4s|mp4)(\?|$)/i.test(playlist.segments[0] ?? "");
+  const effectiveAudioPlaylist = !isFmp4 ? audioPlaylist : null;
+
+  const totalUnits =
+    (playlist.initSegment ? 1 : 0) +
+    playlist.segments.length +
+    (effectiveAudioPlaylist ? effectiveAudioPlaylist.segments.length : 0);
+  const cooldown: RateCooldown = { until: 0 };
+  let done = 0;
+  const onSegmentDone = () => {
+    done++;
+    opts.onProgress?.(Math.min(1, done / Math.max(1, totalUnits)));
+  };
+
+  const [videoParts, audioParts] = await Promise.all([
+    fetchMediaSegments(playlist, {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      cooldown,
+      onSegmentDone,
+    }),
+    effectiveAudioPlaylist
+      ? fetchMediaSegments(effectiveAudioPlaylist, {
+          ...(opts.signal ? { signal: opts.signal } : {}),
+          cooldown,
+          onSegmentDone,
+        })
+      : Promise.resolve([] as ArrayBuffer[]),
+  ]);
+
+  const finalParts: BlobPart[] =
+    audioParts.length > 0 ? muxMpegTsVideoAndAudio(videoParts, audioParts) : videoParts;
+
   const ext = isFmp4 ? "mp4" : "ts";
   const mimeType = isFmp4 ? "video/mp4" : "video/mp2t";
-  const blob = new Blob(parts, { type: mimeType });
+  const blob = new Blob(finalParts, { type: mimeType });
   if (!opts.skipSaveFile) {
     saveBlob(blob, `${opts.filename}.${ext}`);
   }

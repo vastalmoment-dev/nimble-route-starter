@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { fetchFrenchOpenSubtitles } from "./anime-fr";
 import { filterAvailableEmbeds } from "./embed-probe";
@@ -754,6 +755,11 @@ async function extractDirectMediaFromEmbeds(embeds: EmbedFallback[]): Promise<St
 export const getMediaStream = createServerFn({ method: "GET" })
   .inputValidator((input) => MediaStreamInputSchema.parse(input))
   .handler(async ({ data }): Promise<MediaStreamResult> => {
+    try {
+      setResponseHeader("Cache-Control", "no-store");
+    } catch {
+      /* ignore when invoked outside HTTP request context */
+    }
     let resolvedImdb = data.imdbId ?? null;
     let lookupTitle = data.title ?? null;
     let lookupYear = data.year ?? null;

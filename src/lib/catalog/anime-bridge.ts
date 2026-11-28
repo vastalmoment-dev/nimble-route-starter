@@ -1,5 +1,5 @@
 import { cachedAsync } from "@/lib/cache/client-cache";
-import { searchAnime } from "./anilist";
+import { fetchAnimeDetail, searchAnime } from "./anilist";
 import type { MediaItem, Source } from "./types";
 
 const BRIDGE_CACHE_TTL_MS = 1000 * 60 * 60 * 6;
@@ -162,4 +162,90 @@ export async function resolveAniListIdForItem(params: {
     },
     { persist: "session" },
   );
+}
+
+export interface ResolvedAnimeSeasonTarget {
+  anilistId: string;
+  malId: number | null;
+  episode: number;
+  title?: string | null;
+  englishTitle?: string | null;
+  romajiTitle?: string | null;
+}
+
+/**
+ * Maps multi-season Cinemeta/TVmaze anime lookups (e.g. Black Clover Season 2 Ep 1)
+ * onto the matching released AniList sequel entry (e.g. AniList 195604 Ep 1) when one
+ * exists, or falls back to continuous episode numbering when the franchise uses a single entry.
+ */
+export async function resolveAnimeSeasonTarget(params: {
+  source: Source;
+  canonicalAnilistId: string;
+  season?: number | undefined;
+  episode: number;
+  mediaType?: "tv" | "movie" | undefined;
+  malId?: number | null | undefined;
+  title?: string | null | undefined;
+  englishTitle?: string | null | undefined;
+  romajiTitle?: string | null | undefined;
+  continuousEpisode?: number | undefined;
+}): Promise<ResolvedAnimeSeasonTarget> {
+  const seasonNum = params.season ?? 1;
+  const baseTarget: ResolvedAnimeSeasonTarget = {
+    anilistId: params.canonicalAnilistId,
+    malId: params.malId ?? null,
+    episode: params.episode,
+    title: params.title ?? null,
+    englishTitle: params.englishTitle ?? null,
+    romajiTitle: params.romajiTitle ?? null,
+  };
+
+  if (params.source === "anilist" || seasonNum <= 1 || params.mediaType === "movie") {
+    return baseTarget;
+  }
+
+  try {
+    const baseDetail = await fetchAnimeDetail(params.canonicalAnilistId, "en");
+    const tvSequels = (baseDetail.relations ?? []).filter((rel) => {
+      if (rel.mediaType === "movie") return false;
+      const fmt = (rel.format ?? "").toUpperCase();
+      if (fmt === "OVA" || fmt === "SPECIAL" || fmt === "MUSIC") return false;
+      const status = (rel.status ?? "").toLowerCase();
+      if (status === "not yet released" || status === "upcoming") return false;
+      const relType = rel.relationType.toLowerCase();
+      return relType.includes("sequel") || relType.includes("suite");
+    });
+
+    const targetRel = tvSequels[seasonNum - 2];
+    if (targetRel && /^\d+$/.test(targetRel.id)) {
+      let targetDetail: Awaited<ReturnType<typeof fetchAnimeDetail>> | null = null;
+      try {
+        targetDetail = await fetchAnimeDetail(targetRel.id, "en");
+      } catch {
+        /* use relation title if detail fetch fails */
+      }
+      return {
+        anilistId: targetRel.id,
+        malId: targetDetail?.malId ?? null,
+        episode: params.episode,
+        title: targetDetail?.title ?? targetRel.title,
+        englishTitle: targetDetail?.englishTitle ?? null,
+        romajiTitle: targetDetail?.romajiTitle ?? null,
+      };
+    }
+
+    return {
+      anilistId: params.canonicalAnilistId,
+      malId: params.malId ?? baseDetail.malId ?? null,
+      episode: params.continuousEpisode ?? params.episode,
+      title: params.title ?? baseDetail.title,
+      englishTitle: params.englishTitle ?? baseDetail.englishTitle ?? null,
+      romajiTitle: params.romajiTitle ?? baseDetail.romajiTitle ?? null,
+    };
+  } catch {
+    return {
+      ...baseTarget,
+      episode: params.continuousEpisode ?? params.episode,
+    };
+  }
 }
